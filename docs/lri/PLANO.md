@@ -11,7 +11,7 @@ O helpdesk atende duas empresas do grupo, em uma única plataforma:
 | Marca | Razão / identificação | Contato de referência |
 | ----- | --------------------- | --------------------- |
 | **LRI** | LRI Automação Industrial — `lri.com.br` | +55 51 2129-3000 |
-| **IRD.Net** | IRD Produtos de Informática — Navegantes/SC | a confirmar (ver decisões) |
+| **IRD.Net** | IRD Produtos de Informática — Navegantes/SC — `ird.net.br` | `suporte@ird.net.br` |
 
 Públicos atendidos:
 
@@ -50,7 +50,7 @@ Motivos da instância única:
 ### 2.2 Grupos
 
 Os grupos do Zammad são hierárquicos. A primeira camada identifica a marca; a segunda, a fila de atendimento.
-Proposta inicial (nomes finais validados com Leandro):
+Estrutura decidida (decisão 4, seção 10):
 
 | Grupo | Público | Uso |
 | ----- | ------- | --- |
@@ -87,12 +87,14 @@ O setting `customer_ticket_create_group_ids` limita os grupos que clientes podem
 
 Cada marca tem caixas de entrada próprias, configuradas como canais de e-mail do Zammad:
 
-| Caixa (proposta) | Grupo de destino |
-| ---------------- | ---------------- |
-| `suporte@lri.com.br` | `LRI::Suporte Técnico` |
-| `comercial@lri.com.br` | `LRI::Comercial` |
-| `suporte@<domínio IRD.Net>` | `IRD::Suporte` |
-| `ti@<domínio do grupo>` | `Interno::TI` |
+| Caixa | Grupo de destino | Situação |
+| ----- | ---------------- | -------- |
+| `suporte@lri.com.br` | `LRI::Suporte Técnico` | decidida |
+| `comercial@lri.com.br` | `LRI::Comercial` | decidida |
+| `suporte@ird.net.br` | `IRD::Suporte` | decidida |
+| caixa comercial da IRD.Net | `IRD::Comercial` | endereço a definir |
+| caixa da TI interna | `Interno::TI` | endereço a definir |
+| caixa financeira da LRI | `LRI::Financeiro` | endereço a definir |
 
 - **Protocolo**: Microsoft Graph quando as caixas estão no Microsoft 365; IMAP/SMTP nos demais casos. Ambos são
   nativos do Zammad.
@@ -109,10 +111,14 @@ resposta. Complementos:
 - **Base de conhecimento pública**: uma base com categorias de primeiro nível por marca (`LRI` e `IRD.Net`), em pt-BR,
   publicada para clientes e, quando indicado, para o público geral.
 - **Formulário web**: o formulário embutível do Zammad entra nas páginas de contato dos sites (fase 4).
-- **Endereço**: um domínio próprio para a central, por exemplo `atendimento.<domínio do grupo>`, com HTTPS.
-- **Identidade visual**: o portal usa a identidade do **Grupo LRI**, com os logos das duas marcas, porque o logo e o
-  nome do produto são configurações globais da instância. O cliente escolhe a marca e a fila na abertura do chamado;
-  e-mails, assinaturas e respostas seguem a marca do grupo escolhido.
+- **Endereço (decidido)**: `suporte.lri.com.br`, com HTTPS. É o endereço principal da instância (setting `fqdn`).
+- **Endereço da IRD.Net (recomendação)**: `suporte.ird.net.br`, como endereço de entrada para clientes da IRD.Net,
+  redirecionando no proxy reverso para o mesmo portal. A instância tem um único endereço principal; o redirecionamento
+  dá ao cliente da IRD.Net um endereço com o domínio da sua marca, sem duplicar a operação.
+- **Nome do produto (decidido)**: "Central de Atendimento Grupo LRI".
+- **Identidade visual (decidida)**: o portal usa a identidade do **Grupo LRI**, com os logos das duas marcas, porque o
+  logo e o nome do produto são configurações globais da instância. O cliente escolhe a marca e a fila na abertura do
+  chamado; e-mails, assinaturas e respostas seguem a marca do grupo escolhido.
 
 ## 3. Princípios de UI e UX
 
@@ -159,6 +165,30 @@ revisados pelo engenheiro de UI/UX. _Violação: editar `i18n/*.po` diretamente.
 
 As cores das marcas são aplicadas respeitando contraste WCAG AA nos dois temas (claro e escuro) da interface.
 _Violação: cor de marca aplicada a texto ou botão sem atingir o contraste mínimo._
+
+### Ativos de marca
+
+Logos e cores vêm dos ativos de marca já existentes nos repositórios do Leandro (por exemplo `minissites`), para que a
+central tenha exatamente a mesma identidade dos sites. Os arquivos aprovados ficam em `public/assets/lri/`, com a
+origem de cada um registrada no PR que os adiciona.
+
+Situação do levantamento: o repositório `minissites` não está visível para o agente do projeto, e os repositórios
+públicos do Leandro (`leaberg69/*`) não contêm logos nem paletas da LRI ou da IRD.Net. O levantamento é concluído
+assim que `minissites` for compartilhado com o agente, ou os arquivos forem enviados diretamente.
+
+Itens necessários, ainda pendentes:
+
+| Item | LRI | IRD.Net | Grupo LRI |
+| ---- | --- | ------- | --------- |
+| Logo horizontal em SVG (fundo claro) | pendente | pendente | pendente |
+| Logo em versão negativa SVG (tema escuro) | pendente | pendente | pendente |
+| Símbolo quadrado SVG/PNG 512 px (favicon, avatar do sistema) | pendente | pendente | pendente |
+| Logo PNG para assinatura de e-mail (até 300 px de largura) | pendente | pendente | — |
+| Paleta oficial em hexadecimal (primária, secundária, apoio) | pendente | pendente | — |
+| Regras de uso do logo (área de proteção, tamanho mínimo) | pendente | pendente | — |
+
+A tipografia continua a do Zammad (UI-LRI-2). O logo do **Grupo LRI**, usado no portal, pode ser uma composição dos
+dois logos, desenhada sob responsabilidade do engenheiro de UI/UX se ainda não existir.
 
 ## 4. Estratégia de customização do fork
 
@@ -213,23 +243,47 @@ Este documento apenas descreve as opções; a implantação acontece em etapa pr
 | **B. Pacote DEB/RPM** | pacote oficial (packager.io) em Ubuntu/Debian/RHEL | equipe confortável com serviços Linux tradicionais |
 | **C. Kubernetes (Helm)** | chart oficial | o grupo já opera Kubernetes |
 
-**Recomendação: opção A (Docker Compose)**, com imagem construída a partir deste fork pela CI. A imagem é imutável:
+**Decidido: opção A (Docker Compose)**, com imagem construída a partir deste fork pela CI. A imagem é imutável:
 branding e customizações entram no build, nunca escritos em tempo de execução, o que segue o princípio `DEPLOY-1` do
 produto (`.dev/agent_docs/product_principles.md`). Atualizar é publicar uma nova imagem e reiniciar a stack.
 
-Hospedagem: nuvem com região no Brasil (por exemplo São Paulo), o que atende a LGPD com folga e reduz latência, ou
-servidor no datacenter do grupo. A escolha é uma decisão aberta (seção 8).
+### 6.2 Hospedagem
 
-### 6.2 Componentes
+**Recomendação**: usar o servidor existente **72.62.108.138** se ele atender aos requisitos da seção 6.4 com folga e
+puder hospedar a central de forma isolada dos demais serviços. Se qualquer item abaixo não for atendido, a central vai
+para uma **VPS nova e dedicada**, com região no Brasil (por exemplo São Paulo), dimensionada pela seção 6.4.
+
+O que verificar no servidor 72.62.108.138 antes de decidir:
+
+- **Recursos livres**: vCPU, memória e disco disponíveis _depois_ de descontar o que já roda nele, comparados ao
+  dimensionamento da seção 6.4; tipo de disco (SSD/NVMe) e possibilidade de expansão.
+- **Serviços atuais**: o que já roda no servidor, consumo de pico, e se algum deles é crítico a ponto de não poder
+  dividir recursos com a central.
+- **Portas e proxy**: se 80 e 443 já estão em uso e se existe proxy reverso (Nginx, Caddy, Traefik) que possa servir
+  `suporte.lri.com.br` e `suporte.ird.net.br` com HTTPS.
+- **Sistema operacional**: distribuição e versão com suporte vigente; Docker e Docker Compose instalados ou instaláveis.
+- **Busca**: parâmetro de kernel `vm.max_map_count` ajustável (exigido pelo Elasticsearch/OpenSearch) e swap
+  configurado.
+- **Localização e provedor**: país e região do datacenter (LGPD), provedor, contrato e SLA de disponibilidade.
+- **Backup**: snapshots do provedor disponíveis e espaço para cópia de backup fora do servidor.
+- **Rede de e-mail**: saída liberada para IMAP/SMTP (portas 993, 587 e 465) ou para o Microsoft Graph; DNS reverso do
+  IP, se houver envio direto por SMTP.
+- **Acesso e segurança**: quem administra o servidor, acesso SSH por chave, firewall, atualizações automáticas de
+  segurança.
+- **DNS**: possibilidade de apontar `suporte.lri.com.br` e `suporte.ird.net.br` para o IP.
+
+O resultado da verificação é registrado em `docs/lri/` e fecha a decisão 6 da seção 10.
+
+### 6.3 Componentes
 
 - **Zammad**: servidor web (Rails), websocket e processos de background (scheduler/jobs);
 - **PostgreSQL**: banco principal (a CI do projeto usa PostgreSQL 18);
 - **Redis**: websocket, assinaturas GraphQL e cache;
-- **Elasticsearch ou OpenSearch**: busca de texto completo em chamados e anexos — recomendado desde o início;
+- **Elasticsearch ou OpenSearch**: busca de texto completo em chamados e anexos — presente desde o início (decidido);
 - **Proxy reverso** (Nginx ou Caddy) com HTTPS (Let's Encrypt);
 - **Armazenamento de anexos** em disco persistente ou S3 compatível.
 
-### 6.3 Dimensionamento inicial
+### 6.4 Dimensionamento inicial
 
 Para até cerca de 30 agentes simultâneos, com todos os componentes no mesmo servidor:
 
@@ -243,7 +297,7 @@ Para até cerca de 30 agentes simultâneos, com todos os componentes no mesmo se
 
 Com o crescimento, a busca (Elasticsearch/OpenSearch) e o banco passam para servidores próprios.
 
-### 6.4 Operação
+### 6.5 Operação
 
 - **Backup** diário do banco e dos anexos, com retenção de 30 dias, cópia fora do servidor e teste de restauração
   trimestral;
@@ -310,22 +364,42 @@ O projeto segue a esteira `leaberg69/esteira-softwarehouse-LR`:
 O vínculo com a definição do papel de engenheiro de UI/UX na esteira será adicionado a este documento assim que o
 repositório da esteira for compartilhado com o agente do projeto.
 
-## 10. Decisões abertas para Leandro
+## 10. Decisões
 
-1. **Domínio da IRD.Net** e caixas de e-mail de cada marca (endereços finais e se estão no Microsoft 365).
-2. **Domínio da central** (por exemplo `atendimento.lri.com.br` ou um domínio do grupo) e nome exibido do produto
-   ("Central de Atendimento Grupo LRI" é a proposta).
-3. **Identidade do portal**: portal único com a identidade do Grupo LRI (proposta deste plano) ou instâncias separadas
-   por marca, ao custo de operação duplicada.
-4. **Grupos e filas finais** de cada marca e da área interna (proposta na seção 2.2).
-5. **Arquivos de marca**: logos em SVG e paleta oficial de cores da LRI e da IRD.Net.
-6. **Hospedagem**: nuvem com região Brasil ou datacenter próprio; e opção de implantação (recomendação: Docker
-   Compose).
-7. **Linha base do upstream**: série estável do Zammad a adotar como base de produção.
-8. **SSO** para colaboradores: Microsoft 365, Google Workspace ou login próprio.
-9. **SLAs** por marca e por tipo de cliente, e calendários de atendimento (horários, plantão, feriados).
-10. **Visibilidade entre clientes da mesma organização**: se clientes de uma empresa veem os chamados uns dos outros.
-11. **ERP Plune**: acesso à documentação da API e definição do escopo da primeira integração.
-12. **WhatsApp**: números e contas Meta Business de cada marca.
-13. **Acesso à esteira**: compartilhar `leaberg69/esteira-softwarehouse-LR` com o agente do projeto, para vincular os
-    papéis da esteira a este plano.
+Leandro aceitou todas as recomendações deste plano. A numeração é mantida para que referências anteriores continuem
+válidas.
+
+### 10.1 Decididas
+
+| Nº | Tema | Decisão |
+| -- | ---- | ------- |
+| 1 | Domínio e caixas de e-mail | IRD.Net usa `ird.net.br`; caixas `suporte@lri.com.br`, `comercial@lri.com.br` e `suporte@ird.net.br` (seção 2.4) |
+| 2 | Endereço e nome da central | `suporte.lri.com.br`; "Central de Atendimento Grupo LRI" (seção 2.5) |
+| 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
+| 4 | Grupos e filas | estrutura da seção 2.2 |
+| — | Arquitetura | instância única para as duas marcas (seção 2.1) |
+| — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
+| — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
+| — | Operação | backup diário com retenção de 30 dias e teste trimestral; homologação e produção (seção 6.5) |
+| — | Linha base do upstream | série estável do Zammad (seção 5) |
+| — | Customização | ordem de preferência e caminhos próprios das seções 4 e 5 |
+| — | Roteiro | fases 0 a 6 da seção 8 |
+
+### 10.2 Em aberto
+
+1. **Caixas restantes e provedor de e-mail**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da
+   LRI; se as caixas estão no Microsoft 365 (define Microsoft Graph ou IMAP/SMTP).
+2. **Endereço da IRD.Net**: confirmar `suporte.ird.net.br` (recomendação, seção 2.5).
+3. **Ativos de marca**: compartilhar `minissites` com o agente ou enviar os arquivos da tabela "Ativos de marca"
+   (seção 3).
+4. **Hospedagem (decisão 6)**: resultado da verificação do servidor 72.62.108.138 (seção 6.2); se não atender, VPS nova
+   no Brasil.
+5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.
+6. **SSO (decisão 8)**: Microsoft 365, Google Workspace ou login próprio.
+7. **SLAs e calendários (decisão 9)**: por marca e por tipo de cliente; horários, plantão e feriados.
+8. **Visibilidade entre clientes da mesma organização (decisão 10)**.
+9. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
+10. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
+11. **Esteira (decisão 13)**: o repositório `leaberg69/esteira-softwarehouse-LR` ainda não está visível para o agente
+    do projeto; com o acesso efetivo, a definição do papel de engenheiro de UI/UX e as regras de PR e revisão são
+    vinculadas às seções 3 e 9.

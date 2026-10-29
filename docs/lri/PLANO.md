@@ -294,30 +294,84 @@ produto (`.dev/agent_docs/product_principles.md`). Atualizar é publicar uma nov
 
 ### 6.2 Hospedagem
 
-**Recomendação**: usar o servidor existente **72.62.108.138** se ele atender aos requisitos da seção 6.4 com folga e
-puder hospedar a central de forma isolada dos demais serviços. Se qualquer item abaixo não for atendido, a central vai
-para uma **VPS nova e dedicada**, com região no Brasil (por exemplo São Paulo), dimensionada pela seção 6.4.
+**Decidido**: a central roda na **VPS existente 72.62.108.138**, que também hospeda os projetos Justiano, Plaixec e
+sferalabs. A central entra como mais um projeto isolado no servidor: Compose próprio, rede própria, volumes próprios,
+limites de recursos próprios e nenhum impacto nos projetos que já estão no ar.
 
-O que verificar no servidor 72.62.108.138 antes de decidir:
+Este plano não altera o servidor. Todos os itens abaixo são verificados, somente em leitura, antes da implantação
+(fase 5); a implantação só começa com a lista completa e a autorização de Leandro. O resultado da verificação fica
+registrado em `docs/lri/VPS-CHECKLIST.md`.
 
-- **Recursos livres**: vCPU, memória e disco disponíveis _depois_ de descontar o que já roda nele, comparados ao
-  dimensionamento da seção 6.4; tipo de disco (SSD/NVMe) e possibilidade de expansão.
-- **Serviços atuais**: o que já roda no servidor, consumo de pico, e se algum deles é crítico a ponto de não poder
-  dividir recursos com a central.
-- **Portas e proxy**: se 80 e 443 já estão em uso e se existe proxy reverso (Nginx, Caddy, Traefik) que possa servir
-  `suporte.lri.com.br` e `suporte.ird.net.br` com HTTPS.
-- **Sistema operacional**: distribuição e versão com suporte vigente; Docker e Docker Compose instalados ou instaláveis.
-- **Busca**: parâmetro de kernel `vm.max_map_count` ajustável (exigido pelo Elasticsearch/OpenSearch) e swap
-  configurado.
-- **Localização e provedor**: país e região do datacenter (LGPD), provedor, contrato e SLA de disponibilidade.
-- **Backup**: snapshots do provedor disponíveis e espaço para cópia de backup fora do servidor.
-- **Rede de e-mail**: saída liberada para IMAP/SMTP (portas 993, 587 e 465) ou para o Microsoft Graph; DNS reverso do
-  IP, se houver envio direto por SMTP.
-- **Acesso e segurança**: quem administra o servidor, acesso SSH por chave, firewall, atualizações automáticas de
-  segurança.
-- **DNS**: possibilidade de apontar `suporte.lri.com.br` e `suporte.ird.net.br` para o IP.
+#### 6.2.1 Checklist pré-implantação
 
-O resultado da verificação é registrado em `docs/lri/` e fecha a decisão 6 da seção 10.
+##### Recursos disponíveis
+
+- [ ] vCPU, memória e disco totais do servidor e consumo atual de Justiano, Plaixec e sferalabs, medido em horário de
+  pico (`docker stats`, `free`, `df`).
+- [ ] Sobra, depois do consumo atual, de pelo menos o dimensionamento da seção 6.4: 4 vCPU, 8 GB de memória e 100 GB
+  de disco para a central, mais uma margem de 20% para os projetos existentes.
+- [ ] Tipo de disco (SSD/NVMe) e possibilidade de expandir disco e memória no provedor sem reinstalação.
+- [ ] Swap configurado, para absorver picos sem acionar o OOM killer sobre os outros projetos.
+- [ ] País e região do datacenter da VPS e provedor, registrados para a LGPD (seção 6.5).
+
+##### Convivência com os outros containers
+
+- [ ] Inventário dos containers, redes e volumes existentes (`docker ps`, `docker network ls`, `docker volume ls`).
+- [ ] Projeto Compose da central com nome próprio (`lri-helpdesk`), rede Docker própria e volumes com prefixo próprio,
+  sem colidir com nomes já usados.
+- [ ] PostgreSQL, Redis e Elasticsearch/OpenSearch exclusivos da central, sem compartilhar instâncias dos outros
+  projetos e sem portas publicadas no host.
+- [ ] Limites de memória e CPU (`mem_limit`, `cpus`) em cada container da central, somando no máximo a sobra medida
+  acima.
+- [ ] Política de reinício (`restart: unless-stopped`) e ordem de subida que não dependam dos outros projetos.
+- [ ] Versões de Docker e Docker Compose atendem à stack oficial do Zammad sem exigir atualização que afete os outros
+  projetos; se exigirem, a atualização vira mudança própria, planejada à parte.
+
+##### Portas e proxy reverso
+
+- [ ] Quem atende hoje as portas 80 e 443 (Nginx, Caddy, Traefik ou container) e como os outros projetos são
+  roteados.
+- [ ] A central entra como **mais um site no proxy existente**, com os nomes `suporte.lri.com.br` e
+  `suporte.ird.net.br`, seguindo a seção 2.6 (cabeçalho `Host`, upgrade de WebSocket em `/ws` e `/cable`).
+- [ ] O container web da central publica a porta apenas em `127.0.0.1` (ou só na rede Docker do proxy), em uma porta
+  livre conferida no inventário (`ss -tlnp`).
+- [ ] Emissão e renovação dos certificados dos dois nomes pelo mesmo mecanismo que já atende os outros projetos.
+- [ ] Firewall: nenhuma porta nova aberta para a internet além de 80 e 443, que já estão em uso.
+- [ ] Saída de rede para e-mail (IMAP 993, SMTP 587/465 ou Microsoft Graph) liberada no provedor.
+
+##### Elasticsearch/OpenSearch e memória
+
+- [ ] Heap fixado em valor conhecido (`ES_JAVA_OPTS` ou `OPENSEARCH_JAVA_OPTS`, por exemplo `-Xms1g -Xmx1g`) e
+  `mem_limit` do container em cerca do dobro do heap.
+- [ ] `vm.max_map_count` atual do host. O Elasticsearch/OpenSearch exige `262144`; esse parâmetro vale para o host
+  inteiro, então a mudança é avaliada quanto ao efeito nos outros projetos e aplicada como mudança própria.
+- [ ] Execução em nó único (`discovery.type=single-node`), segurança do motor habilitada e porta 9200 sem publicação no
+  host.
+- [ ] Limites de memória do PostgreSQL (`shared_buffers`) e do Redis (`maxmemory`) coerentes com o `mem_limit` de cada
+  container.
+
+##### Backups antes de qualquer mudança
+
+- [ ] Snapshot completo da VPS no provedor tirado **antes** de qualquer alteração no servidor, com data e responsável
+  registrados.
+- [ ] Backups dos projetos Justiano, Plaixec e sferalabs conferidos e recentes, com restauração já testada ou testada
+  antes da implantação.
+- [ ] Procedimento de retorno escrito: como voltar ao snapshot ou remover a central sem afetar os outros projetos.
+- [ ] Destino da cópia externa do backup da central (seção 6.5) definido e com espaço.
+- [ ] O mesmo snapshot prévio vale para toda mudança futura na central: atualização de versão, ajuste de kernel ou
+  troca de configuração do proxy.
+
+##### Usuário de sistema isolado e segredos
+
+- [ ] Usuário de sistema dedicado (`lri-helpdesk`), sem login por senha, dono exclusivo do diretório da central (por
+  exemplo `/srv/lri-helpdesk`), sem acesso aos diretórios dos outros projetos.
+- [ ] Forma de operar o Docker por esse usuário definida com cuidado: participar do grupo `docker` equivale a acesso de
+  root ao host, então a escolha entre Docker rootless, `sudo` restrito aos comandos do Compose ou operação por um
+  administrador fica registrada.
+- [ ] Segredos (senhas de PostgreSQL, Redis e Elasticsearch/OpenSearch, credenciais de e-mail, tokens de API) em
+  arquivo `.env` com permissão `600`, dono `lri-helpdesk`, fora do repositório, ou em Docker secrets.
+- [ ] Segredos exclusivos da central, gerados para ela, sem reaproveitar senhas ou chaves dos outros projetos.
+- [ ] Acesso SSH por chave, lista de quem administra o servidor e registro de quem tem acesso aos segredos.
 
 ### 6.3 Componentes
 
@@ -330,7 +384,7 @@ O resultado da verificação é registrado em `docs/lri/` e fecha a decisão 6 d
 
 ### 6.4 Dimensionamento inicial
 
-Para até cerca de 30 agentes simultâneos, com todos os componentes no mesmo servidor:
+Reserva de recursos para a central na VPS, para até cerca de 30 agentes simultâneos:
 
 | Recurso | Recomendado |
 | ------- | ----------- |
@@ -340,16 +394,18 @@ Para até cerca de 30 agentes simultâneos, com todos os componentes no mesmo se
 | Sistema | Ubuntu Server LTS suportado, com Docker e Docker Compose |
 | Rede | domínio próprio, HTTPS, saída SMTP/IMAP ou acesso ao Microsoft Graph |
 
-Com o crescimento, a busca (Elasticsearch/OpenSearch) e o banco passam para servidores próprios.
+Com o crescimento, a central ganha recursos na própria VPS ou passa para um servidor dedicado; a imagem e o Compose são
+os mesmos nos dois casos.
 
 ### 6.5 Operação
 
 - **Backup** diário do banco e dos anexos, com retenção de 30 dias, cópia fora do servidor e teste de restauração
   trimestral;
-- **Ambientes**: homologação e produção, com a mesma imagem promovida de um para o outro;
+- **Ambientes**: homologação e produção, com a mesma imagem promovida de um para o outro; na VPS compartilhada, a
+  homologação é um projeto Compose separado, ligado apenas durante a validação, para não disputar recursos;
 - **Monitoramento**: o endpoint de monitoramento nativo do Zammad, alertas de disco, memória e fila de jobs;
-- **LGPD**: dados hospedados no Brasil, retenção de chamados definida, exclusão de dados pessoais pelo recurso nativo
-  de remoção de dados do Zammad.
+- **LGPD**: localização do datacenter registrada no checklist da seção 6.2.1, retenção de chamados definida,
+  exclusão de dados pessoais pelo recurso nativo de remoção de dados do Zammad.
 
 ## 7. Integrações futuras
 
@@ -422,6 +478,7 @@ válidas.
 | 2 | Endereços e nome da central | `suporte.lri.com.br` (LRI) e `suporte.ird.net.br` (IRD.Net) na mesma instância; "Central de Atendimento Grupo LRI" (seções 2.5 e 2.6) |
 | 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
 | 4 | Grupos e filas | estrutura da seção 2.2 |
+| 6 | Hospedagem | VPS existente 72.62.108.138, ao lado de Justiano, Plaixec e sferalabs, isolada por projeto Compose próprio (seção 6.2) |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
 | — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
@@ -437,8 +494,8 @@ válidas.
 2. **Acesso aos DNS**: quem cria os registros `suporte` nas zonas `lri.com.br` e `ird.net.br` (seção 2.6).
 3. **Ativos de marca**: compartilhar `minissites` com o agente ou enviar os arquivos da tabela "Ativos de marca"
    (seção 3).
-4. **Hospedagem (decisão 6)**: resultado da verificação do servidor 72.62.108.138 (seção 6.2); se não atender, VPS nova
-   no Brasil.
+4. **Checklist da VPS**: execução, somente em leitura, do checklist pré-implantação da seção 6.2.1 no servidor
+   72.62.108.138.
 5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.
 6. **SSO (decisão 8)**: Microsoft 365, Google Workspace ou login próprio.
 7. **SLAs e calendários (decisão 9)**: por marca e por tipo de cliente; horários, plantão e feriados.

@@ -111,14 +111,59 @@ resposta. Complementos:
 - **Base de conhecimento pública**: uma base com categorias de primeiro nível por marca (`LRI` e `IRD.Net`), em pt-BR,
   publicada para clientes e, quando indicado, para o público geral.
 - **Formulário web**: o formulário embutível do Zammad entra nas páginas de contato dos sites (fase 4).
-- **Endereço (decidido)**: `suporte.lri.com.br`, com HTTPS. É o endereço principal da instância (setting `fqdn`).
-- **Endereço da IRD.Net (recomendação)**: `suporte.ird.net.br`, como endereço de entrada para clientes da IRD.Net,
-  redirecionando no proxy reverso para o mesmo portal. A instância tem um único endereço principal; o redirecionamento
-  dá ao cliente da IRD.Net um endereço com o domínio da sua marca, sem duplicar a operação.
+- **Endereços (decidido)**: dois subdomínios, um por marca, servidos pela mesma instância com HTTPS —
+  `suporte.lri.com.br` para a LRI e `suporte.ird.net.br` para a IRD.Net (detalhes na seção 2.6).
 - **Nome do produto (decidido)**: "Central de Atendimento Grupo LRI".
 - **Identidade visual (decidida)**: o portal usa a identidade do **Grupo LRI**, com os logos das duas marcas, porque o
   logo e o nome do produto são configurações globais da instância. O cliente escolhe a marca e a fila na abertura do
   chamado; e-mails, assinaturas e respostas seguem a marca do grupo escolhido.
+
+### 2.6 Dois endereços em uma instância
+
+A instância responde pelos dois subdomínios. Cada camada tem um papel definido:
+
+**Configurações do Zammad**
+
+| Setting | Valor | Efeito |
+| ------- | ----- | ------ |
+| `http_type` | `https` | todos os links gerados usam HTTPS |
+| `fqdn` | `suporte.lri.com.br` | endereço principal: links dos e-mails de sistema, formulário web, SSO e chaves de segurança |
+| `alternative_fqdn` | `suporte.ird.net.br` | segundo endereço aceito como origem das conexões WebSocket |
+
+O Zammad aceita um endereço principal e um alternativo, o que corresponde exatamente às duas marcas. Depois de alterar
+`fqdn` ou `alternative_fqdn`, os serviços do Zammad são reiniciados para que as origens permitidas sejam recarregadas.
+
+**Proxy reverso**
+
+- Um bloco de servidor por subdomínio (ou um bloco com os dois nomes), ambos encaminhando para o mesmo Zammad.
+- O proxy repassa os cabeçalhos `Host`, `X-Forwarded-For` e `X-Forwarded-Proto`. O cabeçalho `Host` original é o que
+  permite ao ActionCable aceitar a conexão pelo endereço da IRD.Net.
+- As rotas de WebSocket (`/ws` e `/cable`) recebem os cabeçalhos `Upgrade` e `Connection` de upgrade.
+- Porta 80 redireciona para 443 nos dois nomes, mantendo livre o caminho `/.well-known/acme-challenge/`.
+
+**Certificados TLS**
+
+- DNS: registros `A` de `suporte.lri.com.br` (zona `lri.com.br`) e `suporte.ird.net.br` (zona `ird.net.br`) apontando
+  para o IP do servidor da central.
+- Certificados Let's Encrypt emitidos pelo proxy por desafio HTTP-01 — um certificado por nome ou um certificado com
+  os dois nomes —, com renovação automática.
+
+**Links nos e-mails**
+
+- **E-mails ao cliente gerados por gatilhos** (confirmação de recebimento, resposta, encerramento): há um gatilho por
+  marca, condicionado aos grupos `LRI::*` ou `IRD::*`, e cada um escreve o link com o endereço da sua marca, por
+  exemplo `https://suporte.ird.net.br/#ticket/zoom/#{ticket.id}`. Assim o cliente da IRD.Net sempre volta pelo
+  endereço da IRD.Net.
+- **Assinaturas por grupo** trazem o endereço do portal da marca.
+- **E-mails de sistema** (redefinição de senha, verificação de cadastro, convite, notificações a agentes) usam
+  `config.fqdn` e apontam para `suporte.lri.com.br`. O link funciona para qualquer cliente, porque a instância é a
+  mesma e o portal tem a identidade do Grupo LRI. Esses modelos se identificam pelo nome do produto
+  (`config.product_name`), "Central de Atendimento Grupo LRI", válido para as duas marcas.
+- **Agentes** usam `suporte.lri.com.br`, o endereço ao qual SSO e chaves de segurança (WebAuthn) estão vinculados.
+- **Sessão**: o login vale por endereço; quem entrar por `suporte.ird.net.br` continua nele durante a navegação.
+- **Evolução**: se o Grupo LRI quiser que os e-mails de sistema também saiam com o endereço da marca do cliente, isso
+  pede uma mudança pequena no núcleo (escolher o endereço pela organização do destinatário). Ela segue a seção 4 e é
+  proposta ao upstream.
 
 ## 3. Princípios de UI e UX
 
@@ -374,7 +419,7 @@ válidas.
 | Nº | Tema | Decisão |
 | -- | ---- | ------- |
 | 1 | Domínio e caixas de e-mail | IRD.Net usa `ird.net.br`; caixas `suporte@lri.com.br`, `comercial@lri.com.br` e `suporte@ird.net.br` (seção 2.4) |
-| 2 | Endereço e nome da central | `suporte.lri.com.br`; "Central de Atendimento Grupo LRI" (seção 2.5) |
+| 2 | Endereços e nome da central | `suporte.lri.com.br` (LRI) e `suporte.ird.net.br` (IRD.Net) na mesma instância; "Central de Atendimento Grupo LRI" (seções 2.5 e 2.6) |
 | 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
 | 4 | Grupos e filas | estrutura da seção 2.2 |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
@@ -389,7 +434,7 @@ válidas.
 
 1. **Caixas restantes e provedor de e-mail**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da
    LRI; se as caixas estão no Microsoft 365 (define Microsoft Graph ou IMAP/SMTP).
-2. **Endereço da IRD.Net**: confirmar `suporte.ird.net.br` (recomendação, seção 2.5).
+2. **Acesso aos DNS**: quem cria os registros `suporte` nas zonas `lri.com.br` e `ird.net.br` (seção 2.6).
 3. **Ativos de marca**: compartilhar `minissites` com o agente ou enviar os arquivos da tabela "Ativos de marca"
    (seção 3).
 4. **Hospedagem (decisão 6)**: resultado da verificação do servidor 72.62.108.138 (seção 6.2); se não atender, VPS nova

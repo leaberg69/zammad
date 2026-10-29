@@ -122,7 +122,7 @@ resposta. Complementos:
 
 A instância responde pelos dois subdomínios. Cada camada tem um papel definido:
 
-**Configurações do Zammad**
+#### Configurações do Zammad
 
 | Setting | Valor | Efeito |
 | ------- | ----- | ------ |
@@ -133,7 +133,7 @@ A instância responde pelos dois subdomínios. Cada camada tem um papel definido
 O Zammad aceita um endereço principal e um alternativo, o que corresponde exatamente às duas marcas. Depois de alterar
 `fqdn` ou `alternative_fqdn`, os serviços do Zammad são reiniciados para que as origens permitidas sejam recarregadas.
 
-**Proxy reverso**
+#### Proxy reverso
 
 - Um bloco de servidor por subdomínio (ou um bloco com os dois nomes), ambos encaminhando para o mesmo Zammad.
 - O proxy repassa os cabeçalhos `Host`, `X-Forwarded-For` e `X-Forwarded-Proto`. O cabeçalho `Host` original é o que
@@ -141,14 +141,14 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 - As rotas de WebSocket (`/ws` e `/cable`) recebem os cabeçalhos `Upgrade` e `Connection` de upgrade.
 - Porta 80 redireciona para 443 nos dois nomes, mantendo livre o caminho `/.well-known/acme-challenge/`.
 
-**Certificados TLS**
+#### Certificados TLS
 
 - DNS: registros `A` de `suporte.lri.com.br` (zona `lri.com.br`) e `suporte.ird.net.br` (zona `ird.net.br`) apontando
   para o IP do servidor da central.
 - Certificados Let's Encrypt emitidos pelo proxy por desafio HTTP-01 — um certificado por nome ou um certificado com
   os dois nomes —, com renovação automática.
 
-**Links nos e-mails**
+#### Links nos e-mails
 
 - **E-mails ao cliente gerados por gatilhos** (confirmação de recebimento, resposta, encerramento): há um gatilho por
   marca, condicionado aos grupos `LRI::*` ou `IRD::*`, e cada um escreve o link com o endereço da sua marca, por

@@ -202,11 +202,23 @@ O horário definitivo ainda será definido. Até lá, vale o padrão **provisór
 
 ## 3. Princípios de UI e UX
 
-### UI-LRI-1 — Decisões de UI pelo engenheiro de UI/UX da esteira
+### UI-LRI-1 — Decisões de UI pelos engenheiros de UI/UX da esteira
 
-Toda decisão de interface — cores, logos, textos, disposição, fluxos — é tomada pelo papel de **engenheiro de UI/UX**
-definido na esteira `leaberg69/esteira-softwarehouse-LR`. PRs que tocam a interface têm a revisão desse papel antes do
-merge. _Violação: uma mudança visual mesclada sem passar pelo engenheiro de UI/UX._
+Toda decisão de interface — cores, logos, textos, disposição, fluxos — é tomada pelo papel de engenheiro de UI/UX da
+esteira `leaberg69/esteira-softwarehouse-LR`, que atua em dois estágios:
+
+- **UX Engineer A** — [`roles/2b-ux-engineer-a.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/2b-ux-engineer-a.md):
+  antes da arquitetura, converte o slice em contrato de design (`ux-spec-vN.yaml`) com fluxos, estados de cada
+  componente, requisitos de acessibilidade com referência WCAG, `visual_tokens` da instância e `acceptance_visuals`.
+  O valor de `ui_impact` que ele define prevalece.
+- **UX Engineer B** — [`roles/6b-ux-engineer-b.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6b-ux-engineer-b.md):
+  verifica a implementação contra a `ux-spec`, em paralelo à revisão de código e à revisão de segurança, com
+  screenshots obrigatórios do Playwright headless em ambiente local (`ux-report-vN.yaml`). O approve fica preso ao
+  `diff_sha256` revisado.
+
+Todo slice que toca interface renderizada, e-mails ao cliente, textos exibidos ou apresentação de erro tem
+`ui_impact` diferente de `none`, portanto `ux-spec` antes do código e `ux-report` aprovado antes do merge.
+_Violação: uma mudança visual mesclada sem `ux-spec` do UX-A ou sem `ux-report` aprovado do UX-B._
 
 ### UI-LRI-2 — A interface do Zammad é mantida; sem redesign
 
@@ -217,6 +229,10 @@ atendimento e portal. O trabalho de UI se limita a três frentes:
 - **Polimento pt-BR**: termos consistentes, tom adequado e textos completos em todo o produto;
 - **Consistência**: mesmos nomes, termos e padrões em grupos, macros, módulos de texto, gatilhos e base de
   conhecimento.
+
+Esse princípio é o mesmo que os papéis da esteira já impõem: o UX-A não redesenha UI que já tem contrato visual, e o
+UX-B não aponta divergência de gosto como achado. A interface do Zammad é o contrato visual deste projeto; as
+`ux-spec` descrevem apenas a camada de branding, texto e consistência sobre ela.
 
 _Violação: novo layout, novo componente que substitui um existente, reordenação de telas ou fluxo de atendimento
 alterado._
@@ -239,11 +255,13 @@ núcleo para aplicar uma cor de marca._
 Os textos da interface vêm de `translations.zammad.org`. Ajustes de tradução são contribuídos lá e chegam ao fork pela
 sincronização com o upstream, beneficiando também a comunidade. Os textos que são dados da instalação — nomes de
 grupos, macros, módulos de texto, assinaturas, gatilhos, artigos da base de conhecimento — são escritos pela equipe e
-revisados pelo engenheiro de UI/UX. _Violação: editar `i18n/*.po` diretamente._
+especificados pelo UX-A e verificados pelo UX-B. _Violação: editar `i18n/*.po` diretamente._
 
 ### UI-LRI-5 — Acessibilidade e contraste preservados
 
-As cores das marcas são aplicadas respeitando contraste WCAG AA nos dois temas (claro e escuro) da interface.
+As cores das marcas são aplicadas respeitando contraste WCAG AA nos dois temas (claro e escuro) da interface. Cada
+`ux-spec` lista esse requisito no campo `accessibility`, com a referência WCAG, e o UX-B o verifica no
+`accessibility_check`.
 _Violação: cor de marca aplicada a texto ou botão sem atingir o contraste mínimo._
 
 ### Ativos de marca
@@ -268,7 +286,7 @@ Itens necessários, ainda pendentes:
 | Regras de uso do logo (área de proteção, tamanho mínimo) | pendente | pendente | — |
 
 A tipografia continua a do Zammad (UI-LRI-2). O logo do **Grupo LRI**, usado no portal, pode ser uma composição dos
-dois logos, desenhada sob responsabilidade do engenheiro de UI/UX se ainda não existir.
+dois logos, especificada pelo UX-A nos `visual_tokens` da `ux-spec` se ainda não existir.
 
 ## 4. Estratégia de customização do fork
 
@@ -481,24 +499,42 @@ implantação é autorizada à parte por Leandro.
 | **0. Plano** | este documento | PLANO.md aprovado por Leandro |
 | **1. Fundação** | CI do fork estável; remoto upstream; inventário de diferenças; provisionamento em `contrib/lri/` com pt-BR, fuso, grupos, perfis e organizações | ambiente de desenvolvimento recriado do zero pelo script |
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
-| **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | engenheiro de UI/UX aprova a identidade e os textos |
+| **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |
 | **5. Imagem e implantação** | imagem Docker do fork construída pela CI; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
 | **6. Integrações** | site e formulário; WhatsApp; ERP Plune | cada integração em PR próprio, com testes e documentação |
 
 ## 9. Governança e esteira
 
-O projeto segue a esteira `leaberg69/esteira-softwarehouse-LR`:
+O projeto segue a esteira `leaberg69/esteira-softwarehouse-LR` (v5.2): uma máquina de estados determinística que
+coordena os papéis researcher → planner → UX-A → architect → security-A → coder → (code review ∥ security-B ∥ UX-B) → QA. Cada
+papel produz um artefato versionado que o orquestrador valida por schema e hash antes do handoff; o próximo passo sai
+de `python -m pipeline.cli next`.
 
-- **toda mudança entra por PR**, inclusive configuração como código e sincronização com o upstream;
-- **CI verde** é condição para merge;
-- **revisão independente** antes do merge; PRs de interface têm também a revisão do engenheiro de UI/UX;
-- **nada é implantado** por este fluxo; implantação é etapa separada e autorizada;
-- documentação do projeto em pt-BR, em `docs/lri/`; mensagens de commit e código seguem as convenções do Zammad
+Regras que valem para todo PR deste projeto:
+
+- **Toda mudança entra por PR**, inclusive configuração como código e sincronização com o upstream, dividida em slices
+  com `allowed_paths` definidos pelo contrato do architect.
+- **Quem escreve nunca aprova.** O revisor é outro agente, de contexto novo, e a revisão não usa a família de modelo de
+  quem escreveu.
+- **Coder** — [`roles/5-coder.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/5-coder.md):
+  implementa só dentro de `allowed_paths`, com TDD (teste que falha primeiro), um teste negativo para cada abuse case
+  do threat model e todo controle exigido implementado. Desvios vão em `deviations` da `implementation-note`; o diff
+  é gerado por `python -m pipeline.cli diff`. Slices com input, login ou e-mail (portal, Google OAuth, canais) usam a
+  skill de hardening.
+- **Code Reviewer** — [`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md):
+  revisa corretude, regressões e manutenibilidade, em paralelo ao security-B e ao UX-B; não aprova com achado `high`
+  aberto e encaminha achados de segurança ao security-B.
+- **Approvals presos ao diff**: `review-report`, `security-report` e `ux-report` registram o `diff_sha256` revisado. Um
+  byte alterado no diff derruba as aprovações e as revisões rodam de novo.
+- **Segurança**: `security_impact: none` só com ack humano e nunca em slice com input externo, parsing, rede ou
+  dependência nova — o que inclui e-mail, portal, OAuth e integrações.
+- **CI verde** é condição para merge, além dos verdicts da esteira.
+- **Nada é implantado** por este fluxo. Comando destrutivo em produção ou homologação exige
+  `python -m pipeline.cli destructive-check` com saída `LIBERADO`, a partir de ack que só humano registra em
+  `acks.yaml`.
+- Documentação do projeto em pt-BR, em `docs/lri/`; mensagens de commit e código seguem as convenções do Zammad
   (`AGENTS.md`), o que facilita propor melhorias ao upstream.
-
-O vínculo com a definição do papel de engenheiro de UI/UX na esteira será adicionado a este documento assim que o
-repositório da esteira for compartilhado com o agente do projeto.
 
 ## 10. Decisões
 
@@ -517,6 +553,7 @@ válidas.
 | 8 | Login dos colaboradores | Google OAuth, sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
 | 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
 | 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
+| 13 | Esteira | papéis e regras de PR e revisão da esteira vinculados às seções 3 e 9 |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
 | — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
@@ -541,6 +578,3 @@ válidas.
    cria o cliente OAuth no Google Cloud.
 8. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
 9. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
-10. **Esteira (decisão 13)**: o repositório `leaberg69/esteira-softwarehouse-LR` ainda não está visível para o agente
-    do projeto; com o acesso efetivo, a definição do papel de engenheiro de UI/UX e as regras de PR e revisão são
-    vinculadas às seções 3 e 9.

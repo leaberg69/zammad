@@ -77,11 +77,13 @@ O setting `customer_ticket_create_group_ids` limita os grupos que clientes podem
 - **Organizações internas**: `LRI Automação Industrial` e `IRD Produtos de Informática`, com atribuição automática por
   domínio de e-mail, para que colaboradores entrem já vinculados à empresa certa.
 - **Organizações de clientes**: uma por empresa cliente, com atribuição por domínio quando o cliente usa domínio
-  próprio. Clientes podem ver os chamados da própria organização quando isso for desejado.
+  próprio.
+- **Visibilidade (decidido)**: cada cliente vê **somente os próprios chamados**, nunca os da sua empresa. Toda
+  organização é criada com **"Organização compartilhada" desativada** (atributo `shared = false`). Como o padrão do
+  Zammad é `shared = true`, o provisionamento (seção 4) cria as organizações já com `false`, e um gatilho ou rotina
+  agendada corrige qualquer organização criada depois com o valor padrão. A verificação faz parte dos testes da fase 1.
 - **Perfis (roles)**: `Admin`, `Agente LRI`, `Agente IRD.Net`, `Agente Interno` e `Cliente`. Colaboradores que abrem
   chamados internos usam o perfil `Cliente` e veem apenas os grupos `Interno::*`.
-- **Autenticação**: login próprio no início; SSO (Microsoft 365 ou Google Workspace, conforme o que o grupo usa) entra
-  como evolução para colaboradores.
 
 ### 2.4 Canais de e-mail
 
@@ -164,6 +166,39 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 - **Evolução**: se o Grupo LRI quiser que os e-mails de sistema também saiam com o endereço da marca do cliente, isso
   pede uma mudança pequena no núcleo (escolher o endereço pela organização do destinatário). Ela segue a seção 4 e é
   proposta ao upstream.
+
+### 2.7 Autenticação
+
+- **Colaboradores (decidido)**: login com **Google** (Google OAuth), recurso nativo do Zammad.
+  - Cliente OAuth criado no Google Cloud da empresa, com URI de retorno
+    `https://suporte.lri.com.br/auth/google_oauth2/callback` (endereço principal, seção 2.6).
+  - `auth_google_oauth2` ativado, com `client_id` e `client_secret` guardados como segredos (seção 6.2.1).
+  - `auth_third_party_auto_link_at_inital_login` ativado: no primeiro login com Google, a conta do colaborador já
+    cadastrada é vinculada pelo e-mail.
+  - `auth_third_party_no_create_user` ativado: o botão do Google não cria contas novas. Só entra quem já foi cadastrado
+    pelo administrador com o perfil certo, o que impede que uma conta Google qualquer ganhe acesso.
+  - Se as duas empresas estiverem no mesmo Google Workspace, a tela de consentimento fica como "Interna", o que limita
+    o login às contas da organização.
+- **Clientes**: continuam com e-mail e senha no portal, com cadastro próprio e redefinição de senha. Por isso
+  `user_show_password_login` permanece ativado; ele vale para todos os usuários.
+
+### 2.8 Horário de atendimento
+
+O horário definitivo ainda será definido. Até lá, vale o padrão **provisório**:
+
+| Item | Valor provisório |
+| ---- | ---------------- |
+| Dias | segunda a sexta-feira |
+| Horário | 08:00 às 18:00 |
+| Fuso | `America/Sao_Paulo` |
+| Feriados | feriados nacionais; feriados locais da sede da LRI (RS) e de Navegantes/SC (IRD.Net), a confirmar |
+
+- No Zammad, o horário é um **calendário**. São criados dois calendários com o mesmo horário provisório, "LRI —
+  Horário comercial" e "IRD.Net — Horário comercial", porque os feriados municipais e estaduais diferem entre RS e SC.
+  Feriados nacionais entram por assinatura iCal, e os locais, manualmente.
+- Os SLAs (fase 4) usam esses calendários. O prazo de atendimento só corre dentro do horário comercial.
+- Quando o horário definitivo for decidido, basta alterar os calendários. SLAs, gatilhos e relatórios continuam
+  iguais.
 
 ## 3. Princípios de UI e UX
 
@@ -479,6 +514,9 @@ válidas.
 | 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
 | 4 | Grupos e filas | estrutura da seção 2.2 |
 | 6 | Hospedagem | VPS existente 72.62.108.138, ao lado de Justiano, Plaixec e sferalabs, isolada por projeto Compose próprio (seção 6.2) |
+| 8 | Login dos colaboradores | Google OAuth, sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
+| 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
+| 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
 | — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
@@ -497,11 +535,12 @@ válidas.
 4. **Checklist da VPS**: execução, somente em leitura, do checklist pré-implantação da seção 6.2.1 no servidor
    72.62.108.138.
 5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.
-6. **SSO (decisão 8)**: Microsoft 365, Google Workspace ou login próprio.
-7. **SLAs e calendários (decisão 9)**: por marca e por tipo de cliente; horários, plantão e feriados.
-8. **Visibilidade entre clientes da mesma organização (decisão 10)**.
-9. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
-10. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
-11. **Esteira (decisão 13)**: o repositório `leaberg69/esteira-softwarehouse-LR` ainda não está visível para o agente
+6. **Horário definitivo e SLAs (decisão 9)**: horário de atendimento definitivo (hoje provisório, seção 2.8), plantão,
+   feriados locais e metas de SLA por marca e por tipo de cliente.
+7. **Google Workspace**: se LRI e IRD.Net estão no mesmo Workspace (define o consentimento "Interno", seção 2.7) e quem
+   cria o cliente OAuth no Google Cloud.
+8. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
+9. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
+10. **Esteira (decisão 13)**: o repositório `leaberg69/esteira-softwarehouse-LR` ainda não está visível para o agente
     do projeto; com o acesso efetivo, a definição do papel de engenheiro de UI/UX e as regras de PR e revisão são
     vinculadas às seções 3 e 9.

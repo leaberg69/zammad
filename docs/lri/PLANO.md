@@ -288,29 +288,46 @@ Três fatos do código moldam a solução:
 
 #### 2.9.3 Controles, do mais forte ao complementar
 
-1. **Guarda de zona no Zammad (controle principal)**. Uma camada pequena no fork que, quando `X-LRI-Zone` é `public`:
-   - recusa o login de qualquer usuário com permissão de agente (`ticket.agent`) ou de administração (`admin*`), com a
-     mensagem definida pela `ux-spec`;
-   - recusa qualquer requisição autenticada desses usuários — sessão, token de API ou autenticação básica — em REST e
-     GraphQL, e encerra a sessão;
-   - recusa o login no WebSocket (`/ws`) e a conexão do ActionCable (`/cable`) desses usuários;
-   - informa à interface que a zona é pública, para que a tela de login do cliente **não mostre** os botões de Google e
-     Microsoft da equipe.
+1. **Guarda de zona no Zammad (controle principal)**. Uma camada pequena no fork, em **nível Rack** (middleware que
+   roda antes de qualquer controller, inclusive das rotas `/oauth/*` do Doorkeeper, que não herdam do
+   `ApplicationController`).
+   - **Zona falha fechada**: só `X-LRI-Zone: internal` é zona interna. Cabeçalho ausente, vazio ou com qualquer outro
+     valor é tratado como zona pública.
+   - **Quem é avaliado**: o **dono real** da credencial — o usuário da sessão, inclusive quando houve troca de sessão
+     ("entrar como", `switched_from_user_id`), o dono do token de API, o dono do token OAuth2 e o usuário da
+     autenticação básica —, nunca só o usuário efetivo, que muda com `From`/`X-On-Behalf-Of`. Na zona pública, a
+     personificação é recusada para todos.
+   - **O que é recusado na zona pública** para usuários com permissão de agente (`ticket.agent`) ou de administração
+     (`admin*`):
+     - login por senha em REST (`/api/v1/signin`) e GraphQL (mutation de login), com a mensagem definida pela
+       `ux-spec`;
+     - qualquer requisição autenticada — sessão, token de API, autenticação básica e token OAuth2 (Doorkeeper) — em
+       REST, GraphQL, downloads de anexos, `/ical` e `/calendar_subscriptions`; a sessão é encerrada;
+     - emissão e uso de tokens OAuth2 em `/oauth/*`;
+     - o login no WebSocket (`/ws`) e a conexão do ActionCable (`/cable`).
+   - **Interface**: a guarda informa à interface que a zona é pública, para que a tela de login do cliente **não
+     mostre** os botões de Google e Microsoft da equipe.
 
-   Sem essa guarda, um agente poderia, por exemplo, usar "esqueci minha senha" no portal público, definir uma senha e
-   entrar pela internet. A guarda fecha esse caminho independentemente da rota usada. Ela segue a seção 4 (alteração
-   pequena, coberta por testes, em caminho próprio do projeto) e é candidata a proposta ao upstream como recurso
-   genérico ("perfis restritos a redes confiáveis").
-2. **Bloqueio de rotas da equipe no listener público (defesa em profundidade)**. O listener público responde com a
+   A guarda segue a seção 4 (alteração pequena, coberta por testes, em caminho próprio do projeto) e é candidata a
+   proposta ao upstream como recurso genérico ("perfis restritos a redes confiáveis").
+2. **Equipe sem senha local, em qualquer zona**. A guarda também recusa, para perfis de agente e administração,
+   o login por senha e a redefinição de senha (envio, verificação e troca, em REST e GraphQL). Assim "esqueci minha
+   senha" no portal não cria uma senha de agente. Uma única conta administrativa de emergência mantém senha e 2FA do
+   Zammad e só funciona na zona interna; seu uso fica registrado.
+3. **MFA no provedor de identidade**. O 2FA do Zammad (`two_factor_authentication_enforce_role_ids`) só se aplica a
+   login por senha; logins por SSO não passam por ele. Por isso o segundo fator da equipe é **exigido no Google
+   Workspace (LRI) e no Entra ID (IRD.Net)**. O 2FA do Zammad fica obrigatório apenas para a conta de emergência.
+4. **Credenciais de API desligadas onde não são usadas**. `api_password_access` desativado (autenticação básica na API,
+   que pula o 2FA em `/ical` e `/calendar_subscriptions`); nenhuma aplicação OAuth2 (Doorkeeper) cadastrada; tokens
+   de API só para integrações que rodam dentro da VPN. Assinaturas de calendário por autenticação básica deixam de
+   funcionar; a alternativa para a equipe, dentro da VPN, fica definida no contrato do slice.
+5. **Bloqueio de rotas da equipe no listener público (defesa em profundidade)**. O listener público responde com a
    página de bloqueio definida pela `ux-spec` para:
    - início e retorno do login da equipe: `/auth/google_oauth2*` e `/auth/microsoft_office365*`;
    - autorização das caixas de e-mail: `/api/v1/external_credentials/*`;
+   - provedor OAuth2: `/oauth/*`;
    - monitoramento (`/api/v1/monitoring/*`) e as rotas de administração, importação, integrações e telefonia cuja
      lista exata o architect define no contrato do slice, com teste para cada uma.
-3. **Login da equipe só por SSO**. Agentes entram por Google (LRI) ou Microsoft (IRD.Net) e não usam senha local. Como
-   os retornos de SSO estão bloqueados no listener público, o login da equipe só se completa dentro da VPN.
-4. **2FA obrigatório para os perfis de agente e administração** (`two_factor_authentication_enforce_role_ids`), como
-   camada adicional para o caso de uma senha local existir.
 
 #### 2.9.4 O que fica em cada zona
 
@@ -336,9 +353,12 @@ Riscos da proposta e como cada um é tratado:
 | Risco | Tratamento |
 | ----- | ---------- |
 | Rota compartilhada expõe função de agente na internet | guarda de zona por perfil, não por caminho; testes negativos por tipo de autenticação |
-| Cabeçalho de zona forjado | proxy sobrescreve o cabeçalho; Zammad só alcançável pelo proxy; teste com cabeçalho forjado |
-| Agente cria senha local pelo portal e entra pela internet | guarda de zona recusa o login; 2FA obrigatório para agentes |
-| Token de API de agente usado pela internet | guarda de zona cobre token e autenticação básica; integrações (ERP Plune) rodam dentro da VPN |
+| Cabeçalho de zona forjado, ausente ou inválido | proxy sobrescreve o cabeçalho; Zammad só alcançável pelo proxy; qualquer valor diferente de `internal` é zona pública; testes com cabeçalho forjado, ausente e malformado em HTTP e WebSocket |
+| Administrador personifica um cliente ("entrar como" ou `X-On-Behalf-Of`) e passa pela zona pública | guarda avalia o dono real da credencial e recusa personificação na zona pública; testes para as duas trocas de sessão e para os cabeçalhos de personificação |
+| Token OAuth2 (Doorkeeper) de agente usado pela internet | guarda em nível Rack cobre `/oauth/*` e o uso de bearer token; nenhuma aplicação OAuth2 cadastrada |
+| 2FA do Zammad não cobre login por SSO | segundo fator exigido no Google Workspace e no Entra ID |
+| Agente cria senha local pelo portal e entra pela internet | guarda recusa login por senha e redefinição de senha para perfis da equipe, em qualquer zona |
+| Token de API ou autenticação básica de agente usados pela internet | guarda cobre token, autenticação básica, `/ical` e `/calendar_subscriptions`; `api_password_access` desativado; integrações (ERP Plune) rodam dentro da VPN |
 | DNS interno mal configurado manda o agente ao listener público | falha fechada: o agente vê a página de bloqueio, nenhum dado da equipe é exposto |
 | VPN fora do ar | a equipe fica sem acesso até a VPN voltar; clientes e entrada de e-mail não são afetados; procedimento de contingência no guia de operação |
 | Botões de SSO da equipe visíveis ao cliente | guarda informa a zona à interface; `ux-spec` define a tela de login pública |
@@ -371,8 +391,10 @@ A separação de zonas é um slice com `ui_impact` e `security_impact` diferente
    exata das rotas bloqueadas e o formato do cabeçalho de zona.
 4. **Security-A**: threat model com os abuse cases da seção 2.9.5 e os controles obrigatórios.
 5. **Coder** ([`roles/5-coder.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/5-coder.md)):
-   implementação com TDD e um teste negativo por abuse case — login, sessão, token, autenticação básica, GraphQL,
-   `/ws`, `/cable` e cabeçalho forjado.
+   implementação com TDD e um teste negativo por abuse case — login por senha (REST e GraphQL), redefinição de
+   senha, sessão, troca de sessão, `X-On-Behalf-Of`, token de API, autenticação básica, `/ical`,
+   `/calendar_subscriptions`, token OAuth2 e `/oauth/*`, GraphQL, `/ws`, `/cable` e cabeçalho forjado, ausente ou
+   malformado.
 6. **Revisões em paralelo**: Code Reviewer
    ([`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md)),
    security-B e UX-B ([`roles/6b-ux-engineer-b.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6b-ux-engineer-b.md)),
@@ -632,7 +654,9 @@ registrado em `docs/lri/VPS-CHECKLIST.md`.
 - [ ] O proxy existente suporta dois listeners para os mesmos nomes: o público (IP da VPS) e o interno (IP da VPN),
   sem alterar os blocos dos outros projetos.
 - [ ] Cada listener sobrescreve o cabeçalho `X-LRI-Zone` (`public` ou `internal`); o valor enviado pelo navegador nunca
-  chega ao Zammad.
+  chega ao Zammad. Requisição sem o cabeçalho é tratada como zona pública.
+- [ ] MFA obrigatório para a equipe no Google Workspace (LRI) e no Entra ID (IRD.Net).
+- [ ] `api_password_access` desativado e nenhuma aplicação OAuth2 cadastrada no Zammad.
 - [ ] O Zammad escuta só em `127.0.0.1` ou na rede Docker do proxy, confirmado por `ss -tlnp` e por tentativa de acesso
   externo direto à porta, que deve falhar.
 - [ ] Lista de rotas bloqueadas no listener público (seção 2.9.3) aplicada e testada de fora da VPN.

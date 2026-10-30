@@ -304,7 +304,10 @@ Três fatos do código moldam a solução:
      - qualquer requisição autenticada — sessão, token de API, autenticação básica e token OAuth2 (Doorkeeper) — em
        REST, GraphQL, downloads de anexos, `/ical` e `/calendar_subscriptions`; a sessão é encerrada;
      - emissão e uso de tokens OAuth2 em `/oauth/*`;
-     - o login no WebSocket (`/ws`) e a conexão do ActionCable (`/cable`).
+     - o login no WebSocket (`/ws`) e a conexão do ActionCable (`/cable`). Esses dois pontos autenticam fora do fluxo
+       Rack dos controllers (`lib/sessions/event/login.rb` e `app/channels/application_cable/connection.rb`), então a
+       mesma política de zona é chamada explicitamente em cada um, com o cabeçalho de zona repassado pelo proxy e a
+       verificação do dono real da sessão.
    - **Interface**: a guarda informa à interface que a zona é pública, para que a tela de login do cliente **não
      mostre** os botões de Google e Microsoft da equipe.
 
@@ -312,8 +315,11 @@ Três fatos do código moldam a solução:
    proposta ao upstream como recurso genérico ("perfis restritos a redes confiáveis").
 2. **Equipe sem senha local, em qualquer zona**. A guarda também recusa, para perfis de agente e administração,
    o login por senha e a redefinição de senha (envio, verificação e troca, em REST e GraphQL). Assim "esqueci minha
-   senha" no portal não cria uma senha de agente. Uma única conta administrativa de emergência mantém senha e 2FA do
-   Zammad e só funciona na zona interna; seu uso fica registrado.
+   senha" no portal não cria uma senha de agente. Para não revelar quais e-mails pertencem à equipe, o pedido de
+   redefinição de um perfil da equipe **não gera token nem e-mail, mas devolve a mesma resposta, no mesmo tempo**, que
+   o Zammad já devolve para um e-mail desconhecido. Uma única conta administrativa de emergência mantém senha e só
+   funciona na zona interna: ela é ativada apenas depois de ter o 2FA do Zammad **já cadastrado** (o Zammad só exige o
+   segundo fator de quem já o configurou), e seu uso fica registrado.
 3. **MFA no provedor de identidade**. O 2FA do Zammad (`two_factor_authentication_enforce_role_ids`) só se aplica a
    login por senha; logins por SSO não passam por ele. Por isso o segundo fator da equipe é **exigido no Google
    Workspace (LRI) e no Entra ID (IRD.Net)**. O 2FA do Zammad fica obrigatório apenas para a conta de emergência.
@@ -392,9 +398,10 @@ A separação de zonas é um slice com `ui_impact` e `security_impact` diferente
 4. **Security-A**: threat model com os abuse cases da seção 2.9.5 e os controles obrigatórios.
 5. **Coder** ([`roles/5-coder.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/5-coder.md)):
    implementação com TDD e um teste negativo por abuse case — login por senha (REST e GraphQL), redefinição de
-   senha, sessão, troca de sessão, `X-On-Behalf-Of`, token de API, autenticação básica, `/ical`,
-   `/calendar_subscriptions`, token OAuth2 e `/oauth/*`, GraphQL, `/ws`, `/cable` e cabeçalho forjado, ausente ou
-   malformado.
+   senha (incluindo resposta e tempo idênticos aos de e-mail desconhecido), conta de emergência (senha e 2FA aceitos
+   na zona interna e recusados na pública), sessão, troca de sessão, `X-On-Behalf-Of`, token de API, autenticação
+   básica, `/ical`, `/calendar_subscriptions`, token OAuth2 e `/oauth/*`, GraphQL, `/ws`, `/cable` e cabeçalho
+   forjado, ausente ou malformado.
 6. **Revisões em paralelo**: Code Reviewer
    ([`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md)),
    security-B e UX-B ([`roles/6b-ux-engineer-b.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6b-ux-engineer-b.md)),
@@ -657,6 +664,7 @@ registrado em `docs/lri/VPS-CHECKLIST.md`.
   chega ao Zammad. Requisição sem o cabeçalho é tratada como zona pública.
 - [ ] MFA obrigatório para a equipe no Google Workspace (LRI) e no Entra ID (IRD.Net).
 - [ ] `api_password_access` desativado e nenhuma aplicação OAuth2 cadastrada no Zammad.
+- [ ] Conta de emergência com 2FA do Zammad já cadastrado antes de ativada; login testado dentro da VPN e recusado fora.
 - [ ] O Zammad escuta só em `127.0.0.1` ou na rede Docker do proxy, confirmado por `ss -tlnp` e por tentativa de acesso
   externo direto à porta, que deve falhar.
 - [ ] Lista de rotas bloqueadas no listener público (seção 2.9.3) aplicada e testada de fora da VPN.

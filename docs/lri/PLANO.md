@@ -98,8 +98,23 @@ Cada marca tem caixas de entrada próprias, configuradas como canais de e-mail d
 | caixa da TI interna | `Interno::TI` | endereço a definir |
 | caixa financeira da LRI | `LRI::Financeiro` | endereço a definir |
 
-- **Protocolo**: Microsoft Graph quando as caixas estão no Microsoft 365; IMAP/SMTP nos demais casos. Ambos são
-  nativos do Zammad.
+- **Canal por marca (decidido)**: cada marca usa o canal nativo do Zammad para o seu provedor de e-mail, com OAuth,
+  sem senha de caixa guardada no Zammad.
+
+  | Marca | Provedor | Canal do Zammad | Caixas |
+  | ----- | -------- | --------------- | ------ |
+  | LRI | Google Workspace | **Google Email** (Gmail por IMAP/SMTP com OAuth) | `suporte@lri.com.br`, `comercial@lri.com.br` e demais caixas `@lri.com.br` |
+  | IRD.Net | Microsoft 365 | **Microsoft 365 Graph Email** (API Microsoft Graph) | `suporte@ird.net.br` e demais caixas `@ird.net.br` |
+
+  - **Google**: projeto no Google Cloud do Workspace da LRI, com a API do Gmail habilitada e um cliente OAuth cujo
+    URI de retorno é `https://suporte.lri.com.br/api/v1/external_credentials/google/callback`. A caixa é autorizada
+    no próprio painel do Zammad (Canais › Google Email), com login da conta da caixa.
+  - **Microsoft 365**: registro de aplicativo no Entra ID do tenant da IRD.Net, com URI de retorno
+    `https://suporte.lri.com.br/api/v1/external_credentials/microsoft_graph/callback` e as permissões delegadas de
+    e-mail que o assistente do canal solicita. A caixa é autorizada em Canais › Microsoft 365 Graph Email. O canal
+    Graph é preferido ao canal "Microsoft 365 IMAP Email", também disponível.
+  - Os URIs de retorno usam o endereço principal (`fqdn`, seção 2.6), porque o Zammad monta as URLs de OAuth a partir
+    dele. Isso não muda a marca vista pelo cliente: remetente e assinatura continuam os do grupo.
 - **Roteamento**: cada canal entrega no seu grupo; gatilhos refinam por remetente, domínio ou assunto.
 - **Numeração**: o prefixo dos chamados (`ticket_hook`) é único no sistema; a marca aparece no remetente, na
   assinatura e no nome do grupo, o que mantém as respostas do cliente encadeadas corretamente.
@@ -169,16 +184,26 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 
 ### 2.7 Autenticação
 
-- **Colaboradores (decidido)**: login com **Google** (Google OAuth), recurso nativo do Zammad.
-  - Cliente OAuth criado no Google Cloud da empresa, com URI de retorno
-    `https://suporte.lri.com.br/auth/google_oauth2/callback` (endereço principal, seção 2.6).
-  - `auth_google_oauth2` ativado, com `client_id` e `client_secret` guardados como segredos (seção 6.2.1).
-  - `auth_third_party_auto_link_at_inital_login` ativado: no primeiro login com Google, a conta do colaborador já
-    cadastrada é vinculada pelo e-mail.
-  - `auth_third_party_no_create_user` ativado: o botão do Google não cria contas novas. Só entra quem já foi cadastrado
-    pelo administrador com o perfil certo, o que impede que uma conta Google qualquer ganhe acesso.
-  - Se as duas empresas estiverem no mesmo Google Workspace, a tela de consentimento fica como "Interna", o que limita
-    o login às contas da organização.
+- **Colaboradores (decidido)**: cada empresa entra com a conta corporativa que já usa, pelos dois provedores nativos do
+  Zammad. A tela de login mostra os dois botões.
+
+  | Empresa | Provedor | Setting do Zammad | URI de retorno |
+  | ------- | -------- | ----------------- | -------------- |
+  | LRI | Google Workspace | `auth_google_oauth2` | `https://suporte.lri.com.br/auth/google_oauth2/callback` |
+  | IRD.Net | Microsoft 365 (Entra ID) | `auth_microsoft_office365` | `https://suporte.lri.com.br/auth/microsoft_office365/callback` |
+
+  - **Google (LRI)**: cliente OAuth no Google Cloud do Workspace da LRI, com tela de consentimento do tipo "Interna",
+    o que limita o login às contas `@lri.com.br`.
+  - **Microsoft (IRD.Net)**: registro de aplicativo no Entra ID da IRD.Net, configurado com o **ID do tenant** da IRD.Net
+    em `auth_microsoft_office365_credentials` (`app_tenant`). Com o tenant fixo, e não `common`, só contas da IRD.Net
+    conseguem entrar.
+  - IDs e segredos dos dois aplicativos são guardados como segredos (seção 6.2.1).
+  - `auth_third_party_auto_link_at_inital_login` ativado: no primeiro login, a conta do colaborador já cadastrada é
+    vinculada pelo e-mail.
+  - `auth_third_party_no_create_user` ativado: os botões de login não criam contas novas. Só entra quem já foi
+    cadastrado pelo administrador com o perfil certo, o que impede que uma conta qualquer ganhe acesso.
+  - Os aplicativos de login e de e-mail de cada provedor podem ser o mesmo registro ou registros separados; registros
+    separados mantêm as permissões de cada um mínimas e são a escolha deste plano.
 - **Clientes**: continuam com e-mail e senha no portal, com cadastro próprio e redefinição de senha. Por isso
   `user_show_password_login` permanece ativado; ele vale para todos os usuários.
 
@@ -390,7 +415,8 @@ registrado em `docs/lri/VPS-CHECKLIST.md`.
   livre conferida no inventário (`ss -tlnp`).
 - [ ] Emissão e renovação dos certificados dos dois nomes pelo mesmo mecanismo que já atende os outros projetos.
 - [ ] Firewall: nenhuma porta nova aberta para a internet além de 80 e 443, que já estão em uso.
-- [ ] Saída de rede para e-mail (IMAP 993, SMTP 587/465 ou Microsoft Graph) liberada no provedor.
+- [ ] Saída de rede liberada para Gmail (IMAP 993 e SMTP 465/587 em `imap.gmail.com` e `smtp.gmail.com`), para as
+  APIs OAuth do Google e para Microsoft Graph e Entra ID (`graph.microsoft.com`, `login.microsoftonline.com`), em HTTPS.
 
 ##### Elasticsearch/OpenSearch e memória
 
@@ -445,7 +471,7 @@ Reserva de recursos para a central na VPS, para até cerca de 30 agentes simult�
 | Memória | 8 GB (16 GB com folga para crescimento e busca) |
 | Disco | 100 GB SSD, expansível conforme volume de anexos |
 | Sistema | Ubuntu Server LTS suportado, com Docker e Docker Compose |
-| Rede | domínio próprio, HTTPS, saída SMTP/IMAP ou acesso ao Microsoft Graph |
+| Rede | domínio próprio, HTTPS, saída para Gmail (IMAP/SMTP) e para Microsoft Graph |
 
 Com o crescimento, a central ganha recursos na própria VPS ou passa para um servidor dedicado; a imagem e o Compose são
 os mesmos nos dois casos.
@@ -520,8 +546,8 @@ Regras que valem para todo PR deste projeto:
 - **Coder** — [`roles/5-coder.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/5-coder.md):
   implementa só dentro de `allowed_paths`, com TDD (teste que falha primeiro), um teste negativo para cada abuse case
   do threat model e todo controle exigido implementado. Desvios vão em `deviations` da `implementation-note`; o diff
-  é gerado por `python -m pipeline.cli diff`. Slices com input, login ou e-mail (portal, Google OAuth, canais) usam a
-  skill de hardening.
+  é gerado por `python -m pipeline.cli diff`. Slices com input, login ou e-mail (portal, login Google e Microsoft,
+  canais) usam a skill de hardening.
 - **Code Reviewer** — [`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md):
   revisa corretude, regressões e manutenibilidade, em paralelo ao security-B e ao UX-B; não aprova com achado `high`
   aberto e encaminha achados de segurança ao security-B.
@@ -550,7 +576,8 @@ válidas.
 | 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
 | 4 | Grupos e filas | estrutura da seção 2.2 |
 | 6 | Hospedagem | VPS existente 72.62.108.138, ao lado de Justiano, Plaixec e sferalabs, isolada por projeto Compose próprio (seção 6.2) |
-| 8 | Login dos colaboradores | Google OAuth, sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
+| 8 | Login dos colaboradores | LRI por Google Workspace, IRD.Net por Microsoft 365 (Entra ID), sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
+| — | Canais de e-mail | LRI pelo canal Google Email; IRD.Net pelo canal Microsoft 365 Graph Email (seção 2.4) |
 | 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
 | 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
 | 13 | Esteira | papéis e regras de PR e revisão da esteira vinculados às seções 3 e 9 |
@@ -564,8 +591,8 @@ válidas.
 
 ### 10.2 Em aberto
 
-1. **Caixas restantes e provedor de e-mail**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da
-   LRI; se as caixas estão no Microsoft 365 (define Microsoft Graph ou IMAP/SMTP).
+1. **Caixas restantes**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da LRI. O canal de
+   cada uma já segue do domínio (seção 2.4).
 2. **Acesso aos DNS**: quem cria os registros `suporte` nas zonas `lri.com.br` e `ird.net.br` (seção 2.6).
 3. **Ativos de marca**: compartilhar `minissites` com o agente ou enviar os arquivos da tabela "Ativos de marca"
    (seção 3).
@@ -574,7 +601,5 @@ válidas.
 5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.
 6. **Horário definitivo e SLAs (decisão 9)**: horário de atendimento definitivo (hoje provisório, seção 2.8), plantão,
    feriados locais e metas de SLA por marca e por tipo de cliente.
-7. **Google Workspace**: se LRI e IRD.Net estão no mesmo Workspace (define o consentimento "Interno", seção 2.7) e quem
-   cria o cliente OAuth no Google Cloud.
-8. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
-9. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
+7. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
+8. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.

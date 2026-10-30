@@ -507,9 +507,9 @@ implantação é autorizada à parte por Leandro.
 ## 9. Governança e esteira
 
 O projeto segue a esteira `leaberg69/esteira-softwarehouse-LR` (v5.2): uma máquina de estados determinística que
-coordena os papéis researcher → planner → UX-A → architect → security-A → coder → (code review ∥ security-B ∥ UX-B) → QA. Cada
-papel produz um artefato versionado que o orquestrador valida por schema e hash antes do handoff; o próximo passo sai
-de `python -m pipeline.cli next`.
+coordena os papéis researcher → planner → UX-A → architect → security-A → coder → (code review ∥ security-B ∥
+UX-B) → QA. Cada papel produz um artefato versionado que o orquestrador valida por schema e hash antes do handoff; o
+próximo passo sai de `python -m pipeline.cli next`.
 
 Regras que valem para todo PR deste projeto:
 

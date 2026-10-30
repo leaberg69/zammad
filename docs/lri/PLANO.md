@@ -152,7 +152,8 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 
 #### Proxy reverso
 
-- Um bloco de servidor por subdomínio (ou um bloco com os dois nomes), ambos encaminhando para o mesmo Zammad.
+- Um bloco de servidor por subdomínio (ou um bloco com os dois nomes), ambos encaminhando para o mesmo Zammad. Esses
+  blocos existem em dois listeners, público e interno, conforme a seção 2.9.
 - O proxy repassa os cabeçalhos `Host`, `X-Forwarded-For` e `X-Forwarded-Proto`. O cabeçalho `Host` original é o que
   permite ao ActionCable aceitar a conexão pelo endereço da IRD.Net.
 - As rotas de WebSocket (`/ws` e `/cable`) recebem os cabeçalhos `Upgrade` e `Connection` de upgrade.
@@ -184,7 +185,8 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 
 ### 2.7 Autenticação
 
-- **Colaboradores (decidido)**: cada empresa entra com a conta corporativa que já usa, pelos dois provedores nativos do
+- **Colaboradores (decidido)**: o login da equipe só se completa na zona interna (VPN, seção 2.9). Cada empresa entra
+  com a conta corporativa que já usa, pelos dois provedores nativos do
   Zammad. A tela de login mostra os dois botões.
 
   | Empresa | Provedor | Setting do Zammad | URI de retorno |
@@ -224,6 +226,162 @@ O horário definitivo ainda será definido. Até lá, vale o padrão **provisór
 - Os SLAs (fase 4) usam esses calendários. O prazo de atendimento só corre dentro do horário comercial.
 - Quando o horário definitivo for decidido, basta alterar os calendários. SLAs, gatilhos e relatórios continuam
   iguais.
+
+### 2.9 Zonas: parte interna (intranet) e parte do cliente (internet)
+
+**Decidido (Leandro)**: o sistema tem duas partes.
+
+- **Parte interna, da equipe**: agentes respondendo chamados, administração e configurações. Fica dentro da intranet,
+  **sem exposição pública**.
+- **Parte do cliente**: portal do cliente para abrir e acompanhar chamados, base de conhecimento pública e formulário
+  web, na internet, em `suporte.lri.com.br` e `suporte.ird.net.br`. A entrada por e-mail também atende o cliente e
+  não exige exposição alguma (ver abaixo).
+
+O plano abaixo é a **proposta de implementação**. Ele entra na esteira como slice próprio (seção 2.9.6) e só vira
+código depois da `ux-spec` do UX-A e do threat model do security-A.
+
+#### 2.9.1 O que o código do Zammad determina
+
+Três fatos do código moldam a solução:
+
+1. **Agentes e clientes usam as mesmas rotas.** A mesma aplicação web (`/`, `/desktop`, `/mobile`), a mesma API REST
+   (`/api/v1/tickets`, `/api/v1/users`...), o mesmo GraphQL (`/graphql`) e os mesmos canais de tempo real (`/ws` e
+   `/cable`). O que separa um do outro é o **perfil do usuário**, não o caminho. Um bloqueio só por caminho no proxy
+   não separa as partes; ele é uma camada de defesa, não o controle principal.
+2. **Os retornos de OAuth usam sempre o `fqdn`.** O login de agentes por Google e Microsoft
+   (`OmniAuth.config.full_host`) e a autorização das caixas de e-mail (`ExternalCredential.callback_url`) montam a URL de
+   retorno a partir de `fqdn` (`suporte.lri.com.br`). Os links dos e-mails de sistema ao cliente (redefinição de senha,
+   verificação de cadastro) também. Por isso o `fqdn` continua sendo o endereço público, e a parte interna precisa
+   responder **pelo mesmo nome**.
+3. **A entrada por e-mail é de saída.** Os canais Google Email (IMAP/SMTP com OAuth) e Microsoft 365 Graph Email
+   buscam as mensagens a partir do servidor. Nenhuma porta ou rota pública é necessária para receber e-mail.
+
+#### 2.9.2 Arquitetura proposta: mesmo nome, duas portas de entrada
+
+```text
+                        Internet                                   Intranet (VPN WireGuard)
+ Cliente ── DNS público ──▶ suporte.lri.com.br        Agente ── DNS interno ──▶ suporte.lri.com.br
+                            suporte.ird.net.br                                  suporte.ird.net.br
+                                   │ IP público da VPS                                 │ IP da VPN na VPS
+                                   ▼                                                   ▼
+                     Listener PÚBLICO do proxy                          Listener INTERNO do proxy
+                     - define X-LRI-Zone: public                        - define X-LRI-Zone: internal
+                     - bloqueia rotas da equipe                         - todas as rotas
+                                   └──────────────────┐   ┌────────────────────────────┘
+                                                      ▼   ▼
+                                        Zammad (127.0.0.1, só o proxy alcança)
+                                        guarda de zona: na zona pública, nenhuma
+                                        sessão de agente ou administrador é aceita
+```
+
+- **DNS com duas visões (split-horizon)**: na internet, os dois nomes apontam para o IP público da VPS. Dentro da VPN,
+  o DNS interno resolve os mesmos nomes para o IP da VPN na VPS. Assim os retornos de OAuth, os cookies de sessão, as
+  origens de WebSocket (`fqdn` e `alternative_fqdn`) e os certificados funcionam igual nas duas zonas, sem mudar nada
+  do que as seções 2.6 e 2.7 já definem.
+- **Listener público**: o bloco do proxy existente na VPS (seção 6.2), escutando 80/443 no IP público.
+- **Listener interno**: um segundo bloco do mesmo proxy, escutando 443 **apenas no IP da interface da VPN**. Usa os
+  mesmos certificados Let's Encrypt, que continuam sendo emitidos pelo listener público (HTTP-01).
+- **Cabeçalho de zona**: cada listener **sobrescreve** `X-LRI-Zone` (o valor enviado pelo navegador é sempre
+  descartado). O Zammad só aceita conexões do proxy (`127.0.0.1` ou a rede Docker do proxy), então ninguém fala direto
+  com ele para forjar o cabeçalho. `RAILS_TRUSTED_PROXIES` aponta para o proxy, para que o IP real do cliente apareça
+  nos logs.
+
+#### 2.9.3 Controles, do mais forte ao complementar
+
+1. **Guarda de zona no Zammad (controle principal)**. Uma camada pequena no fork que, quando `X-LRI-Zone` é `public`:
+   - recusa o login de qualquer usuário com permissão de agente (`ticket.agent`) ou de administração (`admin*`), com a
+     mensagem definida pela `ux-spec`;
+   - recusa qualquer requisição autenticada desses usuários — sessão, token de API ou autenticação básica — em REST e
+     GraphQL, e encerra a sessão;
+   - recusa o login no WebSocket (`/ws`) e a conexão do ActionCable (`/cable`) desses usuários;
+   - informa à interface que a zona é pública, para que a tela de login do cliente **não mostre** os botões de Google e
+     Microsoft da equipe.
+
+   Sem essa guarda, um agente poderia, por exemplo, usar "esqueci minha senha" no portal público, definir uma senha e
+   entrar pela internet. A guarda fecha esse caminho independentemente da rota usada. Ela segue a seção 4 (alteração
+   pequena, coberta por testes, em caminho próprio do projeto) e é candidata a proposta ao upstream como recurso
+   genérico ("perfis restritos a redes confiáveis").
+2. **Bloqueio de rotas da equipe no listener público (defesa em profundidade)**. O listener público responde com a
+   página de bloqueio definida pela `ux-spec` para:
+   - início e retorno do login da equipe: `/auth/google_oauth2*` e `/auth/microsoft_office365*`;
+   - autorização das caixas de e-mail: `/api/v1/external_credentials/*`;
+   - monitoramento (`/api/v1/monitoring/*`) e as rotas de administração, importação, integrações e telefonia cuja
+     lista exata o architect define no contrato do slice, com teste para cada uma.
+3. **Login da equipe só por SSO**. Agentes entram por Google (LRI) ou Microsoft (IRD.Net) e não usam senha local. Como
+   os retornos de SSO estão bloqueados no listener público, o login da equipe só se completa dentro da VPN.
+4. **2FA obrigatório para os perfis de agente e administração** (`two_factor_authentication_enforce_role_ids`), como
+   camada adicional para o caso de uma senha local existir.
+
+#### 2.9.4 O que fica em cada zona
+
+| Função | Zona pública (internet) | Zona interna (VPN) |
+| ------ | ----------------------- | ------------------ |
+| Portal do cliente: cadastro, login com senha, redefinição de senha, abrir e acompanhar chamados | sim | sim |
+| Base de conhecimento pública (`/help`) e formulário web | sim | sim |
+| WebSocket (`/ws`) e ActionCable (`/cable`) para sessões de cliente | sim | sim |
+| Interface de agente, sessões e API de agente | **não** (guarda de zona) | sim |
+| Administração e configurações | **não** (guarda + bloqueio de rotas) | sim |
+| Login da equipe por Google e Microsoft | **não** (rotas bloqueadas) | sim |
+| Autorização OAuth das caixas de e-mail | **não** (rotas bloqueadas) | sim |
+| Recebimento de e-mail (Gmail IMAP e Microsoft Graph) | não se aplica: o servidor busca as mensagens | — |
+| Webhooks de integrações futuras (por exemplo WhatsApp) | só a rota específica de cada webhook, quando a integração entrar | sim |
+
+Os links das notificações aos agentes apontam para `suporte.lri.com.br`; dentro da VPN eles abrem a parte interna, e
+fora dela o agente vê a página de bloqueio.
+
+#### 2.9.5 Riscos e alternativas
+
+Riscos da proposta e como cada um é tratado:
+
+| Risco | Tratamento |
+| ----- | ---------- |
+| Rota compartilhada expõe função de agente na internet | guarda de zona por perfil, não por caminho; testes negativos por tipo de autenticação |
+| Cabeçalho de zona forjado | proxy sobrescreve o cabeçalho; Zammad só alcançável pelo proxy; teste com cabeçalho forjado |
+| Agente cria senha local pelo portal e entra pela internet | guarda de zona recusa o login; 2FA obrigatório para agentes |
+| Token de API de agente usado pela internet | guarda de zona cobre token e autenticação básica; integrações (ERP Plune) rodam dentro da VPN |
+| DNS interno mal configurado manda o agente ao listener público | falha fechada: o agente vê a página de bloqueio, nenhum dado da equipe é exposto |
+| VPN fora do ar | a equipe fica sem acesso até a VPN voltar; clientes e entrada de e-mail não são afetados; procedimento de contingência no guia de operação |
+| Botões de SSO da equipe visíveis ao cliente | guarda informa a zona à interface; `ux-spec` define a tela de login pública |
+| Diferença a mais em relação ao upstream | guarda em caminho próprio, pequena, com testes; proposta ao upstream |
+| Porta nova na VPS para a VPN | uma porta UDP do WireGuard, registrada no checklist (seção 6.2.1), sem efeito nos outros projetos |
+
+Alternativas consideradas:
+
+| Alternativa | Avaliação |
+| ----------- | --------- |
+| **A. VPN WireGuard própria com DNS interno (proposta)** | sem dependência de terceiros, mesmo nome nas duas zonas, custo zero; exige DNS interno e clientes WireGuard ou túnel a partir das redes dos escritórios |
+| B. Tailscale (WireGuard gerenciado) com DNS dividido | configuração mais simples e sem porta de entrada na VPS; depende de serviço externo para coordenação |
+| C. Cloudflare Tunnel + Cloudflare Access | sem porta de entrada e com login por identidade; como agentes e clientes compartilham caminhos, o Access precisaria cobrir o nome inteiro, exigindo login Cloudflare também dos clientes, ou um nome separado, o que quebra os retornos de OAuth atrelados ao `fqdn` |
+| D. Nome interno separado (por exemplo `helpdesk.intranet`) | os retornos de OAuth e os e-mails de sistema continuam usando o `fqdn` público; o login da equipe acabaria completado no nome público. Descartada |
+| E. `fqdn` apontando para o nome interno | links de redefinição de senha e de cadastro dos clientes apontariam para um nome inacessível na internet. Descartada |
+| F. Tudo público, com 2FA e restrição por IP dentro do Zammad | contraria a decisão de não expor a parte interna; fica só como contingência temporária, com aprovação de Leandro |
+
+#### 2.9.6 Como o slice passa pela esteira
+
+A separação de zonas é um slice com `ui_impact` e `security_impact` diferentes de `none`:
+
+1. **Planner**: define o slice "Zonas interna e pública".
+2. **UX-A** ([`roles/2b-ux-engineer-a.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/2b-ux-engineer-a.md)),
+   **antes de qualquer código**: `ux-spec` com
+   - a tela de login da zona pública, sem os botões de SSO da equipe, na interface atual do Zammad (UI-LRI-2);
+   - a página de bloqueio em pt-BR para rotas da equipe acessadas pela internet, com a marca do Grupo LRI;
+   - a mensagem ao agente que tenta entrar pela internet;
+   - estados de erro e requisitos de acessibilidade.
+3. **Architect**: contrato com `allowed_paths` (guarda de zona, configuração do proxy em `contrib/lri/`, testes), lista
+   exata das rotas bloqueadas e o formato do cabeçalho de zona.
+4. **Security-A**: threat model com os abuse cases da seção 2.9.5 e os controles obrigatórios.
+5. **Coder** ([`roles/5-coder.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/5-coder.md)):
+   implementação com TDD e um teste negativo por abuse case — login, sessão, token, autenticação básica, GraphQL,
+   `/ws`, `/cable` e cabeçalho forjado.
+6. **Revisões em paralelo**: Code Reviewer
+   ([`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md)),
+   security-B e UX-B ([`roles/6b-ux-engineer-b.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6b-ux-engineer-b.md)),
+   todos de família de modelo diferente da de quem escreveu.
+7. **QA**: validação em homologação com as duas zonas, incluindo um agente fora da VPN.
+
+Nenhuma etapa deste slice executa comando no servidor de produção. Qualquer comando destrutivo em produção ou
+homologação (por exemplo, alterar a configuração do proxy que atende os outros projetos) só acontece com
+`python -m pipeline.cli destructive-check` devolvendo `LIBERADO` a partir do ack de Leandro em `acks.yaml`.
 
 ## 3. Princípios de UI e UX
 
@@ -464,9 +622,30 @@ registrado em `docs/lri/VPS-CHECKLIST.md`.
 - [ ] O container web da central publica a porta apenas em `127.0.0.1` (ou só na rede Docker do proxy), em uma porta
   livre conferida no inventário (`ss -tlnp`).
 - [ ] Emissão e renovação dos certificados dos dois nomes pelo mesmo mecanismo que já atende os outros projetos.
-- [ ] Firewall: nenhuma porta nova aberta para a internet além de 80 e 443, que já estão em uso.
+- [ ] Firewall: além de 80 e 443, que já estão em uso, apenas a porta UDP do WireGuard (seção 2.9) é aberta para a
+  internet, e só depois de aprovada.
 - [ ] Saída de rede liberada para Gmail (IMAP 993 e SMTP 465/587 em `imap.gmail.com` e `smtp.gmail.com`), para as
   APIs OAuth do Google e para Microsoft Graph e Entra ID (`graph.microsoft.com`, `login.microsoftonline.com`), em HTTPS.
+
+##### Zonas interna e pública (seção 2.9)
+
+- [ ] O proxy existente suporta dois listeners para os mesmos nomes: o público (IP da VPS) e o interno (IP da VPN),
+  sem alterar os blocos dos outros projetos.
+- [ ] Cada listener sobrescreve o cabeçalho `X-LRI-Zone` (`public` ou `internal`); o valor enviado pelo navegador nunca
+  chega ao Zammad.
+- [ ] O Zammad escuta só em `127.0.0.1` ou na rede Docker do proxy, confirmado por `ss -tlnp` e por tentativa de acesso
+  externo direto à porta, que deve falhar.
+- [ ] Lista de rotas bloqueadas no listener público (seção 2.9.3) aplicada e testada de fora da VPN.
+- [ ] `RAILS_TRUSTED_PROXIES` aponta para o proxy, e os logs do Zammad mostram o IP real do cliente.
+- [ ] WireGuard: porta UDP livre, chaves geradas por par, interface da VPN com IP fixo na VPS, e nada além do
+  listener interno exposto nessa interface.
+- [ ] DNS interno das redes da LRI e da IRD.Net (ou dos clientes WireGuard) resolve `suporte.lri.com.br` e
+  `suporte.ird.net.br` para o IP da VPN.
+- [ ] Teste de fora da VPN: portal do cliente, base de conhecimento e formulário funcionam; login de agente, rotas de
+  SSO da equipe, autorização de caixas e administração são recusados.
+- [ ] Teste dentro da VPN: login por Google (LRI) e por Microsoft (IRD.Net), interface de agente, administração e
+  tempo real (`/ws` e `/cable`) funcionam.
+- [ ] Recebimento de e-mail pelos canais Google e Microsoft funciona sem nenhuma rota pública.
 
 ##### Elasticsearch/OpenSearch e memória
 
@@ -577,7 +756,7 @@ implantação é autorizada à parte por Leandro.
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
 | **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |
-| **5. Imagem e implantação** | imagem Docker do fork construída pela CI; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
+| **5. Imagem e implantação** | imagem Docker do fork construída pela CI; slice de zonas interna e pública (seção 2.9) com guarda de zona, configuração do proxy e da VPN; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
 | **6. Integrações** | site e formulário; WhatsApp; ERP Plune | cada integração em PR próprio, com testes e documentação |
 
 ## 9. Governança e esteira
@@ -632,6 +811,7 @@ válidas.
 | 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
 | 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
 | 13 | Esteira | papéis e regras de PR e revisão da esteira vinculados às seções 3 e 9 |
+| — | Zonas | parte interna (equipe, administração) só na intranet; parte do cliente na internet nos dois subdomínios (seção 2.9) |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
 | — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
@@ -654,3 +834,8 @@ válidas.
    feriados locais e metas de SLA por marca e por tipo de cliente.
 7. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
 8. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
+9. **Acesso à intranet**: confirmar a alternativa A da seção 2.9.5 (WireGuard próprio) ou escolher B (Tailscale) ou C
+   (Cloudflare); como as redes dos escritórios da LRI e da IRD.Net chegam à VPN (túnel a partir do roteador de cada
+   escritório ou cliente em cada máquina); quem mantém o DNS interno.
+10. **Proposta da guarda de zona ao upstream**: autorização para propor a guarda de zona ao `zammad/zammad` depois de
+    validada aqui.

@@ -291,27 +291,76 @@ _Violação: cor de marca aplicada a texto ou botão sem atingir o contraste mí
 
 ### Ativos de marca
 
-Logos e cores vêm dos ativos de marca já existentes nos repositórios do Leandro (por exemplo `minissites`), para que a
-central tenha exatamente a mesma identidade dos sites. Os arquivos aprovados ficam em `public/assets/lri/`, com a
-origem de cada um registrada no PR que os adiciona.
+Os ativos vêm das lojas e sites oficiais de cada marca, a pedido de Leandro, e ficam versionados em
+[`docs/lri/brand-assets/`](brand-assets/) como **fonte**. As versões finais, já tratadas e aprovadas pelo UX-B, vão
+para `public/assets/lri/` no slice de branding (fase 3).
 
-Situação do levantamento: o repositório `minissites` não está visível para o agente do projeto, e os repositórios
-públicos do Leandro (`leaberg69/*`) não contêm logos nem paletas da LRI ou da IRD.Net. O levantamento é concluído
-assim que `minissites` for compartilhado com o agente, ou os arquivos forem enviados diretamente.
+#### Cores
 
-Itens necessários, ainda pendentes:
+| Marca | Papel | Cor | Origem |
+| ----- | ----- | --- | ------ |
+| LRI | primária | `#74b527` | `theme-color` de `www.lri.com.br` |
+| LRI | secundária | `#3d7a12` | seção personalizada da loja da LRI |
+| LRI | secundária escura | `#2c5a0d` | seção personalizada da loja da LRI |
+| IRD.Net | primária | `#e46e33` | `theme-color` de `www.ird.net.br` |
+| IRD.Net | apoio | `#000000` | logo da IRD.Net |
+
+#### Logos
+
+| Arquivo | Marca | Formato | Observação |
+| ------- | ----- | ------- | ---------- |
+| [`lri-logo.svg`](brand-assets/lri-logo.svg) | LRI | SVG vetorial, `viewBox` 1000 × 775,4 | sem `fill`: renderiza preto |
+| [`lri-logo-white.png`](brand-assets/lri-logo-white.png) | LRI | PNG 181 × 93, branco, fundo transparente | da loja; pequeno para telas de alta densidade |
+| [`ird-logo.png`](brand-assets/ird-logo.png) | IRD.Net | PNG 874 × 246, preto e laranja, fundo transparente | não existe SVG |
+
+O SVG da LRI contém apenas caminhos vetoriais, sem scripts nem referências externas.
+
+#### Lacunas
 
 | Item | LRI | IRD.Net | Grupo LRI |
 | ---- | --- | ------- | --------- |
-| Logo horizontal em SVG (fundo claro) | pendente | pendente | pendente |
-| Logo em versão negativa SVG (tema escuro) | pendente | pendente | pendente |
-| Símbolo quadrado SVG/PNG 512 px (favicon, avatar do sistema) | pendente | pendente | pendente |
-| Logo PNG para assinatura de e-mail (até 300 px de largura) | pendente | pendente | — |
-| Paleta oficial em hexadecimal (primária, secundária, apoio) | pendente | pendente | — |
+| Logo vetorial (SVG) | existe, **precisa de cor de preenchimento** | **não existe** | pendente |
+| Versão para fundo escuro | PNG branco pequeno; SVG com `fill` claro a gerar | pendente: o preto do logo some no tema escuro | pendente |
+| Símbolo quadrado 512 px (favicon, avatar do sistema) | pendente | pendente | pendente |
+| Logo para assinatura de e-mail (até 300 px de largura) | a gerar a partir do SVG | a gerar a partir do PNG | — |
 | Regras de uso do logo (área de proteção, tamanho mínimo) | pendente | pendente | — |
 
-A tipografia continua a do Zammad (UI-LRI-2). O logo do **Grupo LRI**, usado no portal, pode ser uma composição dos
-dois logos, especificada pelo UX-A nos `visual_tokens` da `ux-spec` se ainda não existir.
+- **SVG da LRI**: o slice de branding gera duas variantes a partir do original — `fill` na cor definida pelo UX-A para
+  fundo claro e `fill` claro para o tema escuro —, sem alterar o desenho.
+- **IRD.Net**: o PNG de 874 × 246 atende ao portal e às assinaturas. Um SVG oficial é solicitado à IRD.Net; até lá, o
+  PNG é a fonte, e a versão para fundo escuro troca o preto por branco mantendo o laranja.
+
+#### Verificação de contraste pelo UX-A
+
+O **UX-A** ([`roles/2b-ux-engineer-a.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/2b-ux-engineer-a.md))
+verifica o contraste WCAG AA de cada cor contra os temas claro e escuro do Zammad e registra o resultado no campo
+`accessibility` da `ux-spec` de branding, com a regra de uso de cada cor em `visual_tokens`. O UX-B confirma com
+screenshots nos dois temas.
+
+Razões de contraste calculadas pela fórmula WCAG 2.x, como ponto de partida para o UX-A. Fundos dos tokens do Zammad:
+claro `#ffffff` e `neutral-50` `#fafafa`; escuro `gray-500` `#323234` e `gray-900` `#202021`.
+
+| Cor | `#ffffff` | `#fafafa` | `#323234` | `#202021` | texto branco sobre a cor | texto preto sobre a cor |
+| --- | --------- | --------- | --------- | --------- | ------------------------ | ----------------------- |
+| `#74b527` | 2,51 | 2,40 | 5,11 | 6,50 | 2,51 | 8,38 |
+| `#3d7a12` | 5,26 | 5,04 | 2,43 | 3,09 | 5,26 | 3,99 |
+| `#2c5a0d` | 8,15 | 7,81 | 1,57 | 2,00 | 8,15 | 2,58 |
+| `#e46e33` | 3,19 | 3,06 | 4,01 | 5,10 | 3,19 | 6,58 |
+
+Limites WCAG AA: 4,5:1 para texto normal; 3:1 para texto grande e para componentes de interface (bordas, ícones,
+foco). Pontos que a `ux-spec` resolve:
+
+- **Verde LRI no tema claro**: `#74b527` fica abaixo de 3:1 sobre branco; o verde de texto e de botão no tema claro é
+  `#3d7a12` ou `#2c5a0d`, e `#74b527` fica para áreas decorativas ou para o tema escuro, onde passa.
+- **Verde LRI no tema escuro**: `#74b527` passa; os dois verdes secundários não.
+- **Laranja IRD.Net**: passa 3:1 no tema claro (componentes e texto grande), mas não 4,5:1; texto normal laranja sobre
+  branco e texto branco sobre laranja ficam de fora, e texto preto sobre laranja passa. No tema escuro passa 3:1 e
+  fica abaixo de 4,5:1 sobre `#323234`.
+- **Logos**: o preto da IRD.Net e o SVG da LRI sem `fill` não aparecem no tema escuro; daí as variantes para fundo
+  escuro da tabela de lacunas.
+
+A tipografia continua a do Zammad (UI-LRI-2). O logo do **Grupo LRI**, usado no portal, é uma composição dos dois
+logos, especificada pelo UX-A nos `visual_tokens` da `ux-spec`.
 
 ## 4. Estratégia de customização do fork
 
@@ -336,7 +385,8 @@ Arquivos exclusivos do projeto ficam em caminhos próprios e previsíveis:
 | `docs/lri/` | documentação do projeto |
 | `contrib/lri/` | provisionamento, scripts operacionais |
 | `*/styles/custom/lri-*.css`, `app/assets/stylesheets/custom/lri-*.css` | branding |
-| `public/assets/lri/` | logos e imagens das marcas |
+| `docs/lri/brand-assets/` | ativos de marca originais (fonte) |
+| `public/assets/lri/` | logos e imagens das marcas, versões finais |
 
 ## 5. Sincronização com o upstream
 
@@ -577,6 +627,7 @@ válidas.
 | 4 | Grupos e filas | estrutura da seção 2.2 |
 | 6 | Hospedagem | VPS existente 72.62.108.138, ao lado de Justiano, Plaixec e sferalabs, isolada por projeto Compose próprio (seção 6.2) |
 | 8 | Login dos colaboradores | LRI por Google Workspace, IRD.Net por Microsoft 365 (Entra ID), sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
+| — | Cores das marcas | LRI `#74b527`, `#3d7a12`, `#2c5a0d`; IRD.Net `#e46e33` e preto (seção 3) |
 | — | Canais de e-mail | LRI pelo canal Google Email; IRD.Net pelo canal Microsoft 365 Graph Email (seção 2.4) |
 | 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
 | 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
@@ -594,8 +645,8 @@ válidas.
 1. **Caixas restantes**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da LRI. O canal de
    cada uma já segue do domínio (seção 2.4).
 2. **Acesso aos DNS**: quem cria os registros `suporte` nas zonas `lri.com.br` e `ird.net.br` (seção 2.6).
-3. **Ativos de marca**: compartilhar `minissites` com o agente ou enviar os arquivos da tabela "Ativos de marca"
-   (seção 3).
+3. **Ativos de marca**: cores e logos recebidos (seção 3, "Ativos de marca"); faltam o SVG da IRD.Net, as versões
+   para fundo escuro, o símbolo quadrado e as regras de uso. A cor de preenchimento do SVG da LRI sai da `ux-spec`.
 4. **Checklist da VPS**: execução, somente em leitura, do checklist pré-implantação da seção 6.2.1 no servidor
    72.62.108.138.
 5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.

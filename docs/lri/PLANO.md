@@ -152,19 +152,21 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 
 #### Proxy reverso
 
-- Um bloco de servidor por subdomínio (ou um bloco com os dois nomes), ambos encaminhando para o mesmo Zammad. Esses
-  blocos existem em dois listeners, público e interno, conforme a seção 2.9.
-- O proxy repassa os cabeçalhos `Host`, `X-Forwarded-For` e `X-Forwarded-Proto`. O cabeçalho `Host` original é o que
-  permite ao ActionCable aceitar a conexão pelo endereço da IRD.Net.
+- O proxy é o Nginx da própria stack da central, alcançado só pelo Cloudflare Tunnel (seção 2.9.2), com dois blocos
+  de servidor: o público, para os dois subdomínios de cliente, e o interno, para o nome da equipe. O Nginx
+  compartilhado da VPS não participa.
+- O proxy repassa os cabeçalhos `Host`, `X-Forwarded-For` (a partir de `CF-Connecting-IP`) e `X-Forwarded-Proto:
+  https`. O cabeçalho `Host` original é o que permite ao ActionCable aceitar a conexão pelo endereço da IRD.Net.
 - As rotas de WebSocket (`/ws` e `/cable`) recebem os cabeçalhos `Upgrade` e `Connection` de upgrade.
-- Porta 80 redireciona para 443 nos dois nomes, mantendo livre o caminho `/.well-known/acme-challenge/`.
+- HTTP é redirecionado para HTTPS na borda da Cloudflare ("Always Use HTTPS"), com HSTS.
 
 #### Certificados TLS
 
-- DNS: registros `A` de `suporte.lri.com.br` (zona `lri.com.br`) e `suporte.ird.net.br` (zona `ird.net.br`) apontando
-  para o IP do servidor da central.
-- Certificados Let's Encrypt emitidos pelo proxy por desafio HTTP-01 — um certificado por nome ou um certificado com
-  os dois nomes —, com renovação automática.
+- DNS: registros `CNAME` com proxy da Cloudflare de `suporte.lri.com.br` (zona `lri.com.br`), `suporte.ird.net.br`
+  (zona `ird.net.br`) e do nome interno da equipe apontando para o túnel (`<id-do-túnel>.cfargotunnel.com`). As duas
+  zonas já estão na Cloudflare.
+- O certificado público é o da borda da Cloudflare (Universal SSL, que cobre o primeiro nível de subdomínio das duas
+  zonas). Entre a borda e o `cloudflared` o túnel é cifrado; a central não emite nem renova certificados.
 
 #### Links nos e-mails
 
@@ -185,9 +187,9 @@ O Zammad aceita um endereço principal e um alternativo, o que corresponde exata
 
 ### 2.7 Autenticação
 
-- **Colaboradores (decidido)**: o login da equipe só se completa na zona interna (VPN, seção 2.9). Cada empresa entra
-  com a conta corporativa que já usa, pelos dois provedores nativos do
-  Zammad. A tela de login mostra os dois botões.
+- **Colaboradores (decidido)**: o login da equipe só se completa na zona interna (nome interno atrás do Cloudflare
+  Access, seção 2.9). Cada empresa entra com a conta corporativa que já usa, pelos dois provedores nativos do Zammad.
+  A tela de login da zona interna mostra os dois botões.
 
   | Empresa | Provedor | Setting do Zammad | URI de retorno |
   | ------- | -------- | ----------------- | -------------- |
@@ -252,39 +254,106 @@ Três fatos do código moldam a solução:
    (`OmniAuth.config.full_host`) e a autorização das caixas de e-mail (`ExternalCredential.callback_url`) montam a URL de
    retorno a partir de `fqdn` (`suporte.lri.com.br`). Os links dos e-mails de sistema ao cliente (redefinição de senha,
    verificação de cadastro) também. Por isso o `fqdn` continua sendo o endereço público, e a parte interna precisa
-   responder **pelo mesmo nome**.
+   ou responder pelo mesmo nome, ou receber de volta esses retornos a partir do nome público (solução da seção
+   2.9.2).
 3. **A entrada por e-mail é de saída.** Os canais Google Email (IMAP/SMTP com OAuth) e Microsoft 365 Graph Email
    buscam as mensagens a partir do servidor. Nenhuma porta ou rota pública é necessária para receber e-mail.
 
-#### 2.9.2 Arquitetura proposta: mesmo nome, duas portas de entrada
+#### 2.9.2 Arquitetura proposta: Cloudflare Tunnel, Cloudflare Access e um nome interno
+
+**Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
+
+- as zonas DNS `lri.com.br` e `ird.net.br` já estão na Cloudflare (conta LRI Group), e os registros `suporte` ainda
+  não existem nas duas;
+- a LRI já publica a sua intranet (`intranet.lri.com.br`) atrás do **Cloudflare Access** (equipe `lriauto`), com
+  certificado de origem da Cloudflare e mTLS de origem por nome;
+- a VPS 72.62.108.138 atende cerca de 11 sites no Nginx compartilhado; mexer nele afeta todos (seção 6.2.1).
+
+Proposta: **nenhum tráfego da central passa pelo Nginx compartilhado nem por porta nova aberta na VPS**. Um
+`cloudflared` dentro do projeto Compose da central abre um túnel de saída até a Cloudflare e entrega cada nome a
+um listener diferente do proxy próprio da central:
 
 ```text
-                        Internet                                   Intranet (VPN WireGuard)
- Cliente ── DNS público ──▶ suporte.lri.com.br        Agente ── DNS interno ──▶ suporte.lri.com.br
-                            suporte.ird.net.br                                  suporte.ird.net.br
-                                   │ IP público da VPS                                 │ IP da VPN na VPS
-                                   ▼                                                   ▼
-                     Listener PÚBLICO do proxy                          Listener INTERNO do proxy
-                     - define X-LRI-Zone: public                        - define X-LRI-Zone: internal
-                     - bloqueia rotas da equipe                         - todas as rotas
-                                   └──────────────────┐   ┌────────────────────────────┘
-                                                      ▼   ▼
-                                        Zammad (127.0.0.1, só o proxy alcança)
-                                        guarda de zona: na zona pública, nenhuma
-                                        sessão de agente ou administrador é aceita
+ Cliente ─▶ suporte.lri.com.br ─┐                                ┌─▶ listener PÚBLICO  (rede Docker, :8081)
+            suporte.ird.net.br ─┤                                │   X-LRI-Zone: public
+                                ├─▶ borda Cloudflare ─▶ túnel ───┤   bloqueia rotas da equipe
+ Equipe ──▶ atendimento.lri.com.br ─▶ Cloudflare Access          │
+            (Google: LRI · Microsoft: IRD.Net)                   └─▶ listener INTERNO  (rede Docker, :8082)
+                                                                     X-LRI-Zone: internal
+                                                                           │
+                                         cloudflared, Nginx da central e Zammad na rede Docker da central;
+                                         nenhuma porta publicada para a internet
 ```
 
-- **DNS com duas visões (split-horizon)**: na internet, os dois nomes apontam para o IP público da VPS. Dentro da VPN,
-  o DNS interno resolve os mesmos nomes para o IP da VPN na VPS. Assim os retornos de OAuth, os cookies de sessão, as
-  origens de WebSocket (`fqdn` e `alternative_fqdn`) e os certificados funcionam igual nas duas zonas, sem mudar nada
-  do que as seções 2.6 e 2.7 já definem.
-- **Listener público**: o bloco do proxy existente na VPS (seção 6.2), escutando 80/443 no IP público.
-- **Listener interno**: um segundo bloco do mesmo proxy, escutando 443 **apenas no IP da interface da VPN**. Usa os
-  mesmos certificados Let's Encrypt, que continuam sendo emitidos pelo listener público (HTTP-01).
-- **Cabeçalho de zona**: cada listener **sobrescreve** `X-LRI-Zone` (o valor enviado pelo navegador é sempre
-  descartado). O Zammad só aceita conexões do proxy (`127.0.0.1` ou a rede Docker do proxy), então ninguém fala direto
-  com ele para forjar o cabeçalho. `RAILS_TRUSTED_PROXIES` aponta para o proxy, para que o IP real do cliente apareça
-  nos logs.
+- **Nomes**: `suporte.lri.com.br` e `suporte.ird.net.br` (clientes) e um **nome interno** para a equipe, proposto
+  como `atendimento.lri.com.br` (a confirmar na issue de decisão). Os três são registros `CNAME` para o túnel,
+  com proxy da Cloudflare.
+- **Túnel (Cloudflare Tunnel)**: o `cloudflared` só faz conexões de saída. Regras de entrada: os dois nomes de
+  cliente vão para o listener público; o nome interno vai para o listener interno com
+  `originRequest.access.required: true` (equipe `lriauto` e `audTag` do aplicativo). Assim o próprio `cloudflared`
+  confere o token do Access antes de entregar a requisição. Qualquer outro nome cai na regra final `http_status:404`.
+- **Cloudflare Access no nome interno**: aplicativo "Central de Atendimento — equipe" com dois provedores de
+  identidade: **Google Workspace da LRI** e **Microsoft Entra ID da IRD.Net**. Política: permitir e-mails
+  `@lri.com.br` autenticados pelo Google e `@ird.net.br` autenticados pelo Entra ID; MFA exigido nos provedores.
+  Os nomes de cliente **não** têm Access (o cliente usa o portal com e-mail e senha).
+- **Listeners**: o Nginx que já existe na stack oficial do Zammad (`zammad-nginx`) ganha dois blocos de servidor,
+  um por zona, ouvindo apenas dentro da rede Docker da central. Cada um **sobrescreve** `X-LRI-Zone`, define
+  `X-Forwarded-Proto: https` e copia o IP real de `CF-Connecting-IP` para `X-Forwarded-For` (com
+  `set_real_ip_from` restrito ao `cloudflared`). O valor de `X-LRI-Zone` enviado pelo navegador é sempre
+  descartado, e o Zammad só é alcançável por esse Nginx.
+- **TLS**: o certificado público é o da borda da Cloudflare; entre a borda e o `cloudflared` o túnel é cifrado.
+  Não há Let's Encrypt nem certificado de origem para gerenciar na central.
+- **Nginx compartilhado da VPS**: não muda. A central não disputa as portas 80 e 443.
+
+**WebSocket**. A Cloudflare repassa WebSocket nos dois tipos de nome, e os dois listeners mandam `Upgrade` e
+`Connection` em `/ws` e `/cable`. O Zammad só aceita como origem `fqdn` e `alternative_fqdn`
+(`lib/zammad/web_socket_origins.rb`):
+
+| Setting | Valor |
+| ------- | ----- |
+| `fqdn` | `suporte.lri.com.br` |
+| `alternative_fqdn` | `suporte.ird.net.br` |
+
+O listener interno troca o cabeçalho `Origin` **somente quando ele é exatamente** `https://atendimento.lri.com.br`
+para `https://suporte.lri.com.br`, nas rotas `/ws` e `/cable`. A troca transforma uma origem confiável em outra; uma
+origem estranha segue intacta e é recusada pelo Zammad. Alternativa a avaliar pelo architect: uma lista de origens
+adicionais no fork (mudança pequena, candidata ao upstream). A Cloudflare encerra conexões ociosas por 100 s; o
+teste de homologação confirma que os pings do `/ws` e do `/cable` mantêm a conexão viva.
+
+**Retornos de OAuth**. O Zammad monta a URL de retorno sempre a partir do `fqdn`:
+`OmniAuth.config.full_host` (`config/initializers/omniauth.rb`) para o login da equipe e
+`ExternalCredential.callback_url` (`app/models/external_credential.rb`) para a autorização das caixas de e-mail.
+Os URIs registrados no Google e no Entra ID continuam sendo os do `fqdn` (seção 2.7). O login, porém, começa e
+termina no nome interno:
+
+1. o agente abre `atendimento.lri.com.br`, passa pelo Access e clica em "Google" ou "Microsoft";
+2. o provedor devolve o navegador para `https://suporte.lri.com.br/auth/<provedor>/callback?code=…&state=…`;
+3. o listener público responde **302 para o mesmo caminho e a mesma query em `atendimento.lri.com.br`**, apenas
+   para os caminhos exatos de retorno (`/auth/google_oauth2/callback`, `/auth/microsoft_office365/callback` e
+   `/api/v1/external_credentials/<provedor>/callback`), com destino fixo, sem nenhum valor vindo do usuário no host;
+4. no nome interno, a sessão que iniciou o fluxo confere o `state` e troca o `code` usando o mesmo `redirect_uri` do
+   `fqdn`, que é só um texto comparado pelo provedor.
+
+O `code` é de uso único e só vale com o segredo do aplicativo, que fica no servidor. Ao fim da autorização de uma
+caixa, o Zammad redireciona para `https://suporte.lri.com.br/#channels/…` (`ExternalCredential.app_url`); o
+administrador volta ao nome interno por conta própria. O teste de homologação cobre os três retornos.
+
+**Login da equipe: duas opções** (decisão na issue):
+
+- **(i) Login do Zammad por Google e Microsoft atrás do Access (proposta)**: nada muda no núcleo; o agente passa
+  pelo Access e depois clica no botão do provedor, quase sempre sem digitar nada, porque já está autenticado nele.
+- **(ii) SSO por cabeçalho**: o Zammad já aceita login pelo cabeçalho `X-Forwarded-User`
+  (`app/controllers/sessions_controller.rb`). O listener interno preencheria esse cabeçalho a partir do e-mail
+  validado pelo Access, e o listener público o apagaria. É um login só, mas o Zammad passa a confiar num cabeçalho;
+  a guarda de zona teria de recusar esse cabeçalho fora da zona interna, e o caminho precisa de threat model
+  próprio.
+
+**Cookies e sessões**. Cada nome tem os seus cookies. A sessão da equipe fica presa a `atendimento.lri.com.br`, e a
+dos clientes aos nomes `suporte`.
+
+**Links aos agentes**. Os e-mails de notificação aos agentes usam o `fqdn` (`suporte.lri.com.br`). Fora do nome
+interno, o agente cai no portal; a página de bloqueio (definida pela `ux-spec`) aponta o endereço interno. Uma
+melhoria posterior pode gerar esses links com o nome interno.
 
 #### 2.9.3 Controles, do mais forte ao complementar
 
@@ -325,32 +394,35 @@ Três fatos do código moldam a solução:
    Workspace (LRI) e no Entra ID (IRD.Net)**. O 2FA do Zammad fica obrigatório apenas para a conta de emergência.
 4. **Credenciais de API desligadas onde não são usadas**. `api_password_access` desativado (autenticação básica na API,
    que pula o 2FA em `/ical` e `/calendar_subscriptions`); nenhuma aplicação OAuth2 (Doorkeeper) cadastrada; tokens
-   de API só para integrações que rodam dentro da VPN. Assinaturas de calendário por autenticação básica deixam de
-   funcionar; a alternativa para a equipe, dentro da VPN, fica definida no contrato do slice.
+   de API só para integrações que chegam pela zona interna (rede Docker da central ou nome interno com token de
+   serviço do Access). Assinaturas de calendário por autenticação básica deixam de funcionar; a alternativa para a
+   equipe, na zona interna, fica definida no contrato do slice.
 5. **Bloqueio de rotas da equipe no listener público (defesa em profundidade)**. O listener público responde com a
-   página de bloqueio definida pela `ux-spec` para:
-   - início e retorno do login da equipe: `/auth/google_oauth2*` e `/auth/microsoft_office365*`;
-   - autorização das caixas de e-mail: `/api/v1/external_credentials/*`;
+   página de bloqueio definida pela `ux-spec` para as rotas abaixo; as mesmas rotas também são barradas por regra
+   personalizada do WAF da Cloudflare nos dois nomes de cliente, antes de chegarem à VPS:
+   - início do login da equipe: `/auth/google_oauth2*` e `/auth/microsoft_office365*`, **exceto** os caminhos exatos
+     de retorno, que recebem o 302 para o nome interno (seção 2.9.2);
+   - autorização das caixas de e-mail: `/api/v1/external_credentials/*`, com a mesma exceção para o retorno;
    - provedor OAuth2: `/oauth/*`;
    - monitoramento (`/api/v1/monitoring/*`) e as rotas de administração, importação, integrações e telefonia cuja
      lista exata o architect define no contrato do slice, com teste para cada uma.
 
 #### 2.9.4 O que fica em cada zona
 
-| Função | Zona pública (internet) | Zona interna (VPN) |
+| Função | Zona pública (nomes `suporte`) | Zona interna (nome da equipe, atrás do Access) |
 | ------ | ----------------------- | ------------------ |
 | Portal do cliente: cadastro, login com senha, redefinição de senha, abrir e acompanhar chamados | sim | sim |
 | Base de conhecimento pública (`/help`) e formulário web | sim | sim |
 | WebSocket (`/ws`) e ActionCable (`/cable`) para sessões de cliente | sim | sim |
 | Interface de agente, sessões e API de agente | **não** (guarda de zona) | sim |
 | Administração e configurações | **não** (guarda + bloqueio de rotas) | sim |
-| Login da equipe por Google e Microsoft | **não** (rotas bloqueadas) | sim |
-| Autorização OAuth das caixas de e-mail | **não** (rotas bloqueadas) | sim |
+| Login da equipe por Google e Microsoft | **não** (rotas bloqueadas; só o retorno do provedor, repassado ao nome interno) | sim |
+| Autorização OAuth das caixas de e-mail | **não** (rotas bloqueadas; só o retorno, repassado ao nome interno) | sim |
 | Recebimento de e-mail (Gmail IMAP e Microsoft Graph) | não se aplica: o servidor busca as mensagens | — |
 | Webhooks de integrações futuras (por exemplo WhatsApp) | só a rota específica de cada webhook, quando a integração entrar | sim |
 
-Os links das notificações aos agentes apontam para `suporte.lri.com.br`; dentro da VPN eles abrem a parte interna, e
-fora dela o agente vê a página de bloqueio.
+Os links das notificações aos agentes apontam para `suporte.lri.com.br`; ali o agente vê a página de bloqueio, que
+indica o nome interno (seção 2.9.2).
 
 #### 2.9.5 Riscos e alternativas
 
@@ -364,21 +436,27 @@ Riscos da proposta e como cada um é tratado:
 | Token OAuth2 (Doorkeeper) de agente usado pela internet | guarda em nível Rack cobre `/oauth/*` e o uso de bearer token; nenhuma aplicação OAuth2 cadastrada |
 | 2FA do Zammad não cobre login por SSO | segundo fator exigido no Google Workspace e no Entra ID |
 | Agente cria senha local pelo portal e entra pela internet | guarda recusa login por senha e redefinição de senha para perfis da equipe, em qualquer zona |
-| Token de API ou autenticação básica de agente usados pela internet | guarda cobre token, autenticação básica, `/ical` e `/calendar_subscriptions`; `api_password_access` desativado; integrações (ERP Plune) rodam dentro da VPN |
-| DNS interno mal configurado manda o agente ao listener público | falha fechada: o agente vê a página de bloqueio, nenhum dado da equipe é exposto |
-| VPN fora do ar | a equipe fica sem acesso até a VPN voltar; clientes e entrada de e-mail não são afetados; procedimento de contingência no guia de operação |
+| Token de API ou autenticação básica de agente usados pela internet | guarda cobre token, autenticação básica, `/ical` e `/calendar_subscriptions`; `api_password_access` desativado; integrações (ERP Plune) chegam pela zona interna |
+| Agente abre o nome público (link de notificação, favorito antigo) | falha fechada: a guarda recusa a sessão de agente e a página de bloqueio indica o nome interno |
+| Listener interno alcançado sem passar pelo Access | o listener só existe na rede Docker da central, sem porta publicada; o `cloudflared` exige o token do Access (`access.required`); teste de acesso direto que deve falhar |
+| Repasse dos retornos de OAuth vira redirecionamento aberto | só caminhos exatos, destino fixo no nome interno, query repassada sem alterar o host; teste com host e caminho manipulados |
+| Origem do WebSocket do nome interno recusada | troca de `Origin` só para o valor exato do nome interno, nas rotas `/ws` e `/cable`; teste com origem estranha, que deve continuar recusada |
+| Cloudflare ou o túnel fora do ar | clientes e equipe ficam sem acesso web até o túnel voltar; a entrada de e-mail continua (é de saída); dois conectores `cloudflared` para o mesmo túnel e procedimento de contingência no guia de operação |
+| Dependência da Cloudflare e dados em trânsito na borda | as zonas e os outros sites do grupo já dependem dela; registro como operador no inventário LGPD (seção 6.5); plano Zero Trust gratuito até 50 usuários — acima disso há custo, que exige aprovação de Leandro |
+| Limite de 100 MB por requisição na borda (plano gratuito) | limite de anexo do Zammad configurado abaixo disso e informado na `ux-spec` |
 | Botões de SSO da equipe visíveis ao cliente | guarda informa a zona à interface; `ux-spec` define a tela de login pública |
 | Diferença a mais em relação ao upstream | guarda em caminho próprio, pequena, com testes; proposta ao upstream |
-| Porta nova na VPS para a VPN | uma porta UDP do WireGuard, registrada no checklist (seção 6.2.1), sem efeito nos outros projetos |
+| Mudança no Nginx compartilhado afeta os outros sites | a central não usa o Nginx compartilhado nem abre porta nova; o túnel é só de saída |
 
 Alternativas consideradas:
 
 | Alternativa | Avaliação |
 | ----------- | --------- |
-| **A. VPN WireGuard própria com DNS interno (proposta)** | sem dependência de terceiros, mesmo nome nas duas zonas, custo zero; exige DNS interno e clientes WireGuard ou túnel a partir das redes dos escritórios |
-| B. Tailscale (WireGuard gerenciado) com DNS dividido | configuração mais simples e sem porta de entrada na VPS; depende de serviço externo para coordenação |
-| C. Cloudflare Tunnel + Cloudflare Access | sem porta de entrada e com login por identidade; como agentes e clientes compartilham caminhos, o Access precisaria cobrir o nome inteiro, exigindo login Cloudflare também dos clientes, ou um nome separado, o que quebra os retornos de OAuth atrelados ao `fqdn` |
-| D. Nome interno separado (por exemplo `helpdesk.intranet`) | os retornos de OAuth e os e-mails de sistema continuam usando o `fqdn` público; o login da equipe acabaria completado no nome público. Descartada |
+| **C. Cloudflare Tunnel + Access com nome interno (proposta)** | as zonas já estão na Cloudflare e a LRI já usa Access na intranet; sem porta de entrada nem mudança no Nginx compartilhado; login por Google (LRI) e Microsoft (IRD.Net) na borda, sem cliente instalado; exige o repasse dos retornos de OAuth e a troca de `Origin` do WebSocket descritos na seção 2.9.2 |
+| A. VPN WireGuard própria com DNS interno (proposta anterior) | sem dependência de terceiros e mesmo nome nas duas zonas; exige porta UDP nova, chaves por aparelho, DNS interno e cliente em cada máquina ou túnel por escritório; o lado público continuaria no Nginx compartilhado |
+| B. Tailscale (já instalado na VPS) com DNS dividido | sem porta de entrada; exige cliente Tailscale em cada aparelho da equipe e licenças por usuário acima do plano gratuito |
+| C2. Cloudflare WARP com o mesmo nome resolvido para rede privada | mesmo nome nas duas zonas; exige o cliente WARP em cada aparelho e política de DNS da Cloudflare Gateway; mais peças que a proposta |
+| D. Access cobrindo os nomes `suporte` inteiros | agentes e clientes compartilham caminhos, então o cliente também teria de passar pelo login da Cloudflare. Descartada |
 | E. `fqdn` apontando para o nome interno | links de redefinição de senha e de cadastro dos clientes apontariam para um nome inacessível na internet. Descartada |
 | F. Tudo público, com 2FA e restrição por IP dentro do Zammad | contraria a decisão de não expor a parte interna; fica só como contingência temporária, com aprovação de Leandro |
 
@@ -406,7 +484,7 @@ A separação de zonas é um slice com `ui_impact` e `security_impact` diferente
    ([`roles/6-code-reviewer.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6-code-reviewer.md)),
    security-B e UX-B ([`roles/6b-ux-engineer-b.md`](https://github.com/leaberg69/esteira-softwarehouse-LR/blob/main/roles/6b-ux-engineer-b.md)),
    todos de família de modelo diferente da de quem escreveu.
-7. **QA**: validação em homologação com as duas zonas, incluindo um agente fora da VPN.
+7. **QA**: validação em homologação com as duas zonas, incluindo um agente que tenta entrar pelo nome público.
 
 Nenhuma etapa deste slice executa comando no servidor de produção. Qualquer comando destrutivo em produção ou
 homologação (por exemplo, alterar a configuração do proxy que atende os outros projetos) só acontece com
@@ -619,107 +697,26 @@ registrado em `docs/lri/VPS-CHECKLIST.md`.
 
 #### 6.2.1 Checklist pré-implantação
 
-##### Recursos disponíveis
+O checklist completo, com o que já se sabe do servidor, os comandos somente de leitura de cada item e o registro da
+execução, fica em [`VPS-CHECKLIST.md`](VPS-CHECKLIST.md). Ele cobre recursos disponíveis, convivência com os outros
+projetos, rede e Cloudflare, as duas zonas da seção 2.9, Elasticsearch e memória, backups, usuário isolado e
+segredos.
 
-- [ ] vCPU, memória e disco totais do servidor e consumo atual de Justiano, Plaixec e sferalabs, medido em horário de
-  pico (`docker stats`, `free`, `df`).
-- [ ] Sobra, depois do consumo atual, de pelo menos o dimensionamento da seção 6.4: 4 vCPU, 8 GB de memória e 100 GB
-  de disco para a central, mais uma margem de 20% para os projetos existentes.
-- [ ] Tipo de disco (SSD/NVMe) e possibilidade de expandir disco e memória no provedor sem reinstalação.
-- [ ] Swap configurado, para absorver picos sem acionar o OOM killer sobre os outros projetos.
-- [ ] País e região do datacenter da VPS e provedor, registrados para a LGPD (seção 6.5).
-
-##### Convivência com os outros containers
-
-- [ ] Inventário dos containers, redes e volumes existentes (`docker ps`, `docker network ls`, `docker volume ls`).
-- [ ] Projeto Compose da central com nome próprio (`lri-helpdesk`), rede Docker própria e volumes com prefixo próprio,
-  sem colidir com nomes já usados.
-- [ ] PostgreSQL, Redis e Elasticsearch/OpenSearch exclusivos da central, sem compartilhar instâncias dos outros
-  projetos e sem portas publicadas no host.
-- [ ] Limites de memória e CPU (`mem_limit`, `cpus`) em cada container da central, somando no máximo a sobra medida
-  acima.
-- [ ] Política de reinício (`restart: unless-stopped`) e ordem de subida que não dependam dos outros projetos.
-- [ ] Versões de Docker e Docker Compose atendem à stack oficial do Zammad sem exigir atualização que afete os outros
-  projetos; se exigirem, a atualização vira mudança própria, planejada à parte.
-
-##### Portas e proxy reverso
-
-- [ ] Quem atende hoje as portas 80 e 443 (Nginx, Caddy, Traefik ou container) e como os outros projetos são
-  roteados.
-- [ ] A central entra como **mais um site no proxy existente**, com os nomes `suporte.lri.com.br` e
-  `suporte.ird.net.br`, seguindo a seção 2.6 (cabeçalho `Host`, upgrade de WebSocket em `/ws` e `/cable`).
-- [ ] O container web da central publica a porta apenas em `127.0.0.1` (ou só na rede Docker do proxy), em uma porta
-  livre conferida no inventário (`ss -tlnp`).
-- [ ] Emissão e renovação dos certificados dos dois nomes pelo mesmo mecanismo que já atende os outros projetos.
-- [ ] Firewall: além de 80 e 443, que já estão em uso, apenas a porta UDP do WireGuard (seção 2.9) é aberta para a
-  internet, e só depois de aprovada.
-- [ ] Saída de rede liberada para Gmail (IMAP 993 e SMTP 465/587 em `imap.gmail.com` e `smtp.gmail.com`), para as
-  APIs OAuth do Google e para Microsoft Graph e Entra ID (`graph.microsoft.com`, `login.microsoftonline.com`), em HTTPS.
-
-##### Zonas interna e pública (seção 2.9)
-
-- [ ] O proxy existente suporta dois listeners para os mesmos nomes: o público (IP da VPS) e o interno (IP da VPN),
-  sem alterar os blocos dos outros projetos.
-- [ ] Cada listener sobrescreve o cabeçalho `X-LRI-Zone` (`public` ou `internal`); o valor enviado pelo navegador nunca
-  chega ao Zammad. Requisição sem o cabeçalho é tratada como zona pública.
-- [ ] MFA obrigatório para a equipe no Google Workspace (LRI) e no Entra ID (IRD.Net).
-- [ ] `api_password_access` desativado e nenhuma aplicação OAuth2 cadastrada no Zammad.
-- [ ] Conta de emergência com 2FA do Zammad já cadastrado antes de ativada; login testado dentro da VPN e recusado fora.
-- [ ] O Zammad escuta só em `127.0.0.1` ou na rede Docker do proxy, confirmado por `ss -tlnp` e por tentativa de acesso
-  externo direto à porta, que deve falhar.
-- [ ] Lista de rotas bloqueadas no listener público (seção 2.9.3) aplicada e testada de fora da VPN.
-- [ ] `RAILS_TRUSTED_PROXIES` aponta para o proxy, e os logs do Zammad mostram o IP real do cliente.
-- [ ] WireGuard: porta UDP livre, chaves geradas por par, interface da VPN com IP fixo na VPS, e nada além do
-  listener interno exposto nessa interface.
-- [ ] DNS interno das redes da LRI e da IRD.Net (ou dos clientes WireGuard) resolve `suporte.lri.com.br` e
-  `suporte.ird.net.br` para o IP da VPN.
-- [ ] Teste de fora da VPN: portal do cliente, base de conhecimento e formulário funcionam; login de agente, rotas de
-  SSO da equipe, autorização de caixas e administração são recusados.
-- [ ] Teste dentro da VPN: login por Google (LRI) e por Microsoft (IRD.Net), interface de agente, administração e
-  tempo real (`/ws` e `/cable`) funcionam.
-- [ ] Recebimento de e-mail pelos canais Google e Microsoft funciona sem nenhuma rota pública.
-
-##### Elasticsearch/OpenSearch e memória
-
-- [ ] Heap fixado em valor conhecido (`ES_JAVA_OPTS` ou `OPENSEARCH_JAVA_OPTS`, por exemplo `-Xms1g -Xmx1g`) e
-  `mem_limit` do container em cerca do dobro do heap.
-- [ ] `vm.max_map_count` atual do host. O Elasticsearch/OpenSearch exige `262144`; esse parâmetro vale para o host
-  inteiro, então a mudança é avaliada quanto ao efeito nos outros projetos e aplicada como mudança própria.
-- [ ] Execução em nó único (`discovery.type=single-node`), segurança do motor habilitada e porta 9200 sem publicação no
-  host.
-- [ ] Limites de memória do PostgreSQL (`shared_buffers`) e do Redis (`maxmemory`) coerentes com o `mem_limit` de cada
-  container.
-
-##### Backups antes de qualquer mudança
-
-- [ ] Snapshot completo da VPS no provedor tirado **antes** de qualquer alteração no servidor, com data e responsável
-  registrados.
-- [ ] Backups dos projetos Justiano, Plaixec e sferalabs conferidos e recentes, com restauração já testada ou testada
-  antes da implantação.
-- [ ] Procedimento de retorno escrito: como voltar ao snapshot ou remover a central sem afetar os outros projetos.
-- [ ] Destino da cópia externa do backup da central (seção 6.5) definido e com espaço.
-- [ ] O mesmo snapshot prévio vale para toda mudança futura na central: atualização de versão, ajuste de kernel ou
-  troca de configuração do proxy.
-
-##### Usuário de sistema isolado e segredos
-
-- [ ] Usuário de sistema dedicado (`lri-helpdesk`), sem login por senha, dono exclusivo do diretório da central (por
-  exemplo `/srv/lri-helpdesk`), sem acesso aos diretórios dos outros projetos.
-- [ ] Forma de operar o Docker por esse usuário definida com cuidado: participar do grupo `docker` equivale a acesso de
-  root ao host, então a escolha entre Docker rootless, `sudo` restrito aos comandos do Compose ou operação por um
-  administrador fica registrada.
-- [ ] Segredos (senhas de PostgreSQL, Redis e Elasticsearch/OpenSearch, credenciais de e-mail, tokens de API) em
-  arquivo `.env` com permissão `600`, dono `lri-helpdesk`, fora do repositório, ou em Docker secrets.
-- [ ] Segredos exclusivos da central, gerados para ela, sem reaproveitar senhas ou chaves dos outros projetos.
-- [ ] Acesso SSH por chave, lista de quem administra o servidor e registro de quem tem acesso aos segredos.
+Dois achados já levantados pedem decisão antes da fase 5: a VPS **já tem uma instalação oficial do Zammad 7.2.0**,
+sem dados (o assistente de configuração nunca rodou), que o plano propõe substituir pela stack com a imagem do fork;
+e um usuário de serviço de outro projeto com privilégio administrativo amplo no host, que expõe também os dados da
+central. Detalhes no checklist.
 
 ### 6.3 Componentes
 
 - **Zammad**: servidor web (Rails), websocket e processos de background (scheduler/jobs);
 - **PostgreSQL**: banco principal (a CI do projeto usa PostgreSQL 18);
 - **Redis**: websocket, assinaturas GraphQL e cache;
-- **Elasticsearch ou OpenSearch**: busca de texto completo em chamados e anexos — presente desde o início (decidido);
-- **Proxy reverso** (Nginx ou Caddy) com HTTPS (Let's Encrypt);
+- **Elasticsearch** 8.15 a 9.x: busca de texto completo em chamados e anexos — presente desde o início (decidido).
+  O OpenSearch não serve: `SearchIndexBackend` (`lib/search_index_backend.rb`) só aceita versões do Elasticsearch
+  de 8.15.0 até antes da 10 e falha a verificação de compatibilidade com qualquer outra;
+- **Proxy reverso**: o Nginx da stack da central, com os listeners público e interno, alcançado só pelo `cloudflared`
+  (Cloudflare Tunnel); HTTPS na borda da Cloudflare (seção 2.9.2);
 - **Armazenamento de anexos** em disco persistente ou S3 compatível.
 
 ### 6.4 Dimensionamento inicial
@@ -788,7 +785,7 @@ implantação é autorizada à parte por Leandro.
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
 | **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |
-| **5. Imagem e implantação** | imagem Docker do fork construída pela CI; slice de zonas interna e pública (seção 2.9) com guarda de zona, configuração do proxy e da VPN; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
+| **5. Imagem e implantação** | imagem Docker do fork construída pela CI; slice de zonas interna e pública (seção 2.9) com guarda de zona, configuração do proxy, do Cloudflare Tunnel e do Access; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
 | **6. Integrações** | site e formulário; WhatsApp; ERP Plune | cada integração em PR próprio, com testes e documentação |
 
 ## 9. Governança e esteira
@@ -846,7 +843,7 @@ válidas.
 | — | Zonas | parte interna (equipe, administração) só na intranet; parte do cliente na internet nos dois subdomínios (seção 2.9) |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
-| — | Busca | Elasticsearch ou OpenSearch desde o início (seção 6.3) |
+| — | Busca | Elasticsearch 8.15 a 9.x desde o início; OpenSearch não é suportado pelo Zammad (seção 6.3) |
 | — | Operação | backup diário com retenção de 30 dias e teste trimestral; homologação e produção (seção 6.5) |
 | — | Linha base do upstream | série estável do Zammad (seção 5) |
 | — | Customização | ordem de preferência e caminhos próprios das seções 4 e 5 |
@@ -856,18 +853,21 @@ válidas.
 
 1. **Caixas restantes**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da LRI. O canal de
    cada uma já segue do domínio (seção 2.4).
-2. **Acesso aos DNS**: quem cria os registros `suporte` nas zonas `lri.com.br` e `ird.net.br` (seção 2.6).
+2. **Acesso aos DNS**: as duas zonas estão na Cloudflare (conta LRI Group); falta definir quem cria os registros
+   `CNAME` do túnel (seção 2.6).
 3. **Ativos de marca**: cores e logos recebidos (seção 3, "Ativos de marca"); faltam o SVG da IRD.Net, as versões
    para fundo escuro, o símbolo quadrado e as regras de uso. A cor de preenchimento do SVG da LRI sai da `ux-spec`.
-4. **Checklist da VPS**: execução, somente em leitura, do checklist pré-implantação da seção 6.2.1 no servidor
-   72.62.108.138.
+4. **Checklist da VPS**: execução, somente em leitura e com OK de Leandro, do [`VPS-CHECKLIST.md`](VPS-CHECKLIST.md)
+   no servidor 72.62.108.138; destino da instalação do Zammad 7.2.0 que já existe lá; privilégio amplo de outro
+   usuário de serviço no host.
 5. **Versão estável exata (decisão 7)**: a série do Zammad em vigor quando a fase 1 começar.
 6. **Horário definitivo e SLAs (decisão 9)**: horário de atendimento definitivo (hoje provisório, seção 2.8), plantão,
    feriados locais e metas de SLA por marca e por tipo de cliente.
 7. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
 8. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
-9. **Acesso à intranet**: confirmar a alternativa A da seção 2.9.5 (WireGuard próprio) ou escolher B (Tailscale) ou C
-   (Cloudflare); como as redes dos escritórios da LRI e da IRD.Net chegam à VPN (túnel a partir do roteador de cada
-   escritório ou cliente em cada máquina); quem mantém o DNS interno.
+9. **Acesso à intranet** ([issue #2](https://github.com/leaberg69/zammad/issues/2)): aprovar a alternativa C da seção
+   2.9.5 (Cloudflare Tunnel + Access com nome interno, proposta) no lugar da A (WireGuard); nome interno da equipe;
+   login da equipe atrás do Access (opção i ou ii da seção 2.9.2); troca de `Origin` no proxy ou lista de origens no
+   fork.
 10. **Proposta da guarda de zona ao upstream**: autorização para propor a guarda de zona ao `zammad/zammad` depois de
     validada aqui.

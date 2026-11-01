@@ -78,6 +78,24 @@ class Lri::ZoneGuard
     Lri::Zone.resolve(config, header_lookup).name
   end
 
+  # ActionCable: a conexão guarda a zona em que nasceu (ApplicationCable::Connection#lri_zone). GraphqlChannel e a
+  # entrega de assinaturas chamam isto antes de servir um usuário; false = a conexão pública virou de equipe.
+  def self.cable_allowed?(connection)
+    user = connection.current_user
+    return true if user.nil?
+
+    lri_zone = connection.respond_to?(:lri_zone) ? connection.lri_zone : nil
+    allowed  = Lri::ZonePolicy.realtime_user_allowed?({ 'lri_zone' => lri_zone }, user)
+    Rails.logger.warn "Lri::ZoneGuard: conexão ActionCable pública do usuário #{user.id}, que agora é da equipe, encerrada" if !allowed
+    allowed
+  end
+
+  # Encerra a conexão ActionCable; o cliente reconecta e, na zona pública, volta sem usuário.
+  def self.close_cable(connection)
+    connection.close(reason: ActionCable::INTERNAL[:disconnect_reasons][:unauthorized], reconnect: true)
+    nil
+  end
+
   # Para os transportes de tempo real (WebSocket legado e ActionCable), que autenticam fora do fluxo Rack dos
   # controllers. Devolve o motivo da recusa ou nil.
   def self.realtime_denial(session_data, header_lookup, config: Lri::Zone::Config.current)

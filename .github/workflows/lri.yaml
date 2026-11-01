@@ -109,13 +109,13 @@ jobs:
             app/channels/application_cable/connection.rb lib/sessions/event/login.rb \
             lib/sessions/event/base.rb lib/sessions/client.rb \
             app/controllers/application_controller/has_user.rb \
-            app/controllers/knowledge_base/public/base_controller.rb
+            app/controllers/knowledge_base/public/base_controller.rb             app/channels/graphql_channel.rb app/graphql/gql/action_cable_subscriptions.rb
       - name: RSpec da guarda de zona e das suítes do upstream que ela toca
         shell: bash
         run: |
           source /etc/profile.d/rvm.sh
           bundle exec rspec spec/lib/lri spec/requests/lri \
-            spec/lib/sessions spec/channels/application_cable \
+            spec/lib/sessions spec/channels spec/graphql/gql/subscriptions \
             spec/requests/session_spec.rb spec/graphql/gql/mutations/login_spec.rb \
             spec/requests/knowledge_base \
             -t ~searchindex -t ~integration -t ~required_envs

@@ -69,7 +69,9 @@ module Lri::ZonePolicy
   #   evento: um socket aberto na zona pública não pode continuar autenticado se o usuário virou equipe.
   def realtime_user_allowed?(session_data, user)
     return true if session_data.to_h.stringify_keys['lri_zone'] != Lri::Zone::PUBLIC
+    return true if user.nil?
 
-    !staff?(user)
+    # Recarregado: conexões guardam o objeto do usuário do momento da conexão.
+    !staff?(User.lookup(id: user.id) || user)
   end
 end

@@ -292,6 +292,7 @@ escuta só em `127.0.0.1`.
 | Ponto de checagem no login: na zona pública, a equipe nunca vira usuário corrente (fecha "login + ação + logout" numa só operação GraphQL, achado do Codex) | `app/controllers/application_controller/has_user.rb#current_user_set` (uma linha) | `spec/requests/lri/zone_guard_spec.rb` |
 | Token de prévia da KB de um agente recusado na zona pública, na URL e na sessão (achado do Codex) | `app/controllers/knowledge_base/public/base_controller.rb` (uma linha), `lib/lri/zone_policy.rb` | `spec/requests/lri/zone_guard_spec.rb`, `spec/lib/lri/zone_policy_spec.rb` |
 | WebSocket público reconferido a cada evento e no envio em segundo plano: se o cliente vira equipe, perde a autenticação (achado do Codex) | `lib/sessions/event/login.rb`, `lib/sessions/event/base.rb`, `lib/sessions/client.rb` (uma linha cada) | `spec/lib/lri/zone_guard_realtime_spec.rb` |
+| ActionCable público reconferido a cada ação e a cada entrega de assinatura: se o cliente vira equipe, a conexão é encerrada (achado do Codex) | `app/channels/application_cable/connection.rb`, `app/channels/graphql_channel.rb`, `app/graphql/gql/action_cable_subscriptions.rb` | `spec/channels/graphql_channel_lri_zone_spec.rb` |
 | Nginx com os dois listeners, cabeçalhos por `location`, troca exata de `Origin`, 302 dos retornos, bloqueios | `contrib/lri/deploy/nginx/`, `contrib/lri/deploy/nginx-entrypoint.sh` | `contrib/lri/deploy/test/nginx_zones_test.sh` |
 | Túnel gerenciado localmente e sobreposição da stack oficial | `contrib/lri/deploy/cloudflared/config.yml.example`, `contrib/lri/deploy/docker-compose.lri.yml` | revisão |
 
@@ -312,11 +313,10 @@ o risco por escrito):
 4. `state` obrigatório no retorno da autorização de caixa;
 5. indicação de zona para a interface esconder os botões de SSO no portal.
 
-Registrado e aceito: no WebSocket legado a zona fica gravada na sessão da conexão e é reconferida a cada evento e a
-cada ciclo de envio em segundo plano (um cliente promovido a agente com o socket público aberto perde a
-autenticação). No ActionCable a zona é avaliada na conexão; uma conexão pública de cliente promovido continua aberta
-até reconectar, mas qualquer requisição HTTP dele já é recusada. Mitigação operacional: ao promover alguém, encerrar
-as sessões dele. A recusa no tempo real deixa a sessão anônima, sem aviso ao cliente, porque o HTTP já recusou antes.
+Tempo real: a zona fica gravada na conexão (WebSocket legado e ActionCable) e é reconferida a cada evento, a cada
+ciclo de envio em segundo plano, a cada ação GraphQL e a cada entrega de assinatura; um cliente promovido a agente
+com a conexão pública aberta perde a autenticação (WebSocket) ou tem a conexão encerrada (ActionCable). A recusa no
+tempo real deixa a sessão anônima, sem aviso ao cliente, porque o HTTP já recusou antes.
 
 **Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
 

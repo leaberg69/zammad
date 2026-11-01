@@ -25,11 +25,22 @@ class Gql::ActionCableSubscriptions < GraphQL::Subscriptions::ActionCableSubscri
 
   def deliver(subscription_id, result)
     return if skipped_browser_tab?(subscription_id)
+    return if lri_zone_denied?(subscription_id)
 
     super
   end
 
   private
+
+  # Grupo LRI: nada é entregue a uma conexão pública cujo usuário virou equipe; a conexão é encerrada.
+  def lri_zone_denied?(subscription_id)
+    channel = @subscriptions[subscription_id]&.context&.[](:channel)
+    return false if !channel.respond_to?(:connection)
+    return false if Lri::ZoneGuard.cable_allowed?(channel.connection)
+
+    Lri::ZoneGuard.close_cable(channel.connection)
+    true
+  end
 
   def skipped_browser_tab?(subscription_id)
     skipped_browser_tab_id = Thread.current[:gql_skipped_browser_tab_id]

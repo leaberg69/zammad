@@ -7,7 +7,7 @@
 #   - antes do app: recusa caminhos e cabeçalhos da equipe, e sessões que não podem ser usadas ali;
 #   - durante o app: ApplicationController::HasUser#current_user_set (por onde passam todos os logins: senha REST
 #     e GraphQL, token, autenticação básica, SSO, OmniAuth) chama .authenticating!, que impede a equipe de virar
-#     usuário corrente e marca a requisição. Assim nem uma operação GraphQL "login + ação + logout" executa a ação;
+#     usuário corrente e marca a requisição, então nada roda em nome da equipe nessa requisição;
 #   - depois do app: se a requisição foi marcada, ou terminou com uma sessão que não pode ficar na zona pública,
 #     descarta a resposta inteira, encerra a sessão e recusa.
 # Em qualquer zona, a sessão recebe a zona em que nasceu (session['lri_zone']).

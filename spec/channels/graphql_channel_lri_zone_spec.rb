@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-# Revisão Codex (PR #1): conexão ActionCable pública mantida aberta enquanto o cliente é promovido a agente.
+# Guarda de zona do Grupo LRI no ActionCable.
 RSpec.describe GraphqlChannel, type: :channel do
   let(:user)  { create(:customer) }
   let(:query) { 'query { currentUser { id } }' }

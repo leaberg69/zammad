@@ -84,7 +84,6 @@ RSpec.describe 'Grupo LRI zone guard on realtime transports' do # rubocop:disabl
     end
   end
 
-  # Revisão Codex (PR #1): cliente com /ws aberto na zona pública promovido a agente.
   describe 'an open public websocket whose customer is promoted to agent' do
     let(:user)  { create(:customer) }
     let(:event) do

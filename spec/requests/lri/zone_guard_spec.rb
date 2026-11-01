@@ -75,8 +75,6 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(session[:user_id]).to be_nil
       end
 
-      # Revisão Codex (PR #1): numa operação só, login → ação privilegiada → logout. Sem o ponto de checagem em
-      #   current_user_set, a ação rodava como agente e o logout escondia a sessão da pós-checagem.
       it 'refuses an agent GraphQL login chained with a privileged action and a logout', :aggregate_failures do
         chain = <<~GRAPHQL
           mutation chain($input: LoginInput!, $token: UserAccessTokenInput!) {
@@ -167,7 +165,6 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(response).to have_http_status(:forbidden)
       end
 
-      # Revisão Codex (PR #1): token de prévia da KB de um agente autenticava sem passar por current_user_set.
       it 'refuses a staff knowledge base preview token and clears it from the session', :aggregate_failures do
         create(:knowledge_base)
         token = create(:token, action: 'KnowledgeBasePreview', user: agent)
@@ -179,7 +176,6 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(session[:kb_preview_token]).to be_nil
       end
 
-      # Revisão Codex (PR #1): feed da KB com ?token= de um admin servia respostas internas sem sessão.
       it 'refuses a staff knowledge base feed token in the URL, for root and category feeds', :aggregate_failures do
         knowledge_base = create(:knowledge_base)
         category       = create(:knowledge_base_category, knowledge_base: knowledge_base)

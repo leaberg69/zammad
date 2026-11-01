@@ -75,6 +75,30 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(session[:user_id]).to be_nil
       end
 
+      # Revisão Codex (PR #1): numa operação só, login → ação privilegiada → logout. Sem o ponto de checagem em
+      #   current_user_set, a ação rodava como agente e o logout escondia a sessão da pós-checagem.
+      it 'refuses an agent GraphQL login chained with a privileged action and a logout', :aggregate_failures do
+        chain = <<~GRAPHQL
+          mutation chain($input: LoginInput!, $token: UserAccessTokenInput!) {
+            login(input: $input) { session { id } }
+            userCurrentAccessTokenAdd(input: $token) { tokenValue }
+            logout { success }
+          }
+        GRAPHQL
+
+        variables = {
+          input: { login: agent.login, password: password },
+          token: { name: 'roubado', permission: ['ticket.agent'] },
+        }
+
+        expect do
+          post '/graphql', params: { query: chain, variables: variables }, headers: { 'X-Browser-Fingerprint' => '123456789' }, as: :json
+        end.not_to change(Token, :count)
+
+        expect_zone_denied
+        expect(response.body).not_to include('tokenValue')
+      end
+
       it 'lets a customer GraphQL login through and stamps it with the public zone', :aggregate_failures do
         graphql_sign_in(customer)
 

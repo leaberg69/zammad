@@ -5,8 +5,11 @@
 #
 # Na zona pública:
 #   - antes do app: recusa caminhos e cabeçalhos da equipe, e sessões que não podem ser usadas ali;
-#   - depois do app: se a requisição criou uma sessão de equipe (login por senha, OmniAuth, SSO...), descarta a
-#     resposta, encerra a sessão e recusa. Assim um login de agente nunca conclui pela zona pública.
+#   - durante o app: ApplicationController::HasUser#current_user_set (por onde passam todos os logins: senha REST
+#     e GraphQL, token, autenticação básica, SSO, OmniAuth) chama .authenticating!, que impede a equipe de virar
+#     usuário corrente e marca a requisição. Assim nem uma operação GraphQL "login + ação + logout" executa a ação;
+#   - depois do app: se a requisição foi marcada, ou terminou com uma sessão que não pode ficar na zona pública,
+#     descarta a resposta inteira, encerra a sessão e recusa.
 # Em qualquer zona, a sessão recebe a zona em que nasceu (session['lri_zone']).
 #
 # Toda recusa é registrada no log com o motivo (sem segredos) e devolvida com código 403 e o endereço interno.
@@ -37,7 +40,7 @@ class Lri::ZoneGuard
 
     status, headers, body = @app.call(env)
 
-    if zone.public? && (reason = Lri::ZonePolicy.session_denial(session_hash(request), zone))
+    if zone.public? && (reason = env[DENIED_KEY] || Lri::ZonePolicy.session_denial(session_hash(request), zone))
       body.close if body.respond_to?(:close)
       return deny(request, config, "#{reason}, após a requisição")
     end
@@ -46,8 +49,26 @@ class Lri::ZoneGuard
     [status, headers, body]
   end
 
+  DENIED_KEY = 'lri.zone.denied'.freeze
+
+  # Erro levantado quando a equipe tenta se autenticar na zona pública. É um Forbidden do Zammad, então os
+  # controllers e o GraphQL tratam como recusa; o middleware ainda troca a resposta pela recusa da guarda.
+  class StaffInPublicZone < Exceptions::Forbidden; end
+
   def self.zone_for_env(config, env)
     Lri::Zone.resolve(config, ->(name) { env["HTTP_#{name.upcase.tr('-', '_')}"] })
+  end
+
+  # Chamado em ApplicationController::HasUser#current_user_set, antes de o usuário virar o corrente. Sem zona no env
+  # (guarda desligada ou fora de uma requisição HTTP) não faz nada.
+  def self.authenticating!(env, user)
+    zone = env['lri.zone']
+    return if zone.nil? || zone.internal?
+    return if !Lri::ZonePolicy.staff?(user)
+
+    reason = "login de usuário da equipe (id #{user.id}) na zona pública"
+    env[DENIED_KEY] ||= reason
+    raise StaffInPublicZone, reason
   end
 
   # Para os transportes de tempo real (WebSocket legado e ActionCable), que autenticam fora do fluxo Rack dos

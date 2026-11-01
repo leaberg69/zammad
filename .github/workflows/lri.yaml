@@ -106,11 +106,12 @@ jobs:
           source /etc/profile.d/rvm.sh
           bundle exec rubocop lib/lri spec/lib/lri spec/requests/lri spec/support/lri_zone.rb \
             config/initializers/lri_zone_guard.rb contrib/lri \
-            app/channels/application_cable/connection.rb lib/sessions/event/login.rb
+            app/channels/application_cable/connection.rb lib/sessions/event/login.rb \
+            app/controllers/application_controller/has_user.rb
       - name: RSpec da guarda de zona e dos transportes tocados
         shell: bash
         run: |
           source /etc/profile.d/rvm.sh
           bundle exec rspec spec/lib/lri spec/requests/lri \
             spec/lib/sessions/event/login_spec.rb spec/channels/application_cable \
-            spec/requests/session_spec.rb
+            spec/requests/session_spec.rb spec/graphql/gql/mutations/login_spec.rb

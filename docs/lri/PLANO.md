@@ -289,6 +289,7 @@ escuta só em `127.0.0.1`.
 | ---- | ---- | ----- |
 | Guarda de zona (zona por cabeçalho + segredo + JWT do Access; recusas na zona pública; zona gravada na sessão) | `lib/lri/`, `config/initializers/lri_zone_guard.rb` | `spec/lib/lri/`, `spec/requests/lri/` |
 | Guarda no WebSocket legado e no ActionCable | `lib/sessions/event/login.rb`, `app/channels/application_cable/connection.rb` (uma linha cada) | `spec/lib/lri/zone_guard_realtime_spec.rb` |
+| Ponto de checagem no login: na zona pública, a equipe nunca vira usuário corrente (fecha "login + ação + logout" numa só operação GraphQL, achado do Codex) | `app/controllers/application_controller/has_user.rb#current_user_set` (uma linha) | `spec/requests/lri/zone_guard_spec.rb` |
 | Nginx com os dois listeners, cabeçalhos por `location`, troca exata de `Origin`, 302 dos retornos, bloqueios | `contrib/lri/deploy/nginx/`, `contrib/lri/deploy/nginx-entrypoint.sh` | `contrib/lri/deploy/test/nginx_zones_test.sh` |
 | Túnel gerenciado localmente e sobreposição da stack oficial | `contrib/lri/deploy/cloudflared/config.yml.example`, `contrib/lri/deploy/docker-compose.lri.yml` | revisão |
 

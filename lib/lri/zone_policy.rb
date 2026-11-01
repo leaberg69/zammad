@@ -35,6 +35,28 @@ module Lri::ZonePolicy
     header = PUBLIC_FORBIDDEN_HEADERS.find { |name| env[name].present? }
     return "cabeçalho de credencial (#{header})" if header
 
+    query_token_denial(env)
+  end
+
+  # Tokens na URL que autenticam sem sessão e sem current_user_set: feed da KB (?token=, FeedsController e
+  #   FeedsControllerPolicy) e prévia da KB (?preview_token=, antes de ir para a sessão).
+  QUERY_TOKENS = { 'token' => 'KnowledgeBaseFeed', 'preview_token' => 'KnowledgeBasePreview' }.freeze
+
+  def query_token_denial(env)
+    return if env['QUERY_STRING'].blank?
+
+    params = Rack::Utils.parse_query(env['QUERY_STRING'])
+    QUERY_TOKENS.each do |param, action|
+      value = Array(params[param]).first
+      next if value.blank?
+
+      owner = Token.check(action: action, token: value)
+      return "token #{action} da equipe na URL" if owner.present? && staff?(owner)
+    end
+
+    nil
+  rescue ArgumentError => e # inclui Rack::Utils::InvalidParameterError; o Rails também recusa essa query
+    Rails.logger.warn "Lri::ZonePolicy: query string ilegível ignorada na checagem de token (#{e.class})"
     nil
   end
 

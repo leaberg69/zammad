@@ -179,6 +179,30 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(session[:kb_preview_token]).to be_nil
       end
 
+      # Revisão Codex (PR #1): feed da KB com ?token= de um admin servia respostas internas sem sessão.
+      it 'refuses a staff knowledge base feed token in the URL, for root and category feeds', :aggregate_failures do
+        knowledge_base = create(:knowledge_base)
+        category       = create(:knowledge_base_category, knowledge_base: knowledge_base)
+        locale         = knowledge_base.kb_locales.first.system_locale.locale
+        token          = Token.ensure_token!('KnowledgeBaseFeed', admin.id)
+
+        get feed_knowledge_base_path(knowledge_base, locale, token: token)
+        expect(response.parsed_body['error']).to eq('zone_restricted')
+
+        get feed_knowledge_base_category_path(knowledge_base, category, locale, token: token)
+        expect(response.parsed_body['error']).to eq('zone_restricted')
+      end
+
+      it 'serves the same feed token on the internal zone' do
+        knowledge_base = create(:knowledge_base)
+        locale         = knowledge_base.kb_locales.first.system_locale.locale
+        token          = Token.ensure_token!('KnowledgeBaseFeed', admin.id)
+
+        get feed_knowledge_base_path(knowledge_base, locale, token: token), headers: lri_internal_headers
+
+        expect(response).to have_http_status(:ok)
+      end
+
       it 'does not block search engine robots that send a From header' do
         get '/api/v1/users/me', headers: { 'From' => 'googlebot(at)googlebot.com' }, as: :json
 

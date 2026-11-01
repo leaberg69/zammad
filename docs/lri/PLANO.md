@@ -292,6 +292,7 @@ escuta só em `127.0.0.1`.
 | Ponto de checagem no login: na zona pública, a equipe nunca vira usuário corrente (fecha "login + ação + logout" numa só operação GraphQL, achado do Codex) | `app/controllers/application_controller/has_user.rb#current_user_set` (uma linha) | `spec/requests/lri/zone_guard_spec.rb` |
 | Token de prévia da KB de um agente recusado na zona pública, na URL e na sessão (achado do Codex) | `app/controllers/knowledge_base/public/base_controller.rb` (uma linha), `lib/lri/zone_policy.rb` | `spec/requests/lri/zone_guard_spec.rb`, `spec/lib/lri/zone_policy_spec.rb` |
 | WebSocket público reconferido a cada evento e no envio em segundo plano: se o cliente vira equipe, perde a autenticação (achado do Codex) | `lib/sessions/event/login.rb`, `lib/sessions/event/base.rb`, `lib/sessions/client.rb` (uma linha cada) | `spec/lib/lri/zone_guard_realtime_spec.rb` |
+| Tokens na URL da equipe recusados na zona pública: feed da KB (`?token=`) e prévia (`?preview_token=`) (achado do Codex) | `lib/lri/zone_policy.rb` (`query_token_denial`) | `spec/requests/lri/zone_guard_spec.rb` |
 | ActionCable público reconferido a cada ação e a cada entrega de assinatura: se o cliente vira equipe, a conexão é encerrada (achado do Codex) | `app/channels/application_cable/connection.rb`, `app/channels/graphql_channel.rb`, `app/graphql/gql/action_cable_subscriptions.rb` | `spec/channels/graphql_channel_lri_zone_spec.rb` |
 | Nginx com os dois listeners, cabeçalhos por `location`, troca exata de `Origin`, 302 dos retornos, bloqueios | `contrib/lri/deploy/nginx/`, `contrib/lri/deploy/nginx-entrypoint.sh` | `contrib/lri/deploy/test/nginx_zones_test.sh` |
 | Túnel gerenciado localmente e sobreposição da stack oficial | `contrib/lri/deploy/cloudflared/config.yml.example`, `contrib/lri/deploy/docker-compose.lri.yml` | revisão |
@@ -312,6 +313,12 @@ o risco por escrito):
 3. `before_create` de `Organization` com `shared = false`;
 4. `state` obrigatório no retorno da autorização de caixa;
 5. indicação de zona para a interface esconder os botões de SSO no portal.
+
+Inventário dos caminhos por token do Zammad (`Token.check`), conferido em 01/11: token de API, iCal e assinatura
+de calendário passam por `current_user_set` (cobertos pelo ponto de checagem); `Signup`, `AdminAuth` e
+`PasswordReset` só autenticam pelo mesmo ponto (a troca de senha da equipe pela zona pública é o pré-requisito 1);
+`KnowledgeBasePreview` (URL, sessão e anexos) e `KnowledgeBaseFeed` (URL) são recusados para a equipe pela política.
+Um tipo de token novo do upstream precisa entrar neste inventário.
 
 Tempo real: a zona fica gravada na conexão (WebSocket legado e ActionCable) e é reconferida a cada evento, a cada
 ciclo de envio em segundo plano, a cada ação GraphQL e a cada entrega de assinatura; um cliente promovido a agente

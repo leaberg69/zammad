@@ -449,6 +449,8 @@ returns
     user ||= User.find_by(email: username.downcase.strip, active: true)
 
     return if !user || user.email.blank?
+    # Grupo LRI: senha da equipe (docs/lri/PLANO.md, seção 2.9.3); mesma resposta de usuário desconhecido.
+    return if Lri::ZonePolicy.password_denied?(user)
 
     # Discard any possible previous tokens for safety reasons.
     Token.where(action: 'PasswordReset', user_id: user.id).destroy_all

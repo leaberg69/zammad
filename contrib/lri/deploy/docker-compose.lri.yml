@@ -8,6 +8,8 @@ x-lri-zone: &lri-zone
   LRI_ACCESS_TEAM_DOMAIN: ${LRI_ACCESS_TEAM_DOMAIN:-lriauto.cloudflareaccess.com}
   LRI_ACCESS_AUD: ${LRI_ACCESS_AUD:?defina LRI_ACCESS_AUD no .env}
   LRI_INTERNAL_URL: https://${LRI_INTERNAL_HOST:-atendimento.lri.com.br}
+  LRI_EMERGENCY_LOGIN: ${LRI_EMERGENCY_LOGIN:-}
+  LRI_ORGANIZATIONS_PRIVATE: "true"
   # O cloudflared entrega as requisições ao Nginx pelo namespace dele; para o Zammad, o proxy é o Nginx, na rede
   # lri-app de faixa fixa (um nome de container seria resolvido na partida, antes do Nginx existir).
   RAILS_TRUSTED_PROXIES: ${LRI_APP_SUBNET:-172.31.250.0/24}

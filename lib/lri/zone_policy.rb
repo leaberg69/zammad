@@ -22,6 +22,29 @@ module Lri::ZonePolicy
 
   module_function
 
+  # Senha da equipe (docs/lri/PLANO.md, seção 2.9.3, controle 2). Com a guarda ligada, a equipe entra só por Google
+  #   ou Microsoft; senha, 2FA por senha e redefinição de senha são recusados em qualquer zona, antes de qualquer
+  #   verificação, com a mesma resposta de usuário desconhecido (sem oráculo e sem contar tentativa para bloqueio).
+  #   A exceção é a conta de emergência (LRI_EMERGENCY_LOGIN): só na zona interna e, para entrar, com 2FA do Zammad
+  #   já cadastrado. `confirming:` = confirmação de senha de quem já está logado (ex.: cadastrar o 2FA).
+  #   Devolve o motivo da recusa (só para o log) ou nil.
+  def password_denial(user, confirming: false, config: Lri::Zone::Config.current, zone: Lri::Current.zone)
+    return if !config.enforced?
+    return if user.nil? || !staff?(user)
+    return 'senha de usuário da equipe (login só por Google ou Microsoft)' if !config.emergency_account?(user)
+    return 'conta de emergência fora da zona interna' if !zone&.internal?
+    return if confirming
+    return 'conta de emergência sem 2FA do Zammad cadastrado' if !Auth::User.new(user.login).requires_two_factor?
+
+    nil
+  end
+
+  def password_denied?(user, confirming: false)
+    reason = password_denial(user, confirming: confirming)
+    Rails.logger.warn "Lri::ZonePolicy: senha recusada para o usuário #{user.id} — #{reason}" if reason
+    reason.present?
+  end
+
   def staff?(user)
     user.permissions_with_child_names.any? do |name|
       CUSTOMER_PERMISSION_PREFIXES.none? { |prefix| name == prefix || name.start_with?("#{prefix}.") }

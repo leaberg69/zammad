@@ -303,20 +303,26 @@ interno reivindica a zona mas a prova falha (JWT inválido ou chaves do Access i
 destruir a sessão: uma falha do Access não desconecta a equipe. As chaves do Access ficam em cache, com tolerância de
 relógio de 30 s e reaproveitamento das chaves anteriores por até 24 h se a busca falhar.
 
-**Pré-requisitos para ligar `enforce` em produção** (próximo slice; sem eles o go-live não acontece, ou Leandro aceita
-o risco por escrito):
+**Pré-requisitos para ligar `enforce` em produção** (sem eles o go-live não acontece, ou Leandro aceita o risco por
+escrito):
 
-1. recusa de login por senha, de 2FA e de redefinição de senha da equipe na zona pública **antes** de verificar a
-   senha, com resposta igual à de credencial inválida — hoje a recusa vem depois do login, o que deixa um oráculo de
-   senha de equipe e permite bloquear agentes por tentativas (revisões de código e de segurança);
-2. conta de emergência com TOTP;
-3. `before_create` de `Organization` com `shared = false`;
-4. `state` obrigatório no retorno da autorização de caixa;
-5. indicação de zona para a interface esconder os botões de SSO no portal.
+1. **Feito** — senha, 2FA por senha e redefinição de senha da equipe recusados em qualquer zona, **antes** de
+   verificar a senha, com a mesma resposta de usuário desconhecido e sem contar tentativa para bloqueio
+   (`lib/auth.rb#verify_credentials!` e `User.password_reset_new_token`, uma linha cada; regra em
+   `Lri::ZonePolicy.password_denial`; testes em `spec/requests/lri/staff_password_spec.rb`);
+2. **Feito** — conta de emergência (`LRI_EMERGENCY_LOGIN`): a única da equipe com senha, só na zona interna e só com
+   2FA do Zammad já cadastrado (TOTP; chave de segurança não funciona no nome interno). O 2FA é cadastrado antes de
+   ligar `enforce`;
+3. **Feito** — organizações novas nascem sem compartilhamento com `LRI_ORGANIZATIONS_PRIVATE=true`
+   (`Lri::PrivateOrganizations`, `before_create`);
+4. **Feito** — `state` obrigatório e comparado em tempo constante no retorno da autorização de caixa, em todos os
+   provedores (`ExternalCredential.state_matches?`);
+5. **Pendente** — indicação de zona para a interface esconder os botões de SSO da equipe no portal (fatia com UX-A
+   e UX-B).
 
 Inventário dos caminhos por token do Zammad (`Token.check`), conferido em 01/11: token de API, iCal e assinatura
 de calendário passam por `current_user_set` (cobertos pelo ponto de checagem); `Signup`, `AdminAuth` e
-`PasswordReset` só autenticam pelo mesmo ponto (a troca de senha da equipe pela zona pública é o pré-requisito 1);
+`PasswordReset` só autenticam pelo mesmo ponto (e a equipe não recebe token de redefinição, pré-requisito 1);
 `KnowledgeBasePreview` (URL, sessão e anexos) e `KnowledgeBaseFeed` (URL) são recusados para a equipe pela política.
 Um tipo de token novo do upstream precisa entrar neste inventário.
 

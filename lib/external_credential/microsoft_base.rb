@@ -73,7 +73,7 @@ class ExternalCredential::MicrosoftBase < ExternalCredential::Base::ChannelXoaut
     # return to admin interface if admin Consent is in process and user clicks on "Back to app"
     return "#{Setting.get('http_type')}://#{Setting.get('fqdn')}/#channels/#{provider_name}/error/AADSTS65004" if params[:error_description].present? && params[:error_description].include?('AADSTS65004')
 
-    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if params[:state] != request_token
+    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if !ExternalCredential.state_matches?(request_token, params[:state])
 
     external_credential = ExternalCredential.find_by(name: provider_name)
     raise Exceptions::UnprocessableContent, error_missing_app_configuration if !external_credential

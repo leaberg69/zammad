@@ -49,7 +49,12 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
   end
 
   context 'when the guard is enforced' do
-    before { enforce_lri_zone_guard }
+    before do
+      enforce_lri_zone_guard
+      # Estes exemplos criam sessões de agente por senha para exercitar a guarda; a recusa da senha da equipe é outra
+      #   regra, com testes próprios em spec/requests/lri/staff_password_spec.rb.
+      allow(Lri::ZonePolicy).to receive(:password_denied?).and_return(false)
+    end
 
     describe 'public zone' do
       it 'refuses an agent password login and discards the session', :aggregate_failures do

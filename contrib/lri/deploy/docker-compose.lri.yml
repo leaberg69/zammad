@@ -1,0 +1,55 @@
+# Sobreposição da stack oficial (zammad/zammad-docker-compose) para a Central de Atendimento Grupo LRI.
+# Uso (na VPS, só com OK do Leandro): docker compose -f docker-compose.yml -f <este arquivo> up -d
+# Ver docs/lri/PLANO.md, seção 2.9.2. Os valores vêm do .env da central (permissão 600, fora do repositório).
+
+x-lri-zone: &lri-zone
+  LRI_ZONE_GUARD: enforce
+  LRI_ZONE_KEY: ${LRI_ZONE_KEY:?defina LRI_ZONE_KEY no .env}
+  LRI_ACCESS_TEAM_DOMAIN: ${LRI_ACCESS_TEAM_DOMAIN:-lriauto.cloudflareaccess.com}
+  LRI_ACCESS_AUD: ${LRI_ACCESS_AUD:?defina LRI_ACCESS_AUD no .env}
+  LRI_INTERNAL_URL: https://${LRI_INTERNAL_HOST:-atendimento.lri.com.br}
+  # O cloudflared entrega as requisições ao Nginx pelo namespace dele; para o Zammad, o único proxy é o Nginx.
+  RAILS_TRUSTED_PROXIES: zammad-nginx
+
+services:
+  zammad-railsserver:
+    environment: *lri-zone
+    networks: [default, lri-app]
+
+  zammad-websocket:
+    environment: *lri-zone
+    networks: [default, lri-app]
+
+  zammad-nginx:
+    entrypoint: ["/opt/zammad/contrib/lri/deploy/nginx-entrypoint.sh"]
+    command: []
+    environment:
+      LRI_ZONE_KEY: ${LRI_ZONE_KEY:?defina LRI_ZONE_KEY no .env}
+      LRI_FQDN: ${LRI_FQDN:-suporte.lri.com.br}
+      LRI_INTERNAL_HOST: ${LRI_INTERNAL_HOST:-atendimento.lri.com.br}
+      LRI_MW_HOST: ${LRI_MW_HOST:-suporte.meanwellbrasil.com.br}
+      LRI_PUBLIC_HOSTS: ${LRI_PUBLIC_HOSTS:-suporte.lri.com.br suporte.meanwellbrasil.com.br suporte.ird.net.br}
+    # Nenhuma porta no host: só o cloudflared, no mesmo namespace, alcança 127.0.0.1:8081/8082.
+    ports: !reset []
+    networks: [lri-app, lri-edge]
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:?fixe a versão do cloudflared no .env}
+    restart: ${RESTART:-always}
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    network_mode: service:zammad-nginx
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on:
+      - zammad-nginx
+
+networks:
+  # O Nginx (e o cloudflared, que usa o namespace dele) fica só em lri-app (com railsserver e websocket) e em
+  # lri-edge (saída para a Cloudflare, sem nenhum outro container): não enxerga PostgreSQL, Redis nem
+  # Elasticsearch. Railsserver e websocket continuam também na rede padrão, onde
+  # estão o banco e os outros serviços da stack: um container dali ainda alcança o Rails por HTTP. Por isso a zona
+  # interna exige o segredo de zona e o JWT do Access (Lri::Zone), não só o cabeçalho.
+  lri-app:
+    internal: true
+
+  lri-edge: {}

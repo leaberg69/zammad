@@ -1,0 +1,149 @@
+# Nginx da Central de Atendimento Grupo LRI: dois listeners, só em 127.0.0.1, alcançados apenas pelo cloudflared
+# que roda no mesmo namespace de rede (docs/lri/PLANO.md, seção 2.9.2). Renderizado na partida por
+# contrib/lri/deploy/nginx-entrypoint.sh; os marcadores @...@ vêm do ambiente.
+
+# proxy_pass com variável: o nome do container é resolvido a cada requisição (resolver em conf.d/resolver.conf), como
+# o entrypoint oficial do Zammad faz, para seguir o container recriado com outro IP.
+
+# Troca exata de Origin no WebSocket (issue #2): texto inteiro, sem expressão regular; qualquer outro valor passa
+# como veio e o Zammad recusa.
+map $http_origin $lri_internal_ws_origin {
+  default                 $http_origin;
+  "https://@INTERNAL_HOST@" "https://@FQDN@";
+}
+
+map $http_origin $lri_public_ws_origin {
+  default                 $http_origin;
+  "https://@MW_HOST@"     "https://@FQDN@";
+}
+
+# O IP real do cliente vem da Cloudflare; só o cloudflared (127.0.0.1) é confiável para informá-lo.
+set_real_ip_from 127.0.0.1;
+real_ip_header CF-Connecting-IP;
+
+underscores_in_headers off;
+ignore_invalid_headers on;
+server_tokens off;
+
+# ---------------------------------------------------------------------------------------------------------------
+# ZONA PÚBLICA: suporte.lri.com.br, suporte.meanwellbrasil.com.br, suporte.ird.net.br
+# ---------------------------------------------------------------------------------------------------------------
+server {
+  listen 127.0.0.1:8081 default_server;
+  server_name _;
+  return 404;
+}
+
+server {
+  listen 127.0.0.1:8081;
+  server_name @PUBLIC_HOSTS@;
+
+  root /opt/zammad/public;
+  access_log /dev/stdout;
+  error_log  /dev/stdout;
+  client_max_body_size @MAX_BODY@;
+
+  error_page 403 /lri-bloqueio.html;
+  location = /lri-bloqueio.html {
+    internal;
+    root /opt/zammad/contrib/lri/deploy/nginx;
+  }
+
+  # Retornos de OAuth da equipe chegam ao fqdn (registrado no Google e no Entra ID) e seguem para o nome interno:
+  # caminho exato, destino fixo, query preservada. Nada do Host nem de parâmetros entra no destino.
+  location = /auth/google_oauth2/callback              { return 302 https://@INTERNAL_HOST@$request_uri; }
+  location = /auth/microsoft_office365/callback        { return 302 https://@INTERNAL_HOST@$request_uri; }
+  location = /api/v1/external_credentials/google/callback          { return 302 https://@INTERNAL_HOST@$request_uri; }
+  location = /api/v1/external_credentials/microsoft_graph/callback { return 302 https://@INTERNAL_HOST@$request_uri; }
+
+  # Rotas da equipe: bloqueadas sem diferenciar maiúsculas (o OmniAuth também não diferencia). A guarda de zona no
+  # Zammad recusa de novo; isto é defesa em profundidade.
+  location ~* ^/(auth|oauth)(/|$)                        { return 403; }
+  location ~* ^/api/v1/(external_credentials|monitoring)(/|$) { return 403; }
+
+  location ~ ^/(assets/|robots.txt|humans.txt|favicon.ico|apple-touch-icon.png) {
+    expires max;
+  }
+
+  location /ws {
+    include /etc/nginx/lri/lri-zone-public.inc;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Origin $lri_public_ws_origin;
+    proxy_read_timeout 86400;
+    set $lri_websocket http://@WEBSOCKET_UPSTREAM@;
+    proxy_pass $lri_websocket;
+  }
+
+  location /cable {
+    include /etc/nginx/lri/lri-zone-public.inc;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Origin $lri_public_ws_origin;
+    proxy_read_timeout 86400;
+    set $lri_rails http://@RAILS_UPSTREAM@;
+    proxy_pass $lri_rails;
+  }
+
+  location / {
+    include /etc/nginx/lri/lri-zone-public.inc;
+    proxy_read_timeout 300;
+    set $lri_rails http://@RAILS_UPSTREAM@;
+    proxy_pass $lri_rails;
+    gzip on;
+    gzip_types text/plain text/xml text/css image/svg+xml application/javascript application/json application/xml;
+    gzip_proxied any;
+  }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# ZONA INTERNA: atendimento.lri.com.br (o cloudflared só entrega depois de validar o JWT do Access)
+# ---------------------------------------------------------------------------------------------------------------
+server {
+  listen 127.0.0.1:8082 default_server;
+  server_name _;
+  return 404;
+}
+
+server {
+  listen 127.0.0.1:8082;
+  server_name @INTERNAL_HOST@;
+
+  root /opt/zammad/public;
+  access_log /dev/stdout;
+  error_log  /dev/stdout;
+  client_max_body_size @MAX_BODY@;
+
+  location ~ ^/(assets/|robots.txt|humans.txt|favicon.ico|apple-touch-icon.png) {
+    expires max;
+  }
+
+  location /ws {
+    include /etc/nginx/lri/lri-zone-internal.inc;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Origin $lri_internal_ws_origin;
+    proxy_read_timeout 86400;
+    set $lri_websocket http://@WEBSOCKET_UPSTREAM@;
+    proxy_pass $lri_websocket;
+  }
+
+  location /cable {
+    include /etc/nginx/lri/lri-zone-internal.inc;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_read_timeout 86400;
+    set $lri_rails http://@RAILS_UPSTREAM@;
+    proxy_pass $lri_rails;
+  }
+
+  location / {
+    include /etc/nginx/lri/lri-zone-internal.inc;
+    proxy_read_timeout 300;
+    set $lri_rails http://@RAILS_UPSTREAM@;
+    proxy_pass $lri_rails;
+    gzip on;
+    gzip_types text/plain text/xml text/css image/svg+xml application/javascript application/json application/xml;
+    gzip_proxied any;
+  }
+}

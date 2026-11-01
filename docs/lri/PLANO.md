@@ -283,6 +283,21 @@ nome interno `atendimento.lri.com.br`, login da equipe pela opção (i) e troca 
 o `cloudflared` valida o JWT do Access (audience do aplicativo e domínio da equipe `lriauto`) e o listener interno
 escuta só em `127.0.0.1`.
 
+**Implementado (slice "Zonas interna e pública", PR #1)** — ainda sem implantação:
+
+| Peça | Onde | Teste |
+| ---- | ---- | ----- |
+| Guarda de zona (zona por cabeçalho + segredo + JWT do Access; recusas na zona pública; zona gravada na sessão) | `lib/lri/`, `config/initializers/lri_zone_guard.rb` | `spec/lib/lri/`, `spec/requests/lri/` |
+| Guarda no WebSocket legado e no ActionCable | `lib/sessions/event/login.rb`, `app/channels/application_cable/connection.rb` (uma linha cada) | `spec/lib/lri/zone_guard_realtime_spec.rb` |
+| Nginx com os dois listeners, cabeçalhos por `location`, troca exata de `Origin`, 302 dos retornos, bloqueios | `contrib/lri/deploy/nginx/`, `contrib/lri/deploy/nginx-entrypoint.sh` | `contrib/lri/deploy/test/nginx_zones_test.sh` |
+| Túnel gerenciado localmente e sobreposição da stack oficial | `contrib/lri/deploy/cloudflared/config.yml.example`, `contrib/lri/deploy/docker-compose.lri.yml` | revisão |
+
+A guarda só age com `LRI_ZONE_GUARD=enforce`; ligada com configuração incompleta, a aplicação não sobe. Ficam para o
+próximo slice: recusa de login por senha e de redefinição de senha da equipe em qualquer zona (com resposta igual à
+de e-mail desconhecido), conta de emergência com TOTP, `before_create` de `Organization` com `shared = false`,
+`state` obrigatório no retorno da autorização de caixa e a indicação de zona para a interface esconder os botões de
+SSO no portal.
+
 **Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
 
 - as zonas DNS `lri.com.br`, `ird.net.br` e `meanwellbrasil.com.br` estão na Cloudflare (conta LRI Group); os três
@@ -324,8 +339,11 @@ um listener diferente do proxy próprio da central:
 - **O cabeçalho de zona não basta sozinho**: na stack oficial, `zammad-scheduler`, `zammad-init`, `zammad-backup`,
   Elasticsearch, Redis e memcached estão na mesma rede que o `zammad-railsserver` e o `zammad-websocket` e conseguem
   falar com eles direto, mandando o `X-LRI-Zone` que quiserem. Por isso (exigência das revisões de segurança):
-  - `zammad-railsserver` e `zammad-websocket` ficam numa rede Docker `internal: true` compartilhada **só** com o
-    `zammad-nginx`; os demais serviços falam com eles apenas pelo que precisam (PostgreSQL, Redis), sem rota HTTP;
+  - o `zammad-nginx` (e o `cloudflared`) sai da rede padrão: fica numa rede `internal: true` com o
+    `zammad-railsserver` e o `zammad-websocket` e numa rede de saída só dele, sem enxergar banco, Redis ou
+    Elasticsearch. Railsserver e websocket continuam na rede padrão, porque precisam do banco, então um container
+    dali ainda os alcança por HTTP — e é por isso que os dois controles abaixo são obrigatórios
+    (`contrib/lri/deploy/docker-compose.lri.yml`);
   - a zona interna só vale se vier junto um segredo de zona (`X-LRI-Zone-Key`, 32 bytes gerados para a central,
     no `.env`), que só o listener interno injeta e a guarda compara em tempo constante; o valor nunca vai para log;
   - a guarda também valida o `Cf-Access-Jwt-Assertion` (assinatura pelas chaves públicas da equipe `lriauto`,
@@ -334,9 +352,10 @@ um listener diferente do proxy próprio da central:
   de rede.
 - **Cloudflare Access no nome interno**: aplicativo "Central de Atendimento — equipe" com dois provedores de
   identidade: **Google Workspace da LRI** e **Microsoft Entra ID da IRD.Net**. Política: permitir e-mails
-  `@lri.com.br` autenticados pelo Google e `@ird.net.br` autenticados pelo Entra ID; MFA exigido nos provedores. Se a
-  equipe da Mean Well Brasil tiver contas `@meanwellbrasil.com.br` próprias, o domínio entra na política do Google
-  (a confirmar).
+  `@lri.com.br` e `@meanwellbrasil.com.br` autenticados pelo Google (a equipe Mean Well Brasil tem contas nos dois
+  domínios, decisão de Leandro na issue #2) e `@ird.net.br` autenticados pelo Entra ID; MFA exigido nos provedores.
+  Clientes da Mean Well Brasil verão `suporte.lri.com.br` nos links de e-mail de sistema e nos retornos de login
+  (aprovado por Leandro).
   Os nomes de cliente **não** têm Access (o cliente usa o portal com e-mail e senha).
 - **Listeners**: o Nginx que já existe na stack oficial do Zammad (`zammad-nginx`) ganha dois blocos de servidor,
   um por zona, ouvindo só em `127.0.0.1`. Os cabeçalhos de zona ficam num arquivo incluído **em cada `location`**

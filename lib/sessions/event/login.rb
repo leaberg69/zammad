@@ -84,6 +84,8 @@ To execute this manually, just paste the following into the browser console
     return if !user&.active?
     return if Auth::SwitchedSession.revoked?(session.data['switched_from_user_id'])
     return if Auth::MaintenanceMode.blocks?(user, switched_from_user_id: session.data['switched_from_user_id'])
+    # Grupo LRI: guarda de zona (docs/lri/PLANO.md, seção 2.9.3).
+    return if Lri::ZoneGuard.realtime_denial(session.data, ->(name) { header_value(name) })
 
     user
   end

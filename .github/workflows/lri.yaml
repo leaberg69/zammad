@@ -49,4 +49,68 @@ jobs:
             exit 1
           fi
       - name: Scripts Python compilam
-        run: python -m py_compile contrib/lri/qa/capture.py contrib/lri/branding/gerar_logos.py
+        run: python -m py_compile contrib/lri/qa/capture.py contrib/lri/branding/gerar_logos.py contrib/lri/deploy/test/*.py
+      - name: Shellcheck dos scripts de deploy
+        run: shellcheck contrib/lri/deploy/nginx-entrypoint.sh contrib/lri/deploy/test/nginx_zones_test.sh
+
+  nginx-zones:
+    name: Nginx das zonas (interna x pública)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Teste do proxy com upstream de eco
+        run: contrib/lri/deploy/test/nginx_zones_test.sh
+
+  zone-guard:
+    name: Guarda de zona (RSpec e RuboCop)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: zammad/zammad-ci:latest
+    services:
+      postgresql:
+        image: postgres:18
+        env:
+          POSTGRES_USER: zammad
+          POSTGRES_PASSWORD: zammad
+      redis:
+        image: redis:6
+    env:
+      RAILS_ENV: test
+      Z_LOCALES: "en-us:de-de"
+      TZ: 'Europe/London'
+      REDIS_URL: redis://redis:6379
+      CI_SKIP_ASSETS_PRECOMPILE: 'true'
+      CI_SKIP_DB_RESET: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Cache Rubygems
+        uses: actions/cache@v6
+        with:
+          path: vendor/bundle
+          key: ${{ runner.os }}-lri-bundler-${{ hashFiles('Gemfile.lock') }}
+      - name: Preparar Rails e banco de teste
+        shell: bash
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle config set --local deployment 'true'
+          bundle install -j "$(nproc)"
+          bundle exec ruby .gitlab/configure_environment.rb
+          bundle exec rake zammad:db:init
+      - name: RuboCop do código LRI e dos pontos tocados no núcleo
+        shell: bash
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle exec rubocop lib/lri spec/lib/lri spec/requests/lri spec/support/lri_zone.rb \
+            config/initializers/lri_zone_guard.rb contrib/lri \
+            app/channels/application_cable/connection.rb lib/sessions/event/login.rb
+      - name: RSpec da guarda de zona e dos transportes tocados
+        shell: bash
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle exec rspec spec/lib/lri spec/requests/lri \
+            spec/lib/sessions/event/login_spec.rb spec/channels/application_cable \
+            spec/requests/session_spec.rb

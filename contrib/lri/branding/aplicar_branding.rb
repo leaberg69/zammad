@@ -82,20 +82,27 @@ step.call('base de conhecimento') do
       failures << "KB #{kb.id}: #{kb.errors.full_messages.join('; ')}"
     end
 
+    # A posição só vale com a ordenação manual (KnowledgeBase::Category.sorted_by_mode); em 'alphabetical' ou
+    # 'last_update' a ordem pedida seria ignorada sem aviso.
+    kb.update!(category_sorting_mode: 'manual') if kb.category_sorting_mode != 'manual'
+
     roots = kb.categories.where(parent_id: nil).to_a
     by_title = roots.index_by { |cat| cat.translations.first&.title }
-    KB_CATEGORY_ORDER.each_with_index do |title, index|
-      category = by_title[title]
-      if category
-        category.update!(position: index)
-        puts "ok   KB #{kb.id} categoria #{title.inspect} na posição #{index}"
-      else
-        pending << "KB #{kb.id}: categoria de primeiro nível #{title.inspect} não existe (crie no provisionamento)"
-      end
+    missing = KB_CATEGORY_ORDER.reject { |title| by_title.key?(title) }
+    missing.each { |title| pending << "KB #{kb.id}: categoria de primeiro nível #{title.inspect} não existe (crie no provisionamento)" }
+
+    ordered = KB_CATEGORY_ORDER.select { |title| by_title.key?(title) } + (by_title.keys - KB_CATEGORY_ORDER)
+    ordered.each_with_index { |title, index| by_title[title].update!(position: index) }
+
+    # Confere a ordem que o site realmente vai mostrar, não só o que foi gravado.
+    effective = kb.categories.where(parent_id: nil).sorted_by_mode(kb.reload.category_sorting_mode)
+      .map { |cat| cat.translations.first&.title }
+    expected = effective & KB_CATEGORY_ORDER
+    if expected == KB_CATEGORY_ORDER.select { |title| by_title.key?(title) }
+      puts "ok   KB #{kb.id} ordem efetiva das categorias: #{effective.join(', ')} (modo #{kb.category_sorting_mode})"
+    else
+      failures << "KB #{kb.id}: ordem pedida #{KB_CATEGORY_ORDER.join(', ')}, ordem efetiva #{effective.join(', ')} (modo #{kb.category_sorting_mode})"
     end
-    extras = by_title.keys - KB_CATEGORY_ORDER
-    extras.each.with_index(KB_CATEGORY_ORDER.size) { |title, index| by_title[title].update!(position: index) }
-    puts "info KB #{kb.id} outras categorias depois das marcas: #{extras.join(', ')}" if extras.any?
   end
 end
 

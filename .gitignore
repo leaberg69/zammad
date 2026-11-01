@@ -151,3 +151,6 @@ schema.graphql
 
 # Playwright MCP output (snapshots, screenshots, console logs)
 /.playwright-mcp/
+
+# Grupo LRI: bytecode dos scripts Python de contrib/lri
+__pycache__/

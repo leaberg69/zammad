@@ -63,10 +63,14 @@ PROBE = r"""
         vizinho: `rgb(${around.join(',')})`, ratio: +sr.toFixed(2) });
     }
     const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-    if (hasText) { const fg = parse(cs.color); if (!fg) { skipped++; continue; } const bg = bgOf(el);
-      const isBrand = brand.includes(fg.join(',')) || brand.includes(bg.join(','));
+    if (hasText) { let fg = parse(cs.color); if (!fg) { skipped++; continue; } const bg = bgOf(el);
+      // Opacidade efetiva (cor com alfa e `opacity` dos ancestrais) mistura o texto com o fundo.
+      let alpha = 1; const m = cs.color.match(/rgba\([^)]*,\s*([\d.]+)\)/); if (m) alpha *= parseFloat(m[1]);
+      for (let a = el; a && a !== document.body; a = a.parentElement) alpha *= parseFloat(getComputedStyle(a).opacity);
+      if (alpha < 1) fg = fg.map((v, i) => Math.round(v * alpha + bg[i] * (1 - alpha)));
+      const isBrand = brand.includes(parse(cs.color).join(',')) || brand.includes(bg.join(','));
       const rr = ratio(fg, bg); const big = parseFloat(cs.fontSize) >= 24 || (parseFloat(cs.fontSize) >= 18.66 && parseInt(cs.fontWeight) >= 700);
-      if (isBrand && rr < (big ? 3 : 4.5)) low.push({ text: el.textContent.trim().slice(0, 40), fg: cs.color, bg: `rgb(${bg.join(',')})`, ratio: +rr.toFixed(2) }); }
+      if (isBrand && rr < (big ? 3 : 4.5)) low.push({ text: el.textContent.trim().slice(0, 40), fg: `rgb(${fg.join(',')})`, alfa: +alpha.toFixed(2), bg: `rgb(${bg.join(',')})`, ratio: +rr.toFixed(2) }); }
   }
   return { blues: blues.slice(0, 40), blue_count: blues.length, low_contrast_brand: low.slice(0, 40), low_count: low.length,
     state_low_contrast: state.slice(0, 40), state_low_count: state.length, ignorados_sem_medida: skipped };

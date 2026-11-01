@@ -52,7 +52,7 @@ Setting.set('customer_ticket_create_group_ids', Group.where(name: ['LRI', 'IRD.N
 
 kb = KnowledgeBase.first || KnowledgeBase.create!(
   iconset: 'FontAwesome', color_highlight: '#38ae6a', color_header: '#f9fafb', color_header_link: 'hsl(206,8%,50%)',
-  homepage_layout: 'grid', category_layout: 'grid', active: true,
+  homepage_layout: 'grid', category_layout: 'grid', category_sorting_mode: 'manual', active: true,
   kb_locales_attributes: [{ system_locale: Locale.find_by(locale: 'pt-br'), primary: true }]
 )
 kb_locale = kb.kb_locales.first

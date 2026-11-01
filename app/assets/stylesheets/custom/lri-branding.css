@@ -140,9 +140,11 @@
 
 /*
  * Logo da instância no tema escuro: a variante clara tem preto (IRD.Net) que some no fundo escuro.
- * A prévia em Admin > Marca fica de fora de propósito: ela precisa mostrar o logo realmente configurado.
+ * A prévia em Admin > Marca também troca (ux-spec v1, C1). Efeito colateral registrado na issue #3: se outro logo
+ * for enviado pelo painel, o tema escuro continua mostrando o do Grupo LRI até este CSS mudar.
  */
-[data-theme='dark'] .login .company-logo {
+[data-theme='dark'] .login .company-logo,
+[data-theme='dark'] .branding .logo-preview {
   content: url('/assets/lri/grupo-lri-logo-escuro.svg');
 }
 
@@ -154,15 +156,15 @@
  */
 
 /* Regra A — dropdown: a barra soma-se ao separador de 1 px do upstream, que não pode sumir. */
-.dropdown li:hover:not(.danger, .create, .js-back, .inactive-with-children),
-.dropdown li.is-active:not(.danger, .create, .js-back, .inactive-with-children) {
+.dropdown li:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+.dropdown li.is-active:not(.danger, .create, .js-back, .inactive-with-children, [disabled]) {
   box-shadow: inset 3px 0 0 #74b527, 0 1px rgba(255, 255, 255, 0.13) inset;
 }
 
-.dropdown li:first-child:hover:not(.danger, .create, .js-back, .inactive-with-children),
-.dropdown li.is-active:first-child:not(.danger, .create, .js-back, .inactive-with-children),
-.dropdown li.label + li:hover:not(.danger, .create, .js-back, .inactive-with-children),
-.dropdown li.label + li.is-active:not(.danger, .create, .js-back, .inactive-with-children) {
+.dropdown li:first-child:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+.dropdown li.is-active:first-child:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+.dropdown li.label + li:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+.dropdown li.label + li.is-active:not(.danger, .create, .js-back, .inactive-with-children, [disabled]) {
   box-shadow: inset 3px 0 0 #74b527;
 }
 
@@ -172,9 +174,14 @@
   box-shadow: inset 3px 0 0 #74b527;
 }
 
-/* Seletor de Grupo (searchableSelect): o upstream realça só o texto; a barra vai na linha. */
-.searchableSelect .dropdown li.js-enter.is-highlighted,
-.searchableSelect .dropdown li.js-enter:hover {
+/* Seletor de Grupo (searchableSelect): o upstream realça só o texto; a barra vai na linha, somada ao separador. */
+.searchableSelect .dropdown li.js-enter.is-highlighted:not(:first-child),
+.searchableSelect .dropdown li.js-enter:hover:not(:first-child) {
+  box-shadow: inset 3px 0 0 #74b527, 0 1px rgba(255, 255, 255, 0.13) inset;
+}
+
+.searchableSelect .dropdown li.js-enter.is-highlighted:first-child,
+.searchableSelect .dropdown li.js-enter:hover:first-child {
   box-shadow: inset 3px 0 0 #74b527;
 }
 
@@ -262,4 +269,21 @@
 .nav-tab.is-active.task-state-closed,
 .nav-tab.is-active.task-state-escalating {
   box-shadow: none;
+}
+
+/* RTL: a barra das regras A vai para a direita (ux-spec v3, interaction_rules.rtl). */
+[dir='rtl'] .dropdown li:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .dropdown li.is-active:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .dropdown-menu > li > a.is-hovered,
+[dir='rtl'] .pop-selectable:hover,
+[dir='rtl'] .ui-menu .ui-menu-item.ui-state-focus,
+[dir='rtl'] .searchableSelect .dropdown li.js-enter.is-highlighted,
+[dir='rtl'] .searchableSelect .dropdown li.js-enter:hover {
+  box-shadow: inset -3px 0 0 #74b527;
+}
+
+[dir='rtl'][data-theme='dark'] .nav-pills > li.active > a,
+[dir='rtl'] [data-theme='dark'] .nav-pills > li.active > a,
+[data-theme='dark'] [dir='rtl'] .nav-pills > li.active > a {
+  box-shadow: inset -3px 0 0 #74b527;
 }

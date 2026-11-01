@@ -193,6 +193,16 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(response.parsed_body['error']).to eq('zone_restricted')
       end
 
+      it 'refuses a staff feed token hidden behind a repeated parameter' do
+        knowledge_base = create(:knowledge_base)
+        locale         = knowledge_base.kb_locales.first.system_locale.locale
+        token          = Token.ensure_token!('KnowledgeBaseFeed', admin.id)
+
+        get "#{feed_knowledge_base_path(knowledge_base, locale)}?token=qualquer&token=#{token}"
+
+        expect(response.parsed_body['error']).to eq('zone_restricted')
+      end
+
       it 'serves the same feed token on the internal zone' do
         knowledge_base = create(:knowledge_base)
         locale         = knowledge_base.kb_locales.first.system_locale.locale

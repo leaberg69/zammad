@@ -42,22 +42,25 @@ module Lri::ZonePolicy
   #   FeedsControllerPolicy) e prévia da KB (?preview_token=, antes de ir para a sessão).
   QUERY_TOKENS = { 'token' => 'KnowledgeBaseFeed', 'preview_token' => 'KnowledgeBasePreview' }.freeze
 
+  # Confere TODOS os valores de cada chave, da query e do corpo, com o parser do Rails: com chave repetida o
+  #   controller vê o último valor, então conferir só um deles abriria brecha.
   def query_token_denial(env)
-    return if env['QUERY_STRING'].blank?
+    request = ActionDispatch::Request.new(env)
+    sources = [request.query_parameters, request.request_parameters]
+    raw     = Rack::Utils.parse_query(env['QUERY_STRING'].to_s) # repetições sem colchetes que o Rails reduz ao último
 
-    params = Rack::Utils.parse_query(env['QUERY_STRING'])
     QUERY_TOKENS.each do |param, action|
-      value = Array(params[param]).first
-      next if value.blank?
-
-      owner = Token.check(action: action, token: value)
-      return "token #{action} da equipe na URL" if owner.present? && staff?(owner)
+      values = (sources.map { |source| source[param] } + [raw[param]]).flatten.compact.map(&:to_s).compact_blank.uniq
+      values.each do |value|
+        owner = Token.check(action: action, token: value)
+        return "token #{action} da equipe na URL" if owner.present? && staff?(owner)
+      end
     end
 
     nil
-  rescue ArgumentError => e # inclui Rack::Utils::InvalidParameterError; o Rails também recusa essa query
-    Rails.logger.warn "Lri::ZonePolicy: query string ilegível ignorada na checagem de token (#{e.class})"
-    nil
+  rescue ActionController::BadRequest, ArgumentError => e # parâmetros ilegíveis: o Rails também recusa a requisição
+    Rails.logger.warn "Lri::ZonePolicy: parâmetros ilegíveis na checagem de token (#{e.class}); recusado por precaução"
+    "parâmetros ilegíveis (#{e.class.name.demodulize})"
   end
 
   # session_data: hash da sessão (chaves em texto ou símbolo). Vale para HTTP, WebSocket legado e ActionCable.

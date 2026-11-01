@@ -86,7 +86,8 @@ def origin_seen(port, host, path, origin):
 
 
 check('interno /ws: Origin do nome interno vira o fqdn', origin_seen(INTERNAL, STAFF, '/ws', f'https://{STAFF}') == f'https://{FQDN}')
-for other in (f'https://{STAFF}.evil.com', 'https://intranet.lri.com.br', 'null', f'HTTPS://{STAFF.upper()}'):
+for other in (f'https://{STAFF}.evil.com', 'https://intranet.lri.com.br', 'null', f'HTTPS://{STAFF.upper()}',
+              'https://atendimentoXlri.com.br', f'http://{STAFF}'):
     check(f'interno /ws: Origin {other} passa inalterado', origin_seen(INTERNAL, STAFF, '/ws', other) == other)
 check('interno /ws: Origin ausente continua ausente', origin_seen(INTERNAL, STAFF, '/ws', None) is None)
 check('interno /cable: sem troca (ActionCable aceita Origin igual ao Host)', origin_seen(INTERNAL, STAFF, '/cable', f'https://{STAFF}') == f'https://{STAFF}')

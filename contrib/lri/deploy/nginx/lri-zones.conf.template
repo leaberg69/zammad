@@ -5,16 +5,17 @@
 # proxy_pass com variável: o nome do container é resolvido a cada requisição (resolver em conf.d/resolver.conf), como
 # o entrypoint oficial do Zammad faz, para seguir o container recriado com outro IP.
 
-# Troca exata de Origin no WebSocket (issue #2): texto inteiro, sem expressão regular; qualquer outro valor passa
-# como veio e o Zammad recusa.
+# Troca exata de Origin no WebSocket (issue #2): o texto inteiro, sem curinga. Usa expressão ancorada (^...$) com
+# os pontos escapados porque, no map do Nginx, comparação de texto simples ignora maiúsculas; a expressão com "~"
+# diferencia. Qualquer outro valor passa como veio e o Zammad recusa.
 map $http_origin $lri_internal_ws_origin {
-  default                 $http_origin;
-  "https://@INTERNAL_HOST@" "https://@FQDN@";
+  default                            $http_origin;
+  "~^https://@INTERNAL_HOST_RE@$"    "https://@FQDN@";
 }
 
 map $http_origin $lri_public_ws_origin {
-  default                 $http_origin;
-  "https://@MW_HOST@"     "https://@FQDN@";
+  default                            $http_origin;
+  "~^https://@MW_HOST_RE@$"          "https://@FQDN@";
 }
 
 # O IP real do cliente vem da Cloudflare; só o cloudflared (127.0.0.1) é confiável para informá-lo.

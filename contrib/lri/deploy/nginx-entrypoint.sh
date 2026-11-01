@@ -43,11 +43,18 @@ printf '%s' "$RAILS_UPSTREAM $WEBSOCKET_UPSTREAM" | grep -Eq '^[A-Za-z0-9.-]+:[0
   || fail "upstreams inválidos: $RAILS_UPSTREAM $WEBSOCKET_UPSTREAM"
 printf '%s' "$MAX_BODY" | grep -Eq '^[0-9]+[kKmMgG]?$' || fail "NGINX_CLIENT_MAX_BODY_SIZE inválido: $MAX_BODY"
 
+# Para as expressões ancoradas do map de Origin: pontos escapados (os nomes já foram validados acima). A barra sai
+# dobrada aqui porque o sed da renderização, abaixo, consome uma delas na substituição.
+INTERNAL_HOST_RE=$(printf '%s' "$LRI_INTERNAL_HOST" | sed 's/\./\\\\./g')
+MW_HOST_RE=$(printf '%s' "$LRI_MW_HOST" | sed 's/\./\\\\./g')
+
 mkdir -p "$INC_DIR" "$(dirname "$SITE_FILE")"
 
 sed -e "s#@RAILS_UPSTREAM@#${RAILS_UPSTREAM}#g" \
     -e "s#@WEBSOCKET_UPSTREAM@#${WEBSOCKET_UPSTREAM}#g" \
     -e "s#@FQDN@#${LRI_FQDN}#g" \
+    -e "s#@INTERNAL_HOST_RE@#${INTERNAL_HOST_RE}#g" \
+    -e "s#@MW_HOST_RE@#${MW_HOST_RE}#g" \
     -e "s#@INTERNAL_HOST@#${LRI_INTERNAL_HOST}#g" \
     -e "s#@MW_HOST@#${LRI_MW_HOST}#g" \
     -e "s#@PUBLIC_HOSTS@#${LRI_PUBLIC_HOSTS}#g" \

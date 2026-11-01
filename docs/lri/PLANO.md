@@ -309,9 +309,11 @@ o risco por escrito):
 4. `state` obrigatório no retorno da autorização de caixa;
 5. indicação de zona para a interface esconder os botões de SSO no portal.
 
-Registrado e aceito: a zona do WebSocket e do ActionCable é avaliada só na conexão (um cliente promovido a agente
-com o socket aberto mantém o acesso de cliente até reconectar); a recusa no tempo real deixa a sessão anônima, sem
-aviso ao cliente, porque o HTTP já recusou antes.
+Registrado e aceito: a zona do WebSocket e do ActionCable é avaliada só na conexão. Um cliente promovido a agente
+por um administrador, com o socket público já aberto, passa a receber pelo WebSocket legado os eventos das
+permissões atuais (de agente) até reconectar; qualquer requisição HTTP dele já é recusada. Mitigação operacional:
+ao promover alguém, encerrar as sessões dele. A recusa no tempo real deixa a sessão anônima, sem aviso ao cliente,
+porque o HTTP já recusou antes.
 
 **Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
 

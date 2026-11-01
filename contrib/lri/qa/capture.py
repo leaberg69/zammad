@@ -1,3 +1,5 @@
+# Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
+
 """Captura as telas de aceite da ux-spec de branding (docs/lri/esteira/branding/ux-spec-v*.yaml).
 
 Uso: python contrib/lri/qa/capture.py <url-base> <pasta-de-saida>

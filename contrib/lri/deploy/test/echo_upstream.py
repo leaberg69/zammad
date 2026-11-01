@@ -1,3 +1,5 @@
+# Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
+
 """Upstream de teste: responde com o caminho e os cabeçalhos recebidos, em JSON (portas 3000 e 6042)."""
 
 import json

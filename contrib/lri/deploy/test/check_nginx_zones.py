@@ -1,3 +1,5 @@
+# Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
+
 """Confere o Nginx das zonas (contrib/lri/deploy/nginx) contra o upstream de eco. Roda no namespace de rede do Nginx.
 
 Cada verificação imprime OK ou FALHA com o motivo; o código de saída é o número de falhas.

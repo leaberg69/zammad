@@ -1,3 +1,5 @@
+# Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
+
 """Gera as variantes de logo da ux-spec de branding (v2) a partir das fontes em docs/lri/brand-assets/.
 
 Uso (na raiz do repositório): python contrib/lri/branding/gerar_logos.py

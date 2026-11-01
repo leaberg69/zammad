@@ -119,6 +119,15 @@
   color: #9ecb68;
 }
 
+/*
+ * Link dentro do balão do artigo no tema escuro (fundo #4b5058, achado na medição da tela real, fora dos
+ * fundos de referência da ux-spec v1): #74b527 dá 3,24:1 e #9ecb68 dá 4,33:1; #a8d17a (#74b527 clareado)
+ * dá 4,66:1.
+ */
+[data-theme='dark'] .textBubble a {
+  color: #a8d17a;
+}
+
 /* Logo da instância no tema escuro: a variante clara tem preto (IRD.Net) que some no fundo escuro. */
 [data-theme='dark'] .login .company-logo,
 [data-theme='dark'] .branding .logo-preview {

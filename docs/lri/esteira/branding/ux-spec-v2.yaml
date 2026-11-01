@@ -1,0 +1,206 @@
+# ux-spec-v2 — Branding Grupo LRI, DELTA sobre a v1 (issue #2, comentários de 31/10)
+# Muda: (1) Mean Well Brasil entra como terceira marca e terceiro endereço da mesma instância;
+# (2) a fonte oficial dos logos passa a ser a pasta do OneDrive. Tudo o que esta v2 não cita continua
+# valendo como está na v1 (tokens de cor, seletores, Vue, mobile, KB, pt-BR, fora de escopo).
+# Ainda desenhado sem ver a tela: não houve screenshot da implementação da v1.
+artifact_meta:
+  name: ux-spec
+  version: 2
+  produced_by: ux_engineer_a
+  created_at: "2026-10-31T00:00:00Z"
+  base_git_commit: 0dc0b61e98   # commit com a implementação da v1
+  cycle_id: nivel-1-sem-ciclo-registrado  # esteira Nível 1; invariantes = docs/lri/PLANO.md §3 e §4
+  identity_raw_sha256: null  # sem ciclo v5.4 registrado (Nível 1)
+  consumed:
+    - { artifact: ux-spec-v1, raw_sha256: 51e95247c2fa3be2726ac5d908668a65aebd238268524e2415e57cc959884bb8 }
+format_version: 2
+
+ui_impact: med   # igual à v1; muda só o conteúdo do logo e os dados de marca (grupo, categoria da KB, endereço)
+
+user_flows:
+  - id: F1-login-cliente
+    goal: Cliente de qualquer das três marcas reconhece a central e entra no portal.
+    steps:
+      - Abre suporte.lri.com.br, suporte.ird.net.br ou suporte.meanwellbrasil.com.br (mesma tela nos três).
+      - Vê no cartão de login o logo da instância com LRI em cima, maior, e IRD.Net e Mean Well Brasil lado a lado embaixo; título da aba "Central de Atendimento Grupo LRI".
+      - Preenche usuário e senha e aciona "Entrar".
+    error_paths:
+      - Logo não carrega -> alt "Central de Atendimento Grupo LRI" (inalterado).
+      - Tema escuro -> variante escura; o bloco da Mean Well mantém letras e faixa brancas (fundo branco próprio dentro do bloco), nunca letras vazadas mostrando o cinza escuro.
+  - id: F2-portal-cliente
+    goal: Cliente da Mean Well Brasil abre chamado na marca certa.
+    steps:
+      - Em "Novo ticket", o seletor de grupo mostra os grupos das três marcas; o cliente escolhe o da Mean Well Brasil.
+    error_paths:
+      - Grupo da Mean Well ausente no seletor -> UX-B reprova (dado de provisionamento, não CSS).
+  - id: F4-kb-publica
+    goal: Visitante encontra resposta na categoria da sua marca.
+    steps:
+      - Abre /help; cabeçalho com o logo horizontal das três marcas a 32 px de altura.
+      - Vê três categorias de primeiro nível, LRI, IRD.Net e Mean Well Brasil, com o nome por extenso.
+    error_paths:
+      - Categoria sem artigo -> comportamento upstream da KB (inalterado).
+
+components:
+  - id: C1-logo-produto
+    purpose: Identidade Grupo LRI com as três marcas nos mesmos lugares da v1.
+    states:
+      tema_claro: grupo-lri-logo.svg (setting product_logo), composição empilhada de três marcas, 100% vetorial.
+      tema_escuro: grupo-lri-logo-escuro.svg trocado por CSS como na v1 (seletores inalterados).
+      kb: grupo-lri-logo-horizontal.svg, três marcas em linha, altura 2em (32 px) mantida.
+      falha_de_carga: alt "Central de Atendimento Grupo LRI" (inalterado).
+      alta_densidade: vetorial em todas as partes (nenhum raster embutido; a v1 embutia o PNG da IRD.Net).
+    behavior: Igual à v1. A hierarquia comunica "grupo LRI com duas marcas"; LRI maior, IRD.Net e Mean Well Brasil do mesmo nível entre si.
+
+interaction_rules:
+  escopo: Inalterado em relação à v1. O terceiro endereço (suporte.meanwellbrasil.com.br) recebe a mesma aparência; nenhuma regra por hostname.
+
+accessibility:
+  - requirement: "Vermelho da Mean Well (#d92e27, #e42527) e laranja da IRD.Net (#e76e33) só dentro dos logos; nunca em texto, botão, foco ou seleção da interface."
+    wcag_ref: "WCAG 2.2 SC 1.4.1 (A) — vermelho e laranja já significam erro e escalonamento no Zammad; SC 1.4.3 (AA) — vermelho sobre os fundos escuros fica entre 2,40 e 3,85:1"
+  - requirement: "O logo composto mantém o texto alternativo igual ao product_name; as cores e os textos internos dos logos são isentos de contraste (logotipo), mas cada marca precisa ficar reconhecível nos dois temas."
+    wcag_ref: "WCAG 2.2 SC 1.1.1 (A); exceção de logotipo do SC 1.4.3"
+  - requirement: "O nome 'Mean Well Brasil' aparece por extenso onde o cliente escolhe a marca (grupo na abertura do chamado, categoria da KB), porque o texto interno do bloco MW não fica legível nos tamanhos de logo do Zammad."
+    wcag_ref: "WCAG 2.2 SC 1.1.1 (A) e 2.4.6 (AA)"
+
+visual_tokens:
+  delta_de: "ux-spec v1 — substitui só os blocos listados aqui: paleta.ird_*, paleta.mw_*, papel_das_cores_de_marca_nos_logos, logos (inteiro), kb_publica.categorias, fora_de_escopo (itens alterados)."
+
+  paleta:
+    ird_primaria: "#e76e33"   # cor do arquivo oficial do vetor (o site usa #e46e33); SOMENTE dentro do logo IRD.Net
+    ird_apoio: "#000000"      # SOMENTE dentro do logo IRD.Net no claro; vira #ffffff na variante escura
+    mw_bloco: "#d92e27"       # SOMENTE dentro do logo Mean Well Brasil (bloco)
+    mw_texto: "#e42527"       # SOMENTE dentro do logo Mean Well Brasil (MEAN WELL na faixa branca)
+    mw_bandeira: "#fedf00, #c7af2e, #253370, gradientes verdes — do arquivo, sem alteração"
+    nota: "Os verdes da LRI e as derivadas da v1 não mudam. Nenhuma cor da Mean Well entra na interface."
+
+  papel_das_cores_de_marca_nos_logos: >-
+    Confirmado: o vermelho da Mean Well tem o mesmo papel do laranja da IRD.Net, só dentro do logo. Por
+    contraste, ele até passaria em alguns pares no claro (texto branco sobre #d92e27 dá 4,81:1, #d92e27 sobre
+    branco dá 4,81:1), mas falha no escuro (#d92e27 sobre #38393e dá 2,40:1, sobre #323234 dá 2,66:1, sobre
+    #202021 dá 3,39:1). O motivo decisivo é semântico: o Zammad usa vermelho para perigo e erro
+    (--danger-color hsl(0,65%,55%) = #d74242 no claro e #ec4141 no escuro; Vue red-500 #e54011 e red-400
+    #e9613a; botão "remove"), quase o mesmo matiz de #d92e27. Um botão ou link vermelho seria lido como ação
+    destrutiva ou erro. Laranja oficial #e76e33: 3,15:1 sobre branco e 3,15:1 com texto branco, abaixo de 4,5:1,
+    e colide com --superbad-color #f35912 e com a nota interna, como já registrado na v1.
+
+  slogan_ird: >-
+    Sai. O vetor oficial (docs/lri/brand-assets/ird-logo.svg, viewBox 606,9 x 116,5) não tem o slogan
+    "Inovação em Redes Digitais", e no composto o slogan teria cerca de 5 px de altura, ilegível. O PNG
+    com slogan (ird-logo.png) deixa de ser usado pelo branding.
+
+  logos:
+    destino: "public/assets/lri/ (fontes copiadas para docs/lri/brand-assets/)"
+    fontes:
+      lri: "docs/lri/brand-assets/lri-logo.svg (idêntico ao da pasta oficial); recorte da v1 mantido (área útil x 233-767, y 251-524, respiro de 4%, cerca de 1,96:1)"
+      ird: "docs/lri/brand-assets/ird-logo.svg, vetor extraído do .ai oficial, viewBox 0 0 606,9 116,5 (5,21:1), sem slogan"
+      mean_well_brasil: >-
+        EXISTE VETOR, ao contrário do que se supunha: dentro de "C:/Users/Leandro/OneDrive/Documentos/Logo/Meanwell
+        Brasil/MEAN WELL LOGO FILES - Copia.zip" (único zip da pasta), o arquivo SVG.svg (11 KB) é vetor puro — 16 path, 22 polygon, 2
+        linearGradient, nenhum image, script, foreignObject ou href. É o mesmo desenho do
+        Logo_MW_BR_Quadrado_1000x500px.png e do PNG-TRANSPARENCE-2000x1000 (bloco vermelho com MW, faixa branca
+        MEAN WELL, faixa BRASIL com a bandeira). Copiar como docs/lri/brand-assets/mw-brasil-logo.svg. Os .svg
+        soltos da pasta (Logo MW Brasil*.svg, 108 KB) embutem imagem e não servem. Os PNG ficam só como referência visual.
+      recorte_mw: "conteúdo em x 0-1000, y 132-875 do viewBox 1000x1000 -> viewBox 0 132 1000 743 (1,346:1), sem respiro extra (o bloco já é a borda)"
+      vazados_mw: >-
+        No vetor, as letras MW, a faixa onde está MEAN WELL, o fio entre o bloco e a faixa BRASIL e as letras
+        BRASIL são VAZADOS (transparentes), não brancos. Sobre fundo escuro o cinza apareceria nas letras. Regra:
+        pôr um retângulo #ffffff exatamente sob a área do bloco (0,132 a 1000,875) antes dos paths. Reproduz o
+        visual oficial dos PNG; não é redesenho. Vale nas duas variantes, então a marca Mean Well é igual no
+        claro e no escuro. Conferido no PNG oficial
+        PNG-TRANSPARENCE-2000x1000: alfa 0 dentro do M, na faixa MEAN WELL, no fio e no B de BRASIL; bloco
+        rgb(219,45,39) com alfa 255.
+    regras_de_geracao:
+      - "Não redesenhar: só recorte de viewBox, cor de preenchimento (LRI e o preto da IRD.Net), retângulo branco sob o bloco Mean Well e composição."
+      - "Composto 100% vetorial: nenhum raster embutido (substitui a regra da v1 que permitia PNG em base64). ird-logo-escuro.png deixa de existir."
+      - "Sem script, sem href externo, sem foreignObject, sem <style>: as classes .st0 a .st7 do SVG da Mean Well viram atributos fill; os ids dos gradientes ganham prefixo mw-."
+      - "O gerador falha com mensagem se alguma fonte trouxer image, script, foreignObject ou href."
+    variantes:
+      - { arquivo: "lri-logo-claro.svg e lri-logo-escuro.svg", mudanca: "nenhuma" }
+      - { arquivo: "ird-logo-claro.svg", base: "ird-logo.svg", fill: "original (#000000 e #e76e33)", uso: "fundo claro" }
+      - { arquivo: "ird-logo-escuro.svg", base: "ird-logo.svg", fill: "#000000 vira #ffffff; #e76e33 mantido", uso: "fundo escuro", contraste_informativo: "branco 11,52:1 e laranja 3,66:1 sobre #38393e" }
+      - { arquivo: "mw-brasil-logo.svg", base: "SVG.svg do zip", tratamento: "recorte 0 132 1000 743, retângulo branco sob o bloco, classes viram fill", uso: "claro e escuro (mesmo arquivo)", contraste_informativo: "bloco #d92e27 sobre branco 4,81:1; sobre #38393e 2,40:1 — o bloco vermelho grande continua reconhecível no escuro; logotipo é isento" }
+    composto_empilhado:
+      arquivo: "grupo-lri-logo.svg (product_logo) e grupo-lri-logo-escuro.svg"
+      viewbox: "0 0 400 200 (2:1), cabe em 200 x 100 no legado e sai 224 x 112 no Vue (limite 224 x 128)"
+      ordem: "linha 1: LRI centralizado; linha 2: IRD.Net à esquerda, Mean Well Brasil à direita (ordem alfabética das marcas; o bloco vermelho fecha a composição à direita)"
+      geometria_em_unidades:
+        lri: "altura 96, largura 188, centralizado, y 0-96"
+        respiro_entre_linhas: 16
+        linha_2: "y 112-200 (altura 88), largura total 396, centralizada (x 2-398)"
+        ird: "altura 48, largura 250, x 2-252, centralizado na altura da linha (y 132-180)"
+        respiro_entre_marcas: 28
+        mean_well: "altura 88, largura 118, x 280-398, y 112-200"
+      tamanhos_relativos: "LRI = 100% da altura; Mean Well 92% (bloco cheio pesa mais que traço, por isso não passa do LRI); IRD.Net 50% da altura, mas 133% da largura do LRI (250 contra 188): palavra larga e baixa equilibra um monograma alto"
+      tamanho_exibido_legado_200x100: "LRI 94 x 48 px; IRD.Net 125 x 24 px; Mean Well 59 x 44 px"
+      tamanho_exibido_vue_224x112: "LRI 105 x 54 px; IRD.Net 140 x 27 px; Mean Well 66 x 49 px"
+      legibilidade: >-
+        LRI e IRD.Net legíveis (letras de 24 px ou mais). Mean Well: o bloco vermelho e as letras MW (cerca de
+        18 px no legado e 21 px no Vue) são reconhecíveis; os textos internos MEAN WELL (cerca de 6 px) e BRASIL
+        (cerca de 5 px) não são legíveis. Nenhuma composição de três marcas dentro de 200 x 100 resolve isso:
+        para MEAN WELL chegar a 9 px o bloco precisaria de 66 px de altura, dois terços da caixa, e passaria a
+        dominar o LRI. Decisão: manter as três marcas no login, com o LRI dominante, e garantir o nome por extenso
+        onde o cliente escolhe a marca (grupo, categoria da KB). Alternativas descartadas: (a) só o LRI no login,
+        porque o cliente que entra por suporte.meanwellbrasil.com.br ou suporte.ird.net.br não reconheceria a
+        própria marca na porta de entrada; (b) marcas em coluna à direita do LRI, porque o bloco Mean Well ficaria
+        maior que o LRI e quebraria a identidade "Grupo LRI".
+      escuro: "mesma geometria; LRI #74b527, IRD.Net branco e laranja, Mean Well igual ao claro"
+    composto_horizontal:
+      arquivo: "grupo-lri-logo-horizontal.svg (só cabeçalho da KB, que não tem tema escuro)"
+      viewbox: "0 0 470 64 (7,3:1), exibido 235 x 32 px a 2em"
+      ordem: "LRI | IRD.Net | Mean Well Brasil, fio vertical de 1 unidade #b7b7b7 entre as marcas"
+      geometria_em_unidades: "LRI altura 64 x 125; respiro 20, fio, respiro 20; IRD.Net altura 34 x 177, centralizado na vertical; respiro 20, fio, respiro 20; Mean Well altura 64 x 86"
+      tamanho_exibido: "LRI 62 x 32 px; IRD.Net 89 x 17 px; Mean Well 43 x 32 px (MW cerca de 13 px; textos internos cerca de 4 px, ilegíveis)"
+      legibilidade: "LRI e IRD.Net legíveis; Mean Well reconhecível pelo bloco e pelas letras MW. Os nomes por extenso estão nas categorias logo abaixo do cabeçalho. Em 390 px de largura os 235 px cabem; o menu do cabeçalho já quebra linha pelo upstream (flex-wrap)."
+    alt_text: "inalterado (product_name)"
+
+  kb_publica:
+    categorias: "três de primeiro nível, nesta ordem: LRI, IRD.Net, Mean Well Brasil (nome por extenso, pt-BR); dado de provisionamento em contrib/lri/"
+    cores_e_css: "inalterados (v1)"
+
+  fora_de_escopo:
+    - "Caixa suporte@meanwellbrasil.com.br, assinatura e templates de e-mail da Mean Well (fase 2)."
+    - "Certificado e proxy de suporte.meanwellbrasil.com.br (seção 2.6 e fase 5)."
+    - "Logo Mean Well Brasil isolado para assinatura de e-mail (fase 2; o mw-brasil-logo.svg desta v2 serve de fonte)."
+    - "Os demais itens da v1 continuam (favicon e questões abertas foram para a issue #3)."
+
+acceptance_visuals:
+  ambiente: "Igual à v1 (Playwright headless, 1440 x 900, claro e escuro). Dados acrescentados: grupo da Mean Well Brasil, categoria Mean Well Brasil na KB com 1 artigo, e um cliente que entra pelo endereço suporte.meanwellbrasil.com.br (no teste local, Host header ou entrada no hosts)."
+  telas_que_mudam:
+    - id: V1-login
+      url: "/#login (legado), claro e escuro, pelos três endereços"
+      verdade:
+        - "Logo com três marcas: LRI em cima, IRD.Net à esquerda e Mean Well Brasil à direita embaixo; caixa da imagem 200 x 100 sem distorção."
+        - "Tamanhos medidos no screenshot com tolerância de 2 px: LRI 94 x 48, IRD.Net 125 x 24, Mean Well 59 x 44."
+        - "IRD.Net sem slogan."
+        - "No escuro: LRI verde #74b527, IRD.Net branco com Net laranja, Mean Well com letras MW, faixa e BRASIL em branco (amostra de pixel dentro da letra M = #ffffff, não cinza)."
+        - "Pixel idêntico entre os três endereços (mesma imagem, mesma cor)."
+        - "Rede sem 404 em /assets/lri/*; a página não pede mais ird-logo-escuro.png."
+    - id: V4-portal-novo-chamado
+      url: "/#customer_ticket_new como cliente, claro"
+      verdade:
+        - "Seletor de grupo lista os grupos das três marcas, com Mean Well Brasil por extenso."
+    - id: V9-kb-publica
+      url: "/help/pt-br e um artigo da categoria Mean Well Brasil (só claro); também em 390 px de largura"
+      verdade:
+        - "Cabeçalho com logo horizontal de três marcas a 32 px de altura, 235 px de largura, fios cinza entre as marcas."
+        - "Três categorias de primeiro nível na ordem LRI, IRD.Net, Mean Well Brasil."
+        - "Em 390 px o logo cabe inteiro, sem corte nem rolagem horizontal."
+    - id: V10-admin-marca
+      url: "/#settings/branding como admin, claro"
+      verdade:
+        - "Prévia do logo 200 x 100 com as três marcas."
+    - id: V11-mobile
+      url: "/mobile/login, 390 x 844"
+      verdade:
+        - "Logo escuro de três marcas, Mean Well com letras brancas."
+    - id: V12-desktop-beta
+      url: "/desktop/login, claro e escuro"
+      verdade:
+        - "Logo de três marcas em 224 x 112 (tolerância de 2 px)."
+    - id: V13-arquivos-de-logo
+      url: "inspeção dos arquivos em public/assets/lri/ (não é tela)"
+      verdade:
+        - "Nenhum elemento image, script, foreignObject, style ou atributo href nos SVG gerados."
+        - "Retângulo branco sob o bloco Mean Well presente nas duas variantes do composto."
+  telas_inalteradas: "V2, V3, V5, V6, V7 e V8 da v1 seguem como estão; a régua e o que só se prova rodando também."

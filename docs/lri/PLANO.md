@@ -28,16 +28,18 @@ Premissas do produto:
 
 ### 2.1 Visão geral
 
-Uma **única instância** do Zammad atende as duas marcas. A separação entre LRI e IRD.Net é feita com os mecanismos
-nativos da plataforma — grupos, organizações, endereços de e-mail, assinaturas, permissões e regras — sem alterar o
-núcleo do produto.
+Uma **única instância** do Zammad atende as três marcas: **LRI**, **IRD.Net** e **Mean Well Brasil** (marca da LRI,
+incluída por decisão de Leandro em 31/10, [issue #2](https://github.com/leaberg69/zammad/issues/2)). A separação
+entre as marcas é feita com os mecanismos nativos da plataforma — grupos, organizações, endereços de e-mail,
+assinaturas, permissões e regras — sem alterar o núcleo do produto.
 
 ```text
- E-mail LRI ─────┐                                    ┌─▶ Grupos LRI::*     ─▶ Agentes LRI
- E-mail IRD.Net ─┤                                    │
- Portal web ─────┼─▶ Zammad (instância única) ────────┼─▶ Grupos IRD::*     ─▶ Agentes IRD.Net
- Formulário web ─┤    roteamento por gatilhos e       │
- (futuro: WhatsApp, ERP Plune, site)   Core Workflow  └─▶ Grupos Interno::* ─▶ TI / áreas de apoio
+ E-mail LRI ─────────────┐                                    ┌─▶ Grupos LRI::*     ─▶ Agentes LRI
+ E-mail Mean Well Brasil ┤                                    ├─▶ Grupos MW::*      ─▶ Agentes MW
+ E-mail IRD.Net ─────────┤                                    │
+ Portal web ─────────────┼─▶ Zammad (instância única) ────────┼─▶ Grupos IRD::*     ─▶ Agentes IRD.Net
+ Formulário web ─────────┤    roteamento por gatilhos e       │
+ (futuro: WhatsApp, ERP Plune, site)           Core Workflow  └─▶ Grupos Interno::* ─▶ TI / áreas de apoio
 ```
 
 Motivos da instância única:
@@ -57,6 +59,7 @@ Estrutura decidida (decisão 4, seção 10):
 | `LRI::Suporte Técnico` | clientes | automação industrial, campo, pós-venda técnico |
 | `LRI::Comercial` | clientes | orçamentos, pedidos, prazos |
 | `LRI::Financeiro` | clientes | boletos, notas fiscais, cobrança |
+| `MW::Suporte` | clientes | fontes Mean Well: suporte técnico, garantia e pós-venda (filas adicionais a definir) |
 | `IRD::Suporte` | clientes | produtos de informática, garantia, RMA |
 | `IRD::Comercial` | clientes | orçamentos, pedidos, revendas |
 | `Interno::TI` | colaboradores | equipamentos, acessos, sistemas |
@@ -92,7 +95,8 @@ Cada marca tem caixas de entrada próprias, configuradas como canais de e-mail d
 | Caixa | Grupo de destino | Situação |
 | ----- | ---------------- | -------- |
 | `suporte@lri.com.br` | `LRI::Suporte Técnico` | decidida |
-| `comercial@lri.com.br` | `LRI::Comercial` | decidida |
+| `comercial@lri.com.br` | `LRI::Comercial` | decidida antes; a lista de 31/10 cita só as três caixas `suporte@`, a confirmar |
+| `suporte@meanwellbrasil.com.br` | `MW::Suporte` | decidida (31/10) |
 | `suporte@ird.net.br` | `IRD::Suporte` | decidida |
 | caixa comercial da IRD.Net | `IRD::Comercial` | endereço a definir |
 | caixa da TI interna | `Interno::TI` | endereço a definir |
@@ -104,6 +108,7 @@ Cada marca tem caixas de entrada próprias, configuradas como canais de e-mail d
   | Marca | Provedor | Canal do Zammad | Caixas |
   | ----- | -------- | --------------- | ------ |
   | LRI | Google Workspace | **Google Email** (Gmail por IMAP/SMTP com OAuth) | `suporte@lri.com.br`, `comercial@lri.com.br` e demais caixas `@lri.com.br` |
+  | Mean Well Brasil | Google Workspace (MX do Google, conferido em 31/10) | **Google Email** | `suporte@meanwellbrasil.com.br` |
   | IRD.Net | Microsoft 365 | **Microsoft 365 Graph Email** (API Microsoft Graph) | `suporte@ird.net.br` e demais caixas `@ird.net.br` |
 
   - **Google**: projeto no Google Cloud do Workspace da LRI, com a API do Gmail habilitada e um cliente OAuth cujo
@@ -125,17 +130,22 @@ Cada marca tem caixas de entrada próprias, configuradas como canais de e-mail d
 O portal do cliente é a interface nativa do Zammad para clientes: login, abertura de chamado, acompanhamento e
 resposta. Complementos:
 
-- **Base de conhecimento pública**: uma base com categorias de primeiro nível por marca (`LRI` e `IRD.Net`), em pt-BR,
+- **Base de conhecimento pública**: uma base com categorias de primeiro nível por marca (`LRI`, `Mean Well Brasil` e
+  `IRD.Net`), em pt-BR,
   publicada para clientes e, quando indicado, para o público geral.
 - **Formulário web**: o formulário embutível do Zammad entra nas páginas de contato dos sites (fase 4).
-- **Endereços (decidido)**: dois subdomínios, um por marca, servidos pela mesma instância com HTTPS —
-  `suporte.lri.com.br` para a LRI e `suporte.ird.net.br` para a IRD.Net (detalhes na seção 2.6).
+- **Endereços (decidido)**: três subdomínios de cliente, um por marca, servidos pela mesma instância com HTTPS —
+  `suporte.lri.com.br` (LRI), `suporte.meanwellbrasil.com.br` (Mean Well Brasil) e `suporte.ird.net.br` (IRD.Net) —,
+  mais o nome interno da equipe `atendimento.lri.com.br` (detalhes nas seções 2.6 e 2.9). Os três registros
+  `suporte` foram criados por Leandro em 31/10 (A para a VPS, com proxy da Cloudflare) e passam a `CNAME` do túnel
+  quando ele existir.
 - **Nome do produto (decidido)**: "Central de Atendimento Grupo LRI".
-- **Identidade visual (decidida)**: o portal usa a identidade do **Grupo LRI**, com os logos das duas marcas, porque o
-  logo e o nome do produto são configurações globais da instância. O cliente escolhe a marca e a fila na abertura do
+- **Identidade visual (decidida)**: o portal usa a identidade do **Grupo LRI**, com os logos das marcas, porque o
+  logo e o nome do produto são configurações globais da instância; as marcas aparecem no logo composto definido pela
+  `ux-spec` de branding. O cliente escolhe a marca e a fila na abertura do
   chamado; e-mails, assinaturas e respostas seguem a marca do grupo escolhido.
 
-### 2.6 Dois endereços em uma instância
+### 2.6 Vários endereços em uma instância
 
 A instância responde pelos dois subdomínios. Cada camada tem um papel definido:
 
@@ -147,8 +157,10 @@ A instância responde pelos dois subdomínios. Cada camada tem um papel definido
 | `fqdn` | `suporte.lri.com.br` | endereço principal: links dos e-mails de sistema, formulário web, SSO e chaves de segurança |
 | `alternative_fqdn` | `suporte.ird.net.br` | segundo endereço aceito como origem das conexões WebSocket |
 
-O Zammad aceita um endereço principal e um alternativo, o que corresponde exatamente às duas marcas. Depois de alterar
-`fqdn` ou `alternative_fqdn`, os serviços do Zammad são reiniciados para que as origens permitidas sejam recarregadas.
+O Zammad aceita só um endereço principal e um alternativo como origem de WebSocket. Os outros dois nomes
+(`suporte.meanwellbrasil.com.br` e o interno `atendimento.lri.com.br`) usam a troca exata de `Origin` no proxy descrita
+na seção 2.9.2. Depois de alterar `fqdn` ou `alternative_fqdn`, os serviços do Zammad são reiniciados para que as
+origens permitidas sejam recarregadas.
 
 #### Proxy reverso
 
@@ -259,45 +271,57 @@ Três fatos do código moldam a solução:
 3. **A entrada por e-mail é de saída.** Os canais Google Email (IMAP/SMTP com OAuth) e Microsoft 365 Graph Email
    buscam as mensagens a partir do servidor. Nenhuma porta ou rota pública é necessária para receber e-mail.
 
-#### 2.9.2 Arquitetura proposta: Cloudflare Tunnel, Cloudflare Access e um nome interno
+#### 2.9.2 Arquitetura decidida: Cloudflare Tunnel, Cloudflare Access e um nome interno
+
+**Decidido** (Cogerente de Projetos, [issue #2](https://github.com/leaberg69/zammad/issues/2), 31/10): alternativa C,
+nome interno `atendimento.lri.com.br`, login da equipe pela opção (i) e troca exata de `Origin` no proxy. Condições:
+o `cloudflared` valida o JWT do Access (audience do aplicativo e domínio da equipe `lriauto`) e o listener interno
+escuta só em `127.0.0.1`.
 
 **Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
 
-- as zonas DNS `lri.com.br` e `ird.net.br` já estão na Cloudflare (conta LRI Group), e os registros `suporte` ainda
-  não existem nas duas;
+- as zonas DNS `lri.com.br`, `ird.net.br` e `meanwellbrasil.com.br` estão na Cloudflare (conta LRI Group); os três
+  registros `suporte` foram criados por Leandro em 31/10;
 - a LRI já publica a sua intranet (`intranet.lri.com.br`) atrás do **Cloudflare Access** (equipe `lriauto`), com
   certificado de origem da Cloudflare e mTLS de origem por nome;
 - a VPS 72.62.108.138 atende cerca de 11 sites no Nginx compartilhado; mexer nele afeta todos (seção 6.2.1).
 
-Proposta: **nenhum tráfego da central passa pelo Nginx compartilhado nem por porta nova aberta na VPS**. Um
+Desenho: **nenhum tráfego da central passa pelo Nginx compartilhado nem por porta nova aberta na VPS**. Um
 `cloudflared` dentro do projeto Compose da central abre um túnel de saída até a Cloudflare e entrega cada nome a
 um listener diferente do proxy próprio da central:
 
 ```text
- Cliente ─▶ suporte.lri.com.br ─┐                                ┌─▶ listener PÚBLICO  (rede Docker, :8081)
-            suporte.ird.net.br ─┤                                │   X-LRI-Zone: public
-                                ├─▶ borda Cloudflare ─▶ túnel ───┤   bloqueia rotas da equipe
- Equipe ──▶ atendimento.lri.com.br ─▶ Cloudflare Access          │
-            (Google: LRI · Microsoft: IRD.Net)                   └─▶ listener INTERNO  (rede Docker, :8082)
+ Cliente ─▶ suporte.lri.com.br ────────────┐                     ┌─▶ listener PÚBLICO  (127.0.0.1:8081)
+            suporte.meanwellbrasil.com.br ─┤                     │   X-LRI-Zone: public
+            suporte.ird.net.br ────────────┼─▶ borda ─▶ túnel ───┤   bloqueia rotas da equipe
+ Equipe ──▶ atendimento.lri.com.br ─▶ Access ┘   Cloudflare      │
+            (Google: LRI e MW · Microsoft: IRD.Net)              └─▶ listener INTERNO  (127.0.0.1:8082)
                                                                      X-LRI-Zone: internal
                                                                            │
-                                         cloudflared, Nginx da central e Zammad na rede Docker da central;
-                                         nenhuma porta publicada para a internet
+                    cloudflared no mesmo namespace de rede do Nginx da central (network_mode: service:zammad-nginx);
+                    Zammad só na rede Docker da central; nenhuma porta publicada no host
 ```
 
-- **Nomes**: `suporte.lri.com.br` e `suporte.ird.net.br` (clientes) e um **nome interno** para a equipe, proposto
-  como `atendimento.lri.com.br` (a confirmar na issue de decisão). Os três são registros `CNAME` para o túnel,
-  com proxy da Cloudflare.
-- **Túnel (Cloudflare Tunnel)**: o `cloudflared` só faz conexões de saída. Regras de entrada: os dois nomes de
-  cliente vão para o listener público; o nome interno vai para o listener interno com
-  `originRequest.access.required: true` (equipe `lriauto` e `audTag` do aplicativo). Assim o próprio `cloudflared`
-  confere o token do Access antes de entregar a requisição. Qualquer outro nome cai na regra final `http_status:404`.
+- **Nomes**: `suporte.lri.com.br`, `suporte.meanwellbrasil.com.br` e `suporte.ird.net.br` (clientes) e o **nome
+  interno** da equipe `atendimento.lri.com.br` (decidido). Todos passam a registros `CNAME` para o túnel, com proxy
+  da Cloudflare, quando o túnel for criado (hoje os três `suporte` são `A` para a VPS).
+- **Túnel (Cloudflare Tunnel)**: o `cloudflared` só faz conexões de saída. Regras de entrada: os três nomes de
+  cliente vão para `http://127.0.0.1:8081`; o nome interno vai para `http://127.0.0.1:8082` com
+  `originRequest.access: { required: true, teamName: lriauto, audTag: [<aud do aplicativo>] }`. Assim o próprio
+  `cloudflared` valida o JWT do Access (assinatura, audience e equipe) antes de entregar a requisição. Qualquer outro
+  nome cai na regra final `http_status:404`.
+- **Listener só em `127.0.0.1`**: o `cloudflared` roda no mesmo namespace de rede do container `zammad-nginx`
+  (`network_mode: service:zammad-nginx`), e os dois blocos de servidor do Nginx escutam em `127.0.0.1`. Nenhum outro
+  container nem o host alcança os listeners; o Zammad (`zammad-railsserver` e `zammad-websocket`) só aceita conexões
+  da rede Docker da central, onde o único cliente é esse Nginx.
 - **Cloudflare Access no nome interno**: aplicativo "Central de Atendimento — equipe" com dois provedores de
   identidade: **Google Workspace da LRI** e **Microsoft Entra ID da IRD.Net**. Política: permitir e-mails
-  `@lri.com.br` autenticados pelo Google e `@ird.net.br` autenticados pelo Entra ID; MFA exigido nos provedores.
+  `@lri.com.br` autenticados pelo Google e `@ird.net.br` autenticados pelo Entra ID; MFA exigido nos provedores. Se a
+  equipe da Mean Well Brasil tiver contas `@meanwellbrasil.com.br` próprias, o domínio entra na política do Google
+  (a confirmar).
   Os nomes de cliente **não** têm Access (o cliente usa o portal com e-mail e senha).
 - **Listeners**: o Nginx que já existe na stack oficial do Zammad (`zammad-nginx`) ganha dois blocos de servidor,
-  um por zona, ouvindo apenas dentro da rede Docker da central. Cada um **sobrescreve** `X-LRI-Zone`, define
+  um por zona, ouvindo só em `127.0.0.1`. Cada um **sobrescreve** `X-LRI-Zone`, define
   `X-Forwarded-Proto: https` e copia o IP real de `CF-Connecting-IP` para `X-Forwarded-For` (com
   `set_real_ip_from` restrito ao `cloudflared`). O valor de `X-LRI-Zone` enviado pelo navegador é sempre
   descartado, e o Zammad só é alcançável por esse Nginx.
@@ -310,7 +334,7 @@ um listener diferente do proxy próprio da central:
   (sem ele o cookie de sessão não sai com `Secure` e o login falha por CSRF) e nenhuma porta publicada. A central
   parte desse cenário e acrescenta o listener interno e o Access.
 
-**WebSocket**. A Cloudflare repassa WebSocket nos dois tipos de nome, e os dois listeners mandam `Upgrade` e
+**WebSocket**. A Cloudflare repassa WebSocket em todos os nomes, e os dois listeners mandam `Upgrade` e
 `Connection` em `/ws` e `/cable`. O Zammad só aceita como origem `fqdn` e `alternative_fqdn`
 (`lib/zammad/web_socket_origins.rb`):
 
@@ -319,11 +343,24 @@ um listener diferente do proxy próprio da central:
 | `fqdn` | `suporte.lri.com.br` |
 | `alternative_fqdn` | `suporte.ird.net.br` |
 
-O listener interno troca o cabeçalho `Origin` **somente quando ele é exatamente** `https://atendimento.lri.com.br`
-para `https://suporte.lri.com.br`, nas rotas `/ws` e `/cable`. A troca transforma uma origem confiável em outra; uma
-origem estranha segue intacta e é recusada pelo Zammad. Alternativa a avaliar pelo architect: uma lista de origens
-adicionais no fork (mudança pequena, candidata ao upstream). A Cloudflare encerra conexões ociosas por 100 s; o
-teste de homologação confirma que os pings do `/ws` e do `/cable` mantêm a conexão viva.
+Regras decididas para a troca de `Origin` (issue #2):
+
+- o listener interno troca o cabeçalho `Origin` **somente quando ele é exatamente** `https://atendimento.lri.com.br`
+  (comparação de texto inteiro, sem curinga nem expressão aberta) para `https://suporte.lri.com.br`, nas rotas `/ws` e
+  `/cable`;
+- qualquer outro `Origin` passa sem alteração, e o Zammad o recusa;
+- a troca existe só no listener interno, que só recebe tráfego já autenticado pelo Access;
+- um teste prova que um `Origin` diferente continua recusado.
+
+**Terceiro nome de cliente** (`suporte.meanwellbrasil.com.br`): os clientes da Mean Well Brasil também usam
+WebSocket, e o Zammad só conhece duas origens. Proposta, com as mesmas regras de casamento exato: o listener público
+troca `https://suporte.meanwellbrasil.com.br` por `https://suporte.lri.com.br` em `/ws` e `/cable`. Diferente do
+caso interno, aqui o tráfego não passa pelo Access; a troca continua segura porque só converte uma origem da própria
+central em outra, e uma página de terceiro segue com o próprio `Origin` e é recusada. Pergunta aberta na issue #2;
+a lista de origens no fork (candidata ao upstream) resolveria os dois casos sem troca no proxy.
+
+A Cloudflare encerra conexões ociosas por 100 s; o teste de homologação confirma que os pings do `/ws` e do `/cable`
+mantêm a conexão viva.
 
 **Retornos de OAuth**. O Zammad monta a URL de retorno sempre a partir do `fqdn`:
 `OmniAuth.config.full_host` (`config/initializers/omniauth.rb`) para o login da equipe e
@@ -335,7 +372,9 @@ termina no nome interno:
 2. o provedor devolve o navegador para `https://suporte.lri.com.br/auth/<provedor>/callback?code=…&state=…`;
 3. o listener público responde **302 para o mesmo caminho e a mesma query em `atendimento.lri.com.br`**, apenas
    para os caminhos exatos de retorno (`/auth/google_oauth2/callback`, `/auth/microsoft_office365/callback` e
-   `/api/v1/external_credentials/<provedor>/callback`), com destino fixo, sem nenhum valor vindo do usuário no host;
+   `/api/v1/external_credentials/<provedor>/callback`), com destino fixo escrito na configuração (nunca o `Host` nem
+   parâmetro da requisição) e a query string preservada, para não virar redirecionamento aberto (condição da
+   issue #2);
 4. no nome interno, a sessão que iniciou o fluxo confere o `state` e troca o `code` usando o mesmo `redirect_uri` do
    `fqdn`, que é só um texto comparado pelo provedor.
 
@@ -343,11 +382,12 @@ O `code` é de uso único e só vale com o segredo do aplicativo, que fica no se
 caixa, o Zammad redireciona para `https://suporte.lri.com.br/#channels/…` (`ExternalCredential.app_url`); o
 administrador volta ao nome interno por conta própria. O teste de homologação cobre os três retornos.
 
-**Login da equipe: duas opções** (decisão na issue):
+**Login da equipe** (decidido: opção i):
 
-- **(i) Login do Zammad por Google e Microsoft atrás do Access (proposta)**: nada muda no núcleo; o agente passa
+- **(i) Login do Zammad por Google e Microsoft atrás do Access (decidida)**: nada muda no núcleo; o agente passa
   pelo Access e depois clica no botão do provedor, quase sempre sem digitar nada, porque já está autenticado nele.
-- **(ii) SSO por cabeçalho**: o Zammad já aceita login pelo cabeçalho `X-Forwarded-User`
+- **(ii) SSO por cabeçalho (evolução futura, só com threat model próprio)**: o Zammad já aceita login pelo cabeçalho
+  `X-Forwarded-User`
   (`app/controllers/sessions_controller.rb`). O listener interno preencheria esse cabeçalho a partir do e-mail
   validado pelo Access, e o listener público o apagaria. É um login só, mas o Zammad passa a confiar num cabeçalho;
   a guarda de zona teria de recusar esse cabeçalho fora da zona interna, e o caminho precisa de threat model
@@ -457,8 +497,8 @@ Alternativas consideradas:
 
 | Alternativa | Avaliação |
 | ----------- | --------- |
-| **C. Cloudflare Tunnel + Access com nome interno (proposta)** | as zonas já estão na Cloudflare e a LRI já usa Access na intranet; sem porta de entrada nem mudança no Nginx compartilhado; login por Google (LRI) e Microsoft (IRD.Net) na borda, sem cliente instalado; exige o repasse dos retornos de OAuth e a troca de `Origin` do WebSocket descritos na seção 2.9.2 |
-| A. VPN WireGuard própria com DNS interno (proposta anterior) | sem dependência de terceiros e mesmo nome nas duas zonas; exige porta UDP nova, chaves por aparelho, DNS interno e cliente em cada máquina ou túnel por escritório; o lado público continuaria no Nginx compartilhado |
+| **C. Cloudflare Tunnel + Access com nome interno (decidida)** | as zonas já estão na Cloudflare e a LRI já usa Access na intranet; sem porta de entrada nem mudança no Nginx compartilhado; login por Google (LRI) e Microsoft (IRD.Net) na borda, sem cliente instalado; exige o repasse dos retornos de OAuth e a troca de `Origin` do WebSocket descritos na seção 2.9.2 |
+| A. VPN WireGuard própria com DNS interno (proposta anterior, descartada) | sem dependência de terceiros e mesmo nome nas duas zonas, mas exige porta UDP nova, chaves por aparelho, DNS interno e cliente em cada máquina ou túnel por escritório, e o lado público continuaria no Nginx compartilhado. Descartada pela C, que segue o padrão da intranet e dispensa cliente e porta nova |
 | B. Tailscale (já instalado na VPS) com DNS dividido | sem porta de entrada; exige cliente Tailscale em cada aparelho da equipe e licenças por usuário acima do plano gratuito |
 | C2. Cloudflare WARP com o mesmo nome resolvido para rede privada | mesmo nome nas duas zonas; exige o cliente WARP em cada aparelho e política de DNS da Cloudflare Gateway; mais peças que a proposta |
 | D. Access cobrindo os nomes `suporte` inteiros | agentes e clientes compartilham caminhos, então o cliente também teria de passar pelo login da Cloudflare. Descartada |
@@ -574,31 +614,35 @@ para `public/assets/lri/` no slice de branding (fase 3).
 | LRI | secundária escura | `#2c5a0d` | seção personalizada da loja da LRI |
 | IRD.Net | primária | `#e46e33` | `theme-color` de `www.ird.net.br` |
 | IRD.Net | apoio | `#000000` | logo da IRD.Net |
+| IRD.Net | laranja do logo vetorial | `#e76e33` | `IRD.Net logo.ai` oficial; só dentro do logo |
+| Mean Well Brasil | vermelho do logo | `#d92e27`, `#e42527` | logo vetorial oficial; só dentro do logo |
 
 #### Logos
 
-| Arquivo | Marca | Formato | Observação |
-| ------- | ----- | ------- | ---------- |
-| [`lri-logo.svg`](brand-assets/lri-logo.svg) | LRI | SVG vetorial, `viewBox` 1000 × 775,4 | sem `fill`: renderiza preto |
-| [`lri-logo-white.png`](brand-assets/lri-logo-white.png) | LRI | PNG 181 × 93, branco, fundo transparente | da loja; pequeno para telas de alta densidade |
-| [`ird-logo.png`](brand-assets/ird-logo.png) | IRD.Net | PNG 874 × 246, preto e laranja, fundo transparente | não existe SVG |
+Fonte oficial (decisão de Leandro, 31/10): a pasta de logos dele, com os vetores AI/PDF quando existem. As cópias
+usadas no repositório ficam em [`brand-assets/`](brand-assets/):
 
-O SVG da LRI contém apenas caminhos vetoriais, sem scripts nem referências externas.
+| Arquivo | Marca | Formato | Origem |
+| ------- | ----- | ------- | ------ |
+| [`lri-logo.svg`](brand-assets/lri-logo.svg) | LRI | SVG vetorial, `viewBox` 1000 × 775,4, sem `fill` | idêntico ao `SVG.svg` da pasta oficial |
+| [`ird-logo.svg`](brand-assets/ird-logo.svg) | IRD.Net | SVG vetorial, 606,9 × 116,5, preto e laranja `#e76e33`, sem slogan | extraído do `IRD.Net logo.ai` oficial (versão em curvas) |
+| [`mw-brasil-logo.svg`](brand-assets/mw-brasil-logo.svg) | Mean Well Brasil | SVG vetorial, 1000 × 1000 | `SVG.svg` do pacote de logos oficial da Mean Well Brasil |
+| [`lri-logo-white.png`](brand-assets/lri-logo-white.png) e [`ird-logo.png`](brand-assets/ird-logo.png) | LRI, IRD.Net | PNG | fontes antigas, das lojas; não usadas pelo branding |
+
+Os três SVG contêm só formas vetoriais, sem scripts, imagens embutidas nem referências externas. O gerador
+`contrib/lri/branding/gerar_logos.py` produz em `public/assets/lri/` as variantes definidas pela `ux-spec` v2
+(`docs/lri/esteira/branding/`): LRI com `fill` verde por tema, IRD.Net com o preto trocado por branco no tema escuro,
+Mean Well Brasil com fundo branco sob as letras vazadas, e os logos compostos das três marcas (empilhado para o
+login e horizontal para a base de conhecimento). O laranja da IRD.Net e o vermelho da Mean Well aparecem só dentro
+dos logos.
 
 #### Lacunas
 
-| Item | LRI | IRD.Net | Grupo LRI |
-| ---- | --- | ------- | --------- |
-| Logo vetorial (SVG) | existe, **precisa de cor de preenchimento** | **não existe** | pendente |
-| Versão para fundo escuro | PNG branco pequeno; SVG com `fill` claro a gerar | pendente: o preto do logo some no tema escuro | pendente |
-| Símbolo quadrado 512 px (favicon, avatar do sistema) | pendente | pendente | pendente |
-| Logo para assinatura de e-mail (até 300 px de largura) | a gerar a partir do SVG | a gerar a partir do PNG | — |
-| Regras de uso do logo (área de proteção, tamanho mínimo) | pendente | pendente | — |
-
-- **SVG da LRI**: o slice de branding gera duas variantes a partir do original — `fill` na cor definida pelo UX-A para
-  fundo claro e `fill` claro para o tema escuro —, sem alterar o desenho.
-- **IRD.Net**: o PNG de 874 × 246 atende ao portal e às assinaturas. Um SVG oficial é solicitado à IRD.Net; até lá, o
-  PNG é a fonte, e a versão para fundo escuro troca o preto por branco mantendo o laranja.
+| Item | LRI | IRD.Net | Mean Well Brasil |
+| ---- | --- | ------- | ---------------- |
+| Símbolo quadrado 512 px (favicon, avatar do sistema) | pendente | pendente | existe em PNG 500 × 500 |
+| Logo para assinatura de e-mail (até 300 px de largura) | a gerar a partir do SVG (fase 2) | idem | idem |
+| Regras de uso do logo (área de proteção, tamanho mínimo) | pendente | manual de marca na pasta oficial | pendente |
 
 #### Verificação de contraste pelo UX-A
 
@@ -835,8 +879,8 @@ válidas.
 | Nº | Tema | Decisão |
 | -- | ---- | ------- |
 | 1 | Domínio e caixas de e-mail | IRD.Net usa `ird.net.br`; caixas `suporte@lri.com.br`, `comercial@lri.com.br` e `suporte@ird.net.br` (seção 2.4) |
-| 2 | Endereços e nome da central | `suporte.lri.com.br` (LRI) e `suporte.ird.net.br` (IRD.Net) na mesma instância; "Central de Atendimento Grupo LRI" (seções 2.5 e 2.6) |
-| 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das duas marcas (seção 2.5) |
+| 2 | Endereços e nome da central | `suporte.lri.com.br` (LRI), `suporte.meanwellbrasil.com.br` (Mean Well Brasil) e `suporte.ird.net.br` (IRD.Net) na mesma instância; "Central de Atendimento Grupo LRI" (seções 2.5 e 2.6) |
+| 3 | Identidade do portal | portal único com a identidade do Grupo LRI e os logos das marcas (seção 2.5) |
 | 4 | Grupos e filas | estrutura da seção 2.2 |
 | 6 | Hospedagem | VPS existente 72.62.108.138, ao lado de Justiano, Plaixec e sferalabs, isolada por projeto Compose próprio (seção 6.2) |
 | 8 | Login dos colaboradores | LRI por Google Workspace, IRD.Net por Microsoft 365 (Entra ID), sem criação automática de contas; clientes com e-mail e senha (seção 2.7) |
@@ -845,7 +889,10 @@ válidas.
 | 9 | Horário de atendimento | provisório: segunda a sexta, 08:00–18:00, `America/Sao_Paulo` (seção 2.8) |
 | 10 | Visibilidade dos clientes | cada cliente vê só os próprios chamados; organizações com `shared = false` (seção 2.3) |
 | 13 | Esteira | papéis e regras de PR e revisão da esteira vinculados às seções 3 e 9 |
-| — | Zonas | parte interna (equipe, administração) só na intranet; parte do cliente na internet nos dois subdomínios (seção 2.9) |
+| — | Zonas | parte interna (equipe, administração) só na intranet; parte do cliente na internet nos subdomínios `suporte` (seção 2.9) |
+| — | Separação das zonas | Cloudflare Tunnel + Access, nome interno `atendimento.lri.com.br`, login da equipe pelo Zammad atrás do Access, troca exata de `Origin` no listener interno, listener interno só em `127.0.0.1`, JWT do Access validado pelo `cloudflared` ([issue #2](https://github.com/leaberg69/zammad/issues/2), seção 2.9.2) |
+| — | Terceira marca | Mean Well Brasil (marca da LRI): `suporte@meanwellbrasil.com.br` e `suporte.meanwellbrasil.com.br` na mesma instância (issue #2, 31/10) |
+| — | Fonte dos logos | pasta oficial de logos de Leandro (vetores AI/PDF quando existem); IRD.Net vetorial extraído para `brand-assets/ird-logo.svg` |
 | — | Arquitetura | instância única para as duas marcas (seção 2.1) |
 | — | Opção de implantação | Docker Compose com imagem imutável construída pela CI (seção 6.1) |
 | — | Busca | Elasticsearch 8.15 a 9.x desde o início; OpenSearch não é suportado pelo Zammad (seção 6.3) |
@@ -858,8 +905,8 @@ válidas.
 
 1. **Caixas restantes**: endereços da caixa comercial da IRD.Net, da TI interna e do financeiro da LRI. O canal de
    cada uma já segue do domínio (seção 2.4).
-2. **Acesso aos DNS**: as duas zonas estão na Cloudflare (conta LRI Group); falta definir quem cria os registros
-   `CNAME` do túnel (seção 2.6).
+2. **DNS**: os três registros `suporte` existem desde 31/10 (A para a VPS, com proxy); Leandro troca para `CNAME` do
+   túnel quando ele for criado (seção 2.6).
 3. **Ativos de marca**: cores e logos recebidos (seção 3, "Ativos de marca"); faltam o SVG da IRD.Net, as versões
    para fundo escuro, o símbolo quadrado e as regras de uso. A cor de preenchimento do SVG da LRI sai da `ux-spec`.
 4. **Checklist da VPS**: execução, somente em leitura e com OK de Leandro, do [`VPS-CHECKLIST.md`](VPS-CHECKLIST.md)
@@ -870,9 +917,9 @@ válidas.
    feriados locais e metas de SLA por marca e por tipo de cliente.
 7. **ERP Plune (decisão 11)**: documentação da API e escopo da primeira integração.
 8. **WhatsApp (decisão 12)**: números e contas Meta Business de cada marca.
-9. **Acesso à intranet** ([issue #2](https://github.com/leaberg69/zammad/issues/2)): aprovar a alternativa C da seção
-   2.9.5 (Cloudflare Tunnel + Access com nome interno, proposta) no lugar da A (WireGuard); nome interno da equipe;
-   login da equipe atrás do Access (opção i ou ii da seção 2.9.2); troca de `Origin` no proxy ou lista de origens no
-   fork.
+9. **Zonas, pendências de Leandro** ([issue #2](https://github.com/leaberg69/zammad/issues/2)): criar o túnel, trocar os
+   registros `suporte` para `CNAME` do túnel, criar `atendimento.lri.com.br` e os aplicativos do Access; registrar o
+   aplicativo no Entra ID da IRD.Net; troca de `Origin` também para `suporte.meanwellbrasil.com.br` no listener público
+   (pergunta aberta); domínio `@meanwellbrasil.com.br` na política do Access, se a equipe tiver contas próprias.
 10. **Proposta da guarda de zona ao upstream**: autorização para propor a guarda de zona ao `zammad/zammad` depois de
     validada aqui.

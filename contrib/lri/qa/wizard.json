@@ -1,0 +1,104 @@
+{
+  "Organizations": [
+    {
+      "name": "Cliente Exemplo Ltda",
+      "shared": false,
+      "domain": "cliente.example.com",
+      "domain_assignment": true
+    }
+  ],
+  "Users": [
+    {
+      "login": "admin@lri.example",
+      "firstname": "Admin",
+      "lastname": "LRI",
+      "email": "admin@lri.example",
+      "password": "LriTeste#2026"
+    },
+    {
+      "login": "agente@lri.example",
+      "firstname": "Agente",
+      "lastname": "LRI",
+      "email": "agente@lri.example",
+      "password": "LriTeste#2026",
+      "roles": [
+        "Agent"
+      ]
+    },
+    {
+      "login": "cliente1@cliente.example.com",
+      "firstname": "Cliente",
+      "lastname": "Um",
+      "email": "cliente1@cliente.example.com",
+      "password": "LriTeste#2026",
+      "roles": [
+        "Customer"
+      ],
+      "organization": "Cliente Exemplo Ltda"
+    },
+    {
+      "login": "cliente2@cliente.example.com",
+      "firstname": "Cliente",
+      "lastname": "Dois",
+      "email": "cliente2@cliente.example.com",
+      "password": "LriTeste#2026",
+      "roles": [
+        "Customer"
+      ],
+      "organization": "Cliente Exemplo Ltda"
+    }
+  ],
+  "Groups": [
+    {
+      "name": "LRI",
+      "users": [
+        "admin@lri.example",
+        "agente@lri.example"
+      ]
+    },
+    {
+      "name": "IRD.Net",
+      "users": [
+        "admin@lri.example",
+        "agente@lri.example"
+      ]
+    },
+    {
+      "name": "Mean Well Brasil",
+      "users": [
+        "admin@lri.example",
+        "agente@lri.example"
+      ]
+    }
+  ],
+  "Settings": [
+    {
+      "name": "product_name",
+      "value": "Central de Atendimento Grupo LRI"
+    },
+    {
+      "name": "organization",
+      "value": "Grupo LRI"
+    },
+    {
+      "name": "locale_default",
+      "value": "pt-br"
+    },
+    {
+      "name": "timezone_default",
+      "value": "America/Sao_Paulo"
+    },
+    {
+      "name": "user_create_account",
+      "value": true
+    },
+    {
+      "name": "fqdn",
+      "value": "127.0.0.1:18080"
+    },
+    {
+      "name": "http_type",
+      "value": "http"
+    }
+  ]
+}

@@ -65,7 +65,7 @@ cp "$SRC_DIR/lri-zone-public.inc" "$INC_DIR/lri-zone-public.inc"
 umask 077
 sed -e "s#@LRI_ZONE_KEY@#${LRI_ZONE_KEY}#g" "$SRC_DIR/lri-zone-internal.inc" > "$INC_DIR/lri-zone-internal.inc"
 
-if grep -q '@[A-Z_]*@' "$SITE_FILE" "$INC_DIR"/*.inc; then
+if grep -q '@[A-Z_][A-Z_]*@' "$SITE_FILE" "$INC_DIR"/*.inc; then
   fail "marcador não substituído na configuração renderizada"
 fi
 

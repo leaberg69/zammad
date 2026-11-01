@@ -2,18 +2,42 @@
 
 require 'rails_helper'
 
-# Guarda de zona do Grupo LRI (docs/lri/PLANO.md, seção 2.9.3): um teste negativo por caso de abuso.
+# Guarda de zona do Grupo LRI (docs/lri/PLANO.md, seção 2.9.3): um teste negativo por caso de abuso. Toda recusa é
+# conferida pelo corpo `zone_restricted` da guarda, para não confundir com um 403 do próprio Zammad.
 RSpec.describe 'Grupo LRI zone guard', type: :request do
-  let(:agent)    { create(:agent, password: 'Senha-Forte-123') }
-  let(:admin)    { create(:admin, password: 'Senha-Forte-123') }
-  let(:customer) { create(:customer, password: 'Senha-Forte-123') }
+  let(:password) { 'Senha-Forte-123' }
+  let(:agent)    { create(:agent, password: password) }
+  let(:admin)    { create(:admin, password: password) }
+  let(:customer) { create(:customer, password: password) }
+
+  let(:login_mutation) do
+    <<~GRAPHQL
+      mutation login($input: LoginInput!) {
+        login(input: $input) { session { id } errors { message } }
+      }
+    GRAPHQL
+  end
 
   def sign_in(user, headers = {})
-    post '/api/v1/signin', params: { username: user.login, password: 'Senha-Forte-123', fingerprint: '123456789' }, headers: headers, as: :json
+    post '/api/v1/signin', params: { username: user.login, password: password, fingerprint: '123456789' }, headers: headers, as: :json
+  end
+
+  def graphql_sign_in(user, headers = {})
+    post '/graphql', params: { query: login_mutation, variables: { input: { login: user.login, password: password } } },
+                     headers: headers.merge('X-Browser-Fingerprint' => '123456789'), as: :json
   end
 
   def me(headers = {})
     get '/api/v1/users/me', headers: headers, as: :json
+  end
+
+  def current_session_record
+    ActiveRecord::SessionStore::Session.find_by(session_id: Rack::Session::SessionId.new(cookies[Zammad::Application::Initializer::SessionStore::SESSION_KEY].to_s).private_id)
+  end
+
+  def expect_zone_denied
+    expect(response).to have_http_status(:forbidden)
+    expect(response.parsed_body).to include('error' => 'zone_restricted', 'internal_url' => LriZoneHelper::LRI_INTERNAL_URL)
   end
 
   context 'when the guard is off (upstream behaviour)' do
@@ -28,20 +52,35 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
     before { enforce_lri_zone_guard }
 
     describe 'public zone' do
-      it 'refuses an agent password login and does not keep the session', :aggregate_failures do
+      it 'refuses an agent password login and discards the session', :aggregate_failures do
         sign_in(agent)
-
-        expect(response).to have_http_status(:forbidden)
-        expect(response.parsed_body).to include('error' => 'zone_restricted', 'internal_url' => LriZoneHelper::LRI_INTERNAL_URL)
+        expect_zone_denied
+        expect(session[:user_id]).to be_nil
 
         me
         expect(response).to have_http_status(:forbidden)
+        expect(response.parsed_body['error']).not_to eq('zone_restricted') # anônimo, recusado pelo próprio Zammad
       end
 
-      it 'refuses an admin password login' do
+      it 'refuses an admin password login', :aggregate_failures do
         sign_in(admin)
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
+      end
+
+      it 'refuses an agent GraphQL login and discards the session', :aggregate_failures do
+        graphql_sign_in(agent)
+
+        expect_zone_denied
+        expect(session[:user_id]).to be_nil
+      end
+
+      it 'lets a customer GraphQL login through and stamps it with the public zone', :aggregate_failures do
+        graphql_sign_in(customer)
+
+        expect(response).to have_http_status(:ok)
+        expect(response.parsed_body.dig('data', 'login', 'session', 'id')).to be_present
+        expect(session[:lri_zone]).to eq('public')
       end
 
       it 'lets a customer sign in and stamps the session with the public zone', :aggregate_failures do
@@ -55,36 +94,38 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
       end
 
       it 'refuses basic authentication, even for a customer' do
-        get '/api/v1/users/me', headers: { 'Authorization' => ActionController::HttpAuthentication::Basic.encode_credentials(customer.login, 'Senha-Forte-123') }, as: :json
+        get '/api/v1/users/me', headers: { 'Authorization' => ActionController::HttpAuthentication::Basic.encode_credentials(customer.login, password) }, as: :json
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
       end
 
       it 'refuses an API token of an agent' do
         token = create(:token, user: agent, permissions: %w[ticket.agent])
         get '/api/v1/tickets', headers: { 'Authorization' => "Token token=#{token.token}" }, as: :json
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
       end
 
-      it 'refuses impersonation headers' do
-        sign_in(customer)
-        get '/api/v1/users/me', headers: { 'X-On-Behalf-Of' => agent.login }, as: :json
+      it 'refuses an OAuth2 bearer token' do
+        get '/api/v1/users/me', headers: { 'Authorization' => 'Bearer abc123' }, as: :json
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
       end
 
-      it 'refuses header SSO with Remote-User' do
-        get '/auth/sso', headers: { 'Remote-User' => customer.login }
+      it 'refuses header SSO (Remote-User and X-Forwarded-User)', :aggregate_failures do
+        get '/api/v1/users/me', headers: { 'Remote-User' => customer.login }, as: :json
+        expect_zone_denied
 
-        expect(response).to have_http_status(:forbidden)
+        get '/api/v1/users/me', headers: { 'X-Forwarded-User' => customer.login }, as: :json
+        expect_zone_denied
       end
 
-      it 'refuses the staff third-party login paths, in any letter case' do
-        %w[/auth/google_oauth2 /AUTH/Microsoft_Office365/callback/ /oauth/token].each do |path|
-          get path
+      it 'refuses the staff paths in any letter case and with repeated slashes', :aggregate_failures do
+        %w[/auth/sso /auth/google_oauth2 /AUTH/Microsoft_Office365/callback/ /oauth/token //oauth/token
+           /api/v1/external_credentials/google/link_account /api/v1/monitoring/health_check].each do |path|
+          get path, as: :json
 
-          expect(response).to have_http_status(:forbidden), "#{path} should be refused"
+          expect(response.parsed_body['error']).to eq('zone_restricted'), "#{path} should be refused by the guard"
         end
       end
 
@@ -92,51 +133,81 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         get '/auth/google_oauth2', headers: { 'Accept' => 'text/html' }
 
         expect(response).to have_http_status(:forbidden)
+        expect(response.headers['Cache-Control']).to include('no-store')
         expect(response.body).to include('Acesso da equipe só pelo endereço interno', LriZoneHelper::LRI_INTERNAL_URL)
+      end
+
+      it 'still answers a malformed Content-Type with the structured refusal' do
+        post '/oauth/token', params: 'x', headers: { 'Content-Type' => 'not a mime/type;;' }
+
+        expect(response).to have_http_status(:forbidden)
+      end
+
+      it 'does not block search engine robots that send a From header' do
+        get '/api/v1/users/me', headers: { 'From' => 'googlebot(at)googlebot.com' }, as: :json
+
+        expect(response.parsed_body['error']).not_to eq('zone_restricted')
       end
     end
 
     describe 'forged or incomplete internal zone' do
-      it 'treats X-LRI-Zone without the zone key as public' do
+      def expect_unconfirmed
+        expect(response).to have_http_status(:service_unavailable)
+        expect(response.parsed_body['error']).to eq('zone_unconfirmed')
+      end
+
+      it 'answers X-LRI-Zone without the zone key with 503 and never runs the login', :aggregate_failures do
         sign_in(agent, { 'X-LRI-Zone' => 'internal' })
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
+        expect(session[:user_id]).to be_nil
       end
 
-      it 'treats a wrong zone key as public' do
+      it 'treats a wrong zone key as unconfirmed', :aggregate_failures do
         sign_in(agent, lri_internal_headers(key: 'x' * 40))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
       end
 
-      it 'treats a missing Access JWT as public' do
+      it 'treats a missing Access JWT as unconfirmed', :aggregate_failures do
         sign_in(agent, lri_internal_headers(jwt: nil))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
       end
 
-      it 'treats an Access JWT for another application as public' do
+      it 'treats an Access JWT for another application as unconfirmed', :aggregate_failures do
         sign_in(agent, lri_internal_headers(jwt: lri_access_jwt(aud: 'outro-aplicativo')))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
       end
 
-      it 'treats an expired Access JWT as public' do
-        sign_in(agent, lri_internal_headers(jwt: lri_access_jwt(exp: 1.minute.ago)))
+      it 'treats an expired Access JWT as unconfirmed', :aggregate_failures do
+        sign_in(agent, lri_internal_headers(jwt: lri_access_jwt(exp: 5.minutes.ago)))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
       end
 
-      it 'treats an Access JWT signed by another key as public' do
+      it 'treats an Access JWT signed by another key as unconfirmed', :aggregate_failures do
         sign_in(agent, lri_internal_headers(jwt: lri_access_jwt(key: OpenSSL::PKey::RSA.generate(2048))))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_unconfirmed
       end
 
-      it 'treats a zone header with different casing of the value as public' do
+      it 'treats a zone header with a different casing of the value as public', :aggregate_failures do
         sign_in(agent, lri_internal_headers.merge('X-LRI-Zone' => 'Internal'))
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
+      end
+
+      it 'keeps an internal agent session when the Access check fails later', :aggregate_failures do
+        sign_in(agent, lri_internal_headers)
+        expect(response).to have_http_status(:created)
+
+        me(lri_internal_headers(jwt: lri_access_jwt(aud: 'outro-aplicativo')))
+        expect_unconfirmed
+
+        me(lri_internal_headers)
+        expect(response).to have_http_status(:ok)
       end
     end
 
@@ -151,18 +222,28 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(response).to have_http_status(:ok)
       end
 
-      it 'refuses the same agent session when it is replayed on the public zone' do
+      it 'refuses the agent session replayed on the public zone and deletes it', :aggregate_failures do
         sign_in(agent, lri_internal_headers)
-        me
+        old_record = current_session_record
+        expect(old_record).to be_present
 
-        expect(response).to have_http_status(:forbidden)
+        me
+        expect_zone_denied
+        expect(ActiveRecord::SessionStore::Session.exists?(old_record.id)).to be(false)
+      end
+
+      it 'refuses the agent session on public GraphQL queries' do
+        sign_in(agent, lri_internal_headers)
+        post '/graphql', params: { query: '{ currentUser { id } }' }, as: :json
+
+        expect_zone_denied
       end
 
       it 'refuses a customer session born in the internal zone when replayed on the public zone' do
         sign_in(customer, lri_internal_headers)
         me
 
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
       end
 
       it 'refuses a switched session ("entrar como") on the public zone', :aggregate_failures do
@@ -171,7 +252,7 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(response).to have_http_status(:ok)
 
         me
-        expect(response).to have_http_status(:forbidden)
+        expect_zone_denied
       end
     end
   end

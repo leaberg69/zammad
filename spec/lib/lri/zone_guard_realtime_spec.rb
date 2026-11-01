@@ -116,5 +116,53 @@ RSpec.describe 'Grupo LRI zone guard on realtime transports' do # rubocop:disabl
         expect(connection.current_user).to eq(user)
       end
     end
+
+    context 'with an agent session and a forged zone header' do
+      let(:user) { create(:agent) }
+
+      it 'connects without a user' do
+        connect headers: { 'X-LRI-Zone' => 'internal' }
+
+        expect(connection.current_user).to be_nil
+      end
+    end
+
+    context 'with a customer session born in the internal zone, on the public zone' do
+      let(:user)          { create(:customer) }
+      let(:session_extra) { { 'lri_zone' => 'internal' } }
+
+      it 'connects without a user' do
+        connect
+
+        expect(connection.current_user).to be_nil
+      end
+    end
+
+    context 'with a switched session on the public zone' do
+      let(:user)          { create(:customer) }
+      let(:session_extra) { { 'switched_from_user_id' => create(:admin).id } }
+
+      it 'connects without a user' do
+        connect
+
+        expect(connection.current_user).to be_nil
+      end
+    end
+  end
+
+  context 'when the guard is off' do
+    let(:user)    { create(:agent) }
+    let(:headers) { { 'Origin' => origin, 'Cookie' => session_cookie } }
+
+    before { allow(Lri::Zone::Config).to receive(:current).and_return(Lri::Zone::Config.new({})) }
+
+    it 'keeps the upstream behaviour on the websocket' do
+      allow(Sessions).to receive(:create)
+      allow(Sessions).to receive(:send)
+      client = {}
+      Sessions::Event::Login.new(payload: { 'event' => 'login' }, headers: headers, client_id: 'c2', client: client).run
+
+      expect(client[:session]).to eq({ 'id' => user.id })
+    end
   end
 end

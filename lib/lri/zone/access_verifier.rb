@@ -4,27 +4,36 @@ require 'jwt'
 require 'net/http'
 
 # Valida o JWT que o Cloudflare Access envia em Cf-Access-Jwt-Assertion: assinatura RS256 pelas chaves públicas da
-# equipe (https://<equipe>.cloudflareaccess.com/cdn-cgi/access/certs), emissor, audience do aplicativo e validade.
+# equipe (https://<equipe>.cloudflareaccess.com/cdn-cgi/access/certs), emissor, audience do aplicativo e validade,
+# com tolerância de relógio.
 #
-# As chaves ficam em cache por uma hora e são buscadas de novo quando chega um `kid` desconhecido (rotação), no
-# máximo uma vez a cada cinco minutos. Falha de rede ou de formato devolve um motivo, nunca aceita o token.
+# Disponibilidade (a falha aqui rebaixa a equipe para a zona pública):
+#   - as chaves ficam em cache por uma hora; um `kid` desconhecido força nova busca, no máximo a cada cinco minutos;
+#   - se a busca falhar, as chaves anteriores continuam valendo por até 24 horas, e a falha fica em cache por 30
+#     segundos, para não repetir a busca a cada requisição;
+#   - só uma thread busca por vez (try_lock); as outras usam as chaves que já existem, sem esperar a rede.
+# Falha de rede ou de formato devolve um motivo, nunca aceita o token.
 class Lri::Zone::AccessVerifier
   CACHE_TTL       = 1.hour
+  STALE_TTL       = 24.hours
   REFETCH_MINIMUM = 5.minutes
+  FAILURE_BACKOFF = 30.seconds
+  CLOCK_LEEWAY    = 30
   HTTP_TIMEOUT    = 5
 
-  @cache = {}
-  @mutex = Mutex.new
+  @cache       = {}
+  @cache_mutex = Mutex.new
+  @fetch_mutex = Mutex.new
 
   class << self
-    attr_reader :cache, :mutex
+    attr_reader :cache, :cache_mutex, :fetch_mutex
 
     def for(team_domain:, audiences:)
       new(team_domain:, audiences:)
     end
 
     def reset_cache!
-      mutex.synchronize { cache.clear }
+      cache_mutex.synchronize { cache.clear }
     end
 
     # Fonte alternativa das chaves (lambda que recebe a URL e devolve { 'keys' => [...] }); nil = HTTPS real.
@@ -63,6 +72,7 @@ class Lri::Zone::AccessVerifier
       aud:             audiences,
       verify_aud:      true,
       required_claims: %w[exp iat],
+      leeway:          CLOCK_LEEWAY,
     )
     nil
   rescue JWT::DecodeError => e
@@ -82,19 +92,61 @@ class Lri::Zone::AccessVerifier
     end
     raise "HTTP #{response.code} em #{certs_url}" if !response.is_a?(Net::HTTPSuccess)
 
-    JSON.parse(response.body).slice('keys')
+    keys = JSON.parse(response.body)['keys']
+    raise "resposta sem 'keys' em #{certs_url}" if !keys.is_a?(Array) || keys.empty?
+
+    { 'keys' => keys }
   end
 
   private
 
   def jwks_loader(options)
-    self.class.mutex.synchronize do
-      entry = self.class.cache[team_domain]
-      if entry.nil? || entry[:fetched_at] < CACHE_TTL.ago || (options[:kid_not_found] && entry[:fetched_at] < REFETCH_MINIMUM.ago)
-        entry = { keys: fetch_jwks, fetched_at: Time.zone.now }
-        self.class.cache[team_domain] = entry
-      end
-      entry[:keys]
+    entry = cached_entry
+    return entry[:keys] if entry && fresh?(entry, kid_not_found: options[:kid_not_found])
+
+    refreshed = refresh(entry)
+    return refreshed[:keys] if refreshed&.dig(:keys)
+
+    raise JWT::DecodeError, 'chaves públicas do Access indisponíveis'
+  end
+
+  def cached_entry
+    self.class.cache_mutex.synchronize { self.class.cache[team_domain] }
+  end
+
+  def fresh?(entry, kid_not_found:)
+    return false if entry[:keys].nil?
+    return entry[:fetched_at] > REFETCH_MINIMUM.ago if kid_not_found
+
+    entry[:fetched_at] > CACHE_TTL.ago
+  end
+
+  def usable_stale?(entry)
+    entry&.dig(:keys) && entry[:fetched_at] > STALE_TTL.ago
+  end
+
+  def refresh(entry)
+    stale = usable_stale?(entry) ? entry : nil
+
+    # Falha recente: não tenta a rede de novo. Outra thread já buscando: não espera a rede.
+    return stale if entry&.dig(:failed_at) && entry[:failed_at] > FAILURE_BACKOFF.ago
+    return stale if !self.class.fetch_mutex.try_lock
+
+    new_entry = begin
+      { keys: fetch_jwks, fetched_at: Time.zone.now }
+    rescue => e
+      log_fetch_failure(e, stale)
+      (entry || {}).merge(failed_at: Time.zone.now)
+    ensure
+      self.class.fetch_mutex.unlock
     end
+
+    self.class.cache_mutex.synchronize { self.class.cache[team_domain] = new_entry }
+    new_entry[:failed_at] ? stale : new_entry
+  end
+
+  def log_fetch_failure(error, stale)
+    Rails.logger.error "Lri::Zone::AccessVerifier: falha ao buscar as chaves do Access em #{certs_url} " \
+                       "(#{error.class}: #{error.message}); #{stale ? 'usando as chaves anteriores' : 'sem chaves anteriores válidas'}"
   end
 end

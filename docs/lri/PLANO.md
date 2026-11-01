@@ -292,11 +292,26 @@ escuta só em `127.0.0.1`.
 | Nginx com os dois listeners, cabeçalhos por `location`, troca exata de `Origin`, 302 dos retornos, bloqueios | `contrib/lri/deploy/nginx/`, `contrib/lri/deploy/nginx-entrypoint.sh` | `contrib/lri/deploy/test/nginx_zones_test.sh` |
 | Túnel gerenciado localmente e sobreposição da stack oficial | `contrib/lri/deploy/cloudflared/config.yml.example`, `contrib/lri/deploy/docker-compose.lri.yml` | revisão |
 
-A guarda só age com `LRI_ZONE_GUARD=enforce`; ligada com configuração incompleta, a aplicação não sobe. Ficam para o
-próximo slice: recusa de login por senha e de redefinição de senha da equipe em qualquer zona (com resposta igual à
-de e-mail desconhecido), conta de emergência com TOTP, `before_create` de `Organization` com `shared = false`,
-`state` obrigatório no retorno da autorização de caixa e a indicação de zona para a interface esconder os botões de
-SSO no portal.
+A guarda só age com `LRI_ZONE_GUARD=enforce`; com qualquer outro valor que não seja vazio ou `off`, ou ligada com
+configuração incompleta, a aplicação não sobe, e a partida registra no log se a guarda está ligada. Quando o listener
+interno reivindica a zona mas a prova falha (JWT inválido ou chaves do Access indisponíveis), a resposta é 503 sem
+destruir a sessão: uma falha do Access não desconecta a equipe. As chaves do Access ficam em cache, com tolerância de
+relógio de 30 s e reaproveitamento das chaves anteriores por até 24 h se a busca falhar.
+
+**Pré-requisitos para ligar `enforce` em produção** (próximo slice; sem eles o go-live não acontece, ou Leandro aceita
+o risco por escrito):
+
+1. recusa de login por senha, de 2FA e de redefinição de senha da equipe na zona pública **antes** de verificar a
+   senha, com resposta igual à de credencial inválida — hoje a recusa vem depois do login, o que deixa um oráculo de
+   senha de equipe e permite bloquear agentes por tentativas (revisões de código e de segurança);
+2. conta de emergência com TOTP;
+3. `before_create` de `Organization` com `shared = false`;
+4. `state` obrigatório no retorno da autorização de caixa;
+5. indicação de zona para a interface esconder os botões de SSO no portal.
+
+Registrado e aceito: a zona do WebSocket e do ActionCable é avaliada só na conexão (um cliente promovido a agente
+com o socket aberto mantém o acesso de cliente até reconectar); a recusa no tempo real deixa a sessão anônima, sem
+aviso ao cliente, porque o HTTP já recusou antes.
 
 **Fatos do ambiente que pesam na escolha** (levantados em 2026-10-31):
 

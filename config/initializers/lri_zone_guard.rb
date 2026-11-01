@@ -19,5 +19,7 @@ Rails.application.config.middleware.insert_after ActionDispatch::Session::Active
 
 # Guarda ligada com configuração incompleta não sobe: melhor parar na partida do que proteger pela metade.
 Rails.application.config.after_initialize do
-  Lri::Zone::Config.current.validate!
+  config = Lri::Zone::Config.current
+  config.validate!
+  Rails.logger.info config.describe
 end

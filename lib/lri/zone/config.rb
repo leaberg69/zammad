@@ -47,7 +47,15 @@ class Lri::Zone::Config
     Lri::Zone::AccessVerifier.for(team_domain:, audiences:)
   end
 
+  ACCEPTED_MODES = ['', 'off', 'enforce'].freeze
+
+  def mode
+    env['LRI_ZONE_GUARD'].to_s
+  end
+
   def problems
+    # Valor desconhecido ("enforced", "Enforce", "true"...) não pode desligar a guarda em silêncio.
+    return ["LRI_ZONE_GUARD=#{mode.inspect} não é reconhecido (use 'enforce' ou 'off')"] if ACCEPTED_MODES.exclude?(mode)
     return [] if !enforced?
 
     list = []
@@ -61,6 +69,12 @@ class Lri::Zone::Config
   def validate!
     return if problems.empty?
 
-    raise ArgumentError, "Guarda de zona LRI ligada (LRI_ZONE_GUARD=enforce) com configuração incompleta: #{problems.join('; ')}"
+    raise ArgumentError, "Guarda de zona LRI com configuração inválida: #{problems.join('; ')}"
+  end
+
+  def describe
+    return "guarda de zona LRI LIGADA (enforce), endereço interno #{internal_url}" if enforced?
+
+    'guarda de zona LRI desligada (LRI_ZONE_GUARD não é "enforce"): equipe e clientes sem separação por zona'
   end
 end

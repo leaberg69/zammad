@@ -7,6 +7,10 @@ RSpec.describe Lri::Zone::Config do
     expect(described_class.new({})).to have_attributes(enforced?: false, problems: [])
   end
 
+  it 'refuses an unknown guard mode instead of silently staying off' do
+    expect { described_class.new({ 'LRI_ZONE_GUARD' => 'enforced' }).validate! }.to raise_error(ArgumentError, %r{"enforced" não é reconhecido})
+  end
+
   it 'refuses to boot an enforced guard with incomplete settings' do
     config = described_class.new({ 'LRI_ZONE_GUARD' => 'enforce', 'LRI_ZONE_KEY' => 'curta' })
 

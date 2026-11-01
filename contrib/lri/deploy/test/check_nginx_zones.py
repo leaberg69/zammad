@@ -24,6 +24,8 @@ FORGED = {
     'X-Forwarded-Host': 'evil.example',
     'X-Forwarded-For': '6.6.6.6',
     'CF-Connecting-IP': '203.0.113.7',
+    'From': 'admin@lri.com.br',
+    'X-On-Behalf-Of': 'admin@lri.com.br',
 }
 
 failures = 0
@@ -60,9 +62,9 @@ for host in (FQDN, MW, IRD):
         status, data = upstream(PUBLIC, host, path, FORGED)
         h = data.get('headers', {})
         check(f'público {host}{path}: zona public', status == 200 and h.get('x-lri-zone') == 'public', f'status={status} {h.get("x-lri-zone")}')
-        check(f'público {host}{path}: sem segredo, JWT, Remote-User, X-Forwarded-User, X-Forwarded-Host',
-              not any(h.get(k) for k in ('x-lri-zone-key', 'cf-access-jwt-assertion', 'remote-user', 'x-forwarded-user', 'x-forwarded-host')),
-              str({k: h.get(k) for k in ('x-lri-zone-key', 'cf-access-jwt-assertion', 'remote-user', 'x-forwarded-user', 'x-forwarded-host')}))
+        stripped = ('x-lri-zone-key', 'cf-access-jwt-assertion', 'remote-user', 'x-forwarded-user', 'x-forwarded-host', 'from', 'x-on-behalf-of')
+        check(f'público {host}{path}: sem segredo, JWT, SSO por cabeçalho, X-Forwarded-Host nem personificação',
+              not any(h.get(k) for k in stripped), str({k: h.get(k) for k in stripped}))
         check(f'público {host}{path}: IP real da Cloudflare, não o X-Forwarded-For do cliente',
               h.get('x-forwarded-for') == '203.0.113.7', f'xff={h.get("x-forwarded-for")}')
 
@@ -109,8 +111,10 @@ check('Host desconhecido não redireciona (404)', status == 404, f'{status} {hea
 # Rotas da equipe bloqueadas na zona pública, em qualquer caixa e com barra final.
 for path in ('/auth/sso', '/auth/google_oauth2', '/AUTH/GOOGLE_OAUTH2/CALLBACK', '/auth/google_oauth2/callback/',
              '/oauth/token', '/api/v1/external_credentials/google/link_account', '/API/V1/Monitoring/health_check'):
-    status, _, body = req(PUBLIC, FQDN, path)
-    check(f'público {path}: 403 com a página de bloqueio', status == 403 and 'endereço interno' in body, f'status={status}')
+    status, headers, body = req(PUBLIC, FQDN, path)
+    check(f'público {path}: 403 com a página de bloqueio, sem cache',
+          status == 403 and 'endereço interno' in body and 'no-store' in headers.get('Cache-Control', ''),
+          f'status={status} cache={headers.get("Cache-Control")}')
 
 # Nomes desconhecidos.
 check('público: Host desconhecido dá 404', req(PUBLIC, 'evil.example', '/')[0] == 404)

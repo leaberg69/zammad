@@ -22,9 +22,13 @@ class Lri::ZoneGuard
 
     zone = self.class.zone_for_env(config, env)
     env['lri.zone'] = zone
-    Rails.logger.warn "Lri::ZoneGuard: tratado como zona pública — #{zone.reason}" if zone.reason
 
     request = ActionDispatch::Request.new(env)
+
+    # O listener interno reivindicou a zona, mas a prova não fechou (JWT inválido, chaves do Access indisponíveis,
+    # segredo errado). Responde 503 sem tocar na sessão: uma falha de disponibilidade do Access não pode desconectar
+    # a equipe inteira. Quem não tem o segredo nem passou pelo Access não ganha nada com isso.
+    return unavailable(request, config, zone.reason) if zone.reason
 
     if zone.public?
       reason = Lri::ZonePolicy.public_request_denial(env) || Lri::ZonePolicy.session_denial(session_hash(request), zone)
@@ -75,7 +79,12 @@ class Lri::ZoneGuard
 
   def deny(request, config, reason)
     Rails.logger.warn "Lri::ZoneGuard: recusado #{request.request_method} #{request.path} — #{reason}"
-    request.reset_session
+    request.reset_session if request.session.respond_to?(:id) && request.session.id.present?
     Lri::ZoneGuard::DenyResponse.new(request, config.internal_url).to_rack
+  end
+
+  def unavailable(request, config, reason)
+    Rails.logger.error "Lri::ZoneGuard: zona interna não confirmada em #{request.request_method} #{request.path} — #{reason}"
+    Lri::ZoneGuard::DenyResponse.new(request, config.internal_url, kind: :unavailable).to_rack
   end
 end

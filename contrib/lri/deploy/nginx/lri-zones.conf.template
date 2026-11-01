@@ -47,6 +47,7 @@ server {
   error_page 403 /lri-bloqueio.html;
   location = /lri-bloqueio.html {
     internal;
+    add_header Cache-Control "no-store" always;
     root /opt/zammad/contrib/lri/deploy/nginx;
   }
 

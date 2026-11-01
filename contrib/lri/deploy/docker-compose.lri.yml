@@ -8,8 +8,9 @@ x-lri-zone: &lri-zone
   LRI_ACCESS_TEAM_DOMAIN: ${LRI_ACCESS_TEAM_DOMAIN:-lriauto.cloudflareaccess.com}
   LRI_ACCESS_AUD: ${LRI_ACCESS_AUD:?defina LRI_ACCESS_AUD no .env}
   LRI_INTERNAL_URL: https://${LRI_INTERNAL_HOST:-atendimento.lri.com.br}
-  # O cloudflared entrega as requisições ao Nginx pelo namespace dele; para o Zammad, o único proxy é o Nginx.
-  RAILS_TRUSTED_PROXIES: zammad-nginx
+  # O cloudflared entrega as requisições ao Nginx pelo namespace dele; para o Zammad, o proxy é o Nginx, na rede
+  # lri-app de faixa fixa (um nome de container seria resolvido na partida, antes do Nginx existir).
+  RAILS_TRUSTED_PROXIES: ${LRI_APP_SUBNET:-172.31.250.0/24}
 
 services:
   zammad-railsserver:
@@ -40,6 +41,8 @@ services:
     network_mode: service:zammad-nginx
     volumes:
       - ./cloudflared:/etc/cloudflared:ro
+    # Usa o namespace de rede do Nginx: se o zammad-nginx for recriado, recrie também este serviço
+    #   (docker compose up -d --force-recreate cloudflared). Ver docs/lri/VPS-CHECKLIST.md.
     depends_on:
       - zammad-nginx
 
@@ -51,5 +54,8 @@ networks:
   # interna exige o segredo de zona e o JWT do Access (Lri::Zone), não só o cabeçalho.
   lri-app:
     internal: true
+    ipam:
+      config:
+        - subnet: ${LRI_APP_SUBNET:-172.31.250.0/24}
 
   lri-edge: {}

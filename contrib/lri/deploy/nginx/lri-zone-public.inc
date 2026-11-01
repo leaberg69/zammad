@@ -12,6 +12,9 @@ proxy_set_header X-Forwarded-Host "";
 # SSO por cabeçalho nunca vem do cliente.
 proxy_set_header X-Forwarded-User "";
 proxy_set_header Remote-User "";
+# Personificação por cabeçalho também não passa da borda pública.
+proxy_set_header From "";
+proxy_set_header X-On-Behalf-Of "";
 # Zona: sobrescrita sempre; o que o navegador mandar é descartado.
 proxy_set_header X-LRI-Zone "public";
 proxy_set_header X-LRI-Zone-Key "";

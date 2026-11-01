@@ -81,6 +81,9 @@ Itens verificados em homologação, antes de produção.
 | a verificar | zona interna só com `X-LRI-Zone: internal`, o segredo de zona (`X-LRI-Zone-Key`, só no listener interno) e JWT do Access válido; qualquer outra combinação é zona pública |
 | a verificar | `zammad-railsserver` e `zammad-websocket` numa rede Docker `internal: true` só com o `zammad-nginx`; de outro container, `curl` a eles falha |
 | a verificar | o `cloudflared` entrega o nome interno com `access.required: true` (equipe `lriauto`, `audTag` do aplicativo) e cai em `http_status:404` para qualquer nome desconhecido |
+| a verificar | arquivo de credenciais do túnel legível pelo usuário do container `cloudflared` (uid 65532) e com permissão restrita; ao recriar o `zammad-nginx`, recriar também o `cloudflared` (usa o namespace de rede dele) |
+| a verificar | `LRI_ZONE_GUARD=enforce` só depois dos pré-requisitos de go-live do PLANO §2.9.2; log da partida do railsserver mostra "guarda de zona LRI LIGADA" |
+| a verificar | `RAILS_TRUSTED_PROXIES` igual à faixa fixa da rede `lri-app` (`LRI_APP_SUBNET`), sem colidir com outra rede Docker do host |
 | a verificar | nenhuma porta da central publicada no host: `ss -tlnp` e tentativa de acesso direto, que deve falhar |
 | a verificar | `RAILS_TRUSTED_PROXIES` no `zammad-railsserver` e no `zammad-websocket` e `set_real_ip_from` restritos ao Nginx e ao `cloudflared`; logs mostram o IP real (`CF-Connecting-IP`) |
 | a verificar | 302 dos três retornos de OAuth (Google, Microsoft, caixas de e-mail) para o nome interno, só nos caminhos exatos (`location =`), destino fixo e query preservada; caminho, host ou maiúsculas manipulados não redirecionam |

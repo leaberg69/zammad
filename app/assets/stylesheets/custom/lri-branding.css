@@ -174,19 +174,23 @@
   box-shadow: inset 3px 0 0 #74b527;
 }
 
-/* Seletor de Grupo (searchableSelect): o upstream realça só o texto; a barra vai na linha, somada ao separador. */
-.searchableSelect .dropdown li.js-enter.is-highlighted:not(:first-child),
-.searchableSelect .dropdown li.js-enter:hover:not(:first-child) {
+/*
+ * Seletor de Grupo (searchableSelect; o elemento .searchableSelect É a .dropdown). Linhas com filhos (js-enter): o
+ * upstream realça só o texto; a barra vai na linha, somada ao separador. Linhas simples (js-option) já recebem a
+ * regra A genérica do dropdown.
+ */
+.searchableSelect.dropdown li.js-enter.is-highlighted:not(:first-child),
+.searchableSelect.dropdown li.js-enter:hover:not(:first-child) {
   box-shadow: inset 3px 0 0 #74b527, 0 1px rgba(255, 255, 255, 0.13) inset;
 }
 
-.searchableSelect .dropdown li.js-enter.is-highlighted:first-child,
-.searchableSelect .dropdown li.js-enter:hover:first-child {
+.searchableSelect.dropdown li.js-enter.is-highlighted:first-child,
+.searchableSelect.dropdown li.js-enter:hover:first-child {
   box-shadow: inset 3px 0 0 #74b527;
 }
 
 /* Marcador do item já escolhido (filete de 5 px). */
-.searchableSelect .dropdown li.is-selected::before {
+.searchableSelect.dropdown li.is-selected::before {
   background-color: #74b527;
 }
 
@@ -271,14 +275,23 @@
   box-shadow: none;
 }
 
-/* RTL: a barra das regras A vai para a direita (ux-spec v3, interaction_rules.rtl). */
+/* RTL: a barra das regras A vai para a direita (ux-spec v3, interaction_rules.rtl), com o mesmo separador. */
 [dir='rtl'] .dropdown li:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
 [dir='rtl'] .dropdown li.is-active:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .searchableSelect.dropdown li.js-enter.is-highlighted:not(:first-child),
+[dir='rtl'] .searchableSelect.dropdown li.js-enter:hover:not(:first-child) {
+  box-shadow: inset -3px 0 0 #74b527, 0 1px rgba(255, 255, 255, 0.13) inset;
+}
+
+[dir='rtl'] .dropdown li:first-child:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .dropdown li.is-active:first-child:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .dropdown li.label + li:hover:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
+[dir='rtl'] .dropdown li.label + li.is-active:not(.danger, .create, .js-back, .inactive-with-children, [disabled]),
 [dir='rtl'] .dropdown-menu > li > a.is-hovered,
 [dir='rtl'] .pop-selectable:hover,
 [dir='rtl'] .ui-menu .ui-menu-item.ui-state-focus,
-[dir='rtl'] .searchableSelect .dropdown li.js-enter.is-highlighted,
-[dir='rtl'] .searchableSelect .dropdown li.js-enter:hover {
+[dir='rtl'] .searchableSelect.dropdown li.js-enter.is-highlighted:first-child,
+[dir='rtl'] .searchableSelect.dropdown li.js-enter:hover:first-child {
   box-shadow: inset -3px 0 0 #74b527;
 }
 

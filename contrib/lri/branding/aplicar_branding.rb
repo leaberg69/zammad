@@ -84,7 +84,11 @@ step.call('base de conhecimento') do
 
     # A posição só vale com a ordenação manual (KnowledgeBase::Category.sorted_by_mode); em 'alphabetical' ou
     # 'last_update' a ordem pedida seria ignorada sem aviso.
-    kb.update!(category_sorting_mode: 'manual') if kb.category_sorting_mode != 'manual'
+    if kb.category_sorting_mode != 'manual'
+      previous = kb.category_sorting_mode
+      kb.update!(category_sorting_mode: 'manual')
+      puts "info KB #{kb.id} modo de ordenação das categorias alterado de #{previous.inspect} para \"manual\""
+    end
 
     roots = kb.categories.where(parent_id: nil).to_a
     by_title = roots.index_by { |cat| cat.translations.first&.title }

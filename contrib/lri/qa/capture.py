@@ -62,6 +62,17 @@ PROBE = r"""
       if (sr < 3) state.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 60), bg: cs.backgroundColor,
         vizinho: `rgb(${around.join(',')})`, ratio: +sr.toFixed(2) });
     }
+    // Pseudo-elementos com conteúdo (ex.: filete do item escolhido, li.is-selected::before) também indicam estado.
+    for (const pseudo of ['::before', '::after']) {
+      const ps = getComputedStyle(el, pseudo); if (!ps.content || ps.content === 'none' || ps.content === 'normal') continue;
+      const pbg = parse(ps.backgroundColor); if (!pbg || !brand.includes(pbg.join(','))) continue;
+      const around = ownBg || bgOf(el.parentElement); const pr = ratio(pbg, around);
+      if (pr < 3 && pbg.join(',') !== around.join(',')) state.push({ tag: el.tagName.toLowerCase() + pseudo, cls: String(el.className).slice(0, 60),
+        bg: ps.backgroundColor, vizinho: `rgb(${around.join(',')})`, ratio: +pr.toFixed(2) });
+    }
+    // Exceções com motivo: a miniatura de prévia do login em Admin > Marca é maquete inativa (WCAG isenta
+    // componente inativo); o Zammad a desenha com opacidade reduzida.
+    if (el.closest('.login.branding')) continue;
     const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
     if (hasText) { let fg = parse(cs.color); if (!fg) { skipped++; continue; } const bg = bgOf(el);
       // Opacidade efetiva (cor com alfa e `opacity` dos ancestrais) mistura o texto com o fundo.

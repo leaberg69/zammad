@@ -92,7 +92,9 @@ Itens verificados em homologação, antes de produção.
 | a verificar | conexões `/ws` e `/cable` sobrevivem a 5 min ociosas atrás da Cloudflare |
 | a verificar | MFA obrigatório no Google Workspace (LRI) e no Entra ID (IRD.Net) |
 | a verificar | `auth_sso` desligado, `api_password_access` desativado e nenhuma aplicação OAuth2 cadastrada no Zammad |
-| a verificar | conta de emergência com 2FA do Zammad por **aplicativo autenticador (TOTP)** cadastrado antes de ativada (chave de segurança não funciona no nome interno); login aceito no nome interno e recusado no público |
+| a verificar | conta de emergência (`LRI_EMERGENCY_LOGIN`) com 2FA do Zammad por **aplicativo autenticador (TOTP)** cadastrado antes de ligar `enforce` (chave de segurança não funciona no nome interno); login aceito no nome interno e recusado no público |
+| a verificar | agente com senha local: login por senha e "esqueci a senha" recusados nas duas zonas com a mesma resposta de usuário desconhecido; entrada só por Google ou Microsoft |
+| a verificar | `LRI_ORGANIZATIONS_PRIVATE=true` no railsserver; organização criada pelo painel nasce com "Organização compartilhada" desligada |
 | a verificar | sessão criada no nome interno e reapresentada pelo nome público é recusada, em HTTP, `/ws` e `/cable` |
 | a verificar | pelos nomes `suporte`: portal do cliente, base de conhecimento e formulário funcionam; login de agente, SSO da equipe, autorização de caixas e administração são recusados |
 | a verificar | pelo nome interno: Access com Google (conta LRI) e Microsoft (conta IRD.Net), login do Zammad, interface de agente, administração e tempo real funcionam; conta de fora das empresas é barrada no Access |

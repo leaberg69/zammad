@@ -25,6 +25,7 @@ class Lri::ZoneGuard
 
     zone = self.class.zone_for_env(config, env)
     env['lri.zone'] = zone
+    Lri::Current.zone = zone
 
     request = ActionDispatch::Request.new(env)
 

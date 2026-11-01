@@ -7,6 +7,8 @@
 #   LRI_ACCESS_TEAM_DOMAIN         domínio da equipe do Cloudflare Access, ex.: lriauto.cloudflareaccess.com
 #   LRI_ACCESS_AUD                 audience (AUD tag) do aplicativo do Access; várias separadas por vírgula
 #   LRI_INTERNAL_URL               endereço interno da equipe, ex.: https://atendimento.lri.com.br
+#   LRI_EMERGENCY_LOGIN            (opcional) login ou e-mail da conta de emergência, a única da equipe com senha
+#   LRI_ORGANIZATIONS_PRIVATE=true (opcional) organizações novas nascem com "Organização compartilhada" desligada
 #
 # Com a guarda ligada, configuração incompleta impede a subida (Lri::Zone::Config#validate!), em vez de deixar a
 # guarda funcionando pela metade.
@@ -41,6 +43,21 @@ class Lri::Zone::Config
 
   def internal_url
     env['LRI_INTERNAL_URL'].to_s.strip
+  end
+
+  # Login ou e-mail da única conta da equipe que mantém senha (conta de emergência); vazio = nenhuma.
+  def emergency_login
+    env['LRI_EMERGENCY_LOGIN'].to_s.strip
+  end
+
+  def emergency_account?(user)
+    return false if emergency_login.blank? || user.nil?
+
+    [user.login, user.email].compact.any? { |value| value.casecmp?(emergency_login) }
+  end
+
+  def organizations_private?
+    env['LRI_ORGANIZATIONS_PRIVATE'] == 'true'
   end
 
   def access_verifier

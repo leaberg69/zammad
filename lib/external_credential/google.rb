@@ -36,7 +36,7 @@ class ExternalCredential::Google < ExternalCredential::Base::ChannelXoauth2
   end
 
   def self.link_account(request_token, params)
-    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if params[:state] != request_token
+    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if !ExternalCredential.state_matches?(request_token, params[:state])
 
     external_credential = ExternalCredential.find_by(name: 'google')
     raise Exceptions::UnprocessableContent, __('There is no Google app configured.') if !external_credential

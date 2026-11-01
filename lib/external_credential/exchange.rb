@@ -41,7 +41,7 @@ class ExternalCredential::Exchange
     # return to admin interface if admin Consent is in process and user clicks on "Back to app"
     return "#{Setting.get('http_type')}://#{Setting.get('fqdn')}/#system/integration/exchange/error/AADSTS65004" if params[:error_description].present? && params[:error_description].include?('AADSTS65004')
 
-    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if params[:state] != request_token
+    raise Exceptions::UnprocessableContent, __('Invalid OAuth state parameter.') if !ExternalCredential.state_matches?(request_token, params[:state])
 
     external_credential = ExternalCredential.find_by(name: 'exchange')
     raise Exceptions::UnprocessableContent, __('No Exchange app configured!') if !external_credential

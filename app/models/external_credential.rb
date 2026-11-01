@@ -20,6 +20,14 @@ class ExternalCredential < ApplicationModel
     backend.request_account_to_link(params)
   end
 
+  # The state of an OAuth callback must equal the one stored when the flow was started; a flow that was never started
+  #   in this session has no stored state and matches nothing.
+  def self.state_matches?(request_token, given_state)
+    return false if request_token.blank? || given_state.blank?
+
+    ActiveSupport::SecurityUtils.secure_compare(request_token.to_s, given_state.to_s)
+  end
+
   def self.link_account(provider, request_token, params)
     backend = load_backend(provider)
     backend.link_account(request_token, params)

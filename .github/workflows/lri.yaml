@@ -36,7 +36,7 @@ jobs:
           'app/frontend/apps/desktop/styles/custom/lri-*.css'
           'app/frontend/apps/mobile/styles/custom/lri-*.css'
       - name: Markdownlint (docs/lri)
-        run: pnpm exec markdownlint-cli2 'docs/lri/**/*.md'
+        run: pnpm exec markdownlint-cli2 'docs/lri/**/*.md' CLAUDE.md
       - name: Use Python 3.12
         uses: actions/setup-python@v6
         with:

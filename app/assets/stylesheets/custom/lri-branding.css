@@ -1,0 +1,126 @@
+/*
+ * Branding Grupo LRI — interface legada (agente e portal do cliente).
+ *
+ * Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml (visual_tokens.legado).
+ * Só cor de destaque e logo; nada de layout (UI-LRI-2). Carregado por application.css
+ * (require_tree ./custom/) depois de zammad.scss, então a mesma especificidade vence pela ordem.
+ *
+ * Papéis de cor (contraste WCAG 2.x medido na ux-spec):
+ *   #3d7a12  destaque no tema claro (texto/foco) e fundo com texto branco nos dois temas (5,26:1)
+ *   #2c5a0d  hover/ativo de fundo com texto branco (8,15:1)
+ *   #74b527  texto, link e foco no tema escuro (4,62 a 6,52:1); nunca fundo com texto branco
+ *   #9ecb68  link dentro de popover escuro e hover de link no escuro (4,59:1 sobre #4a4c4f)
+ * O laranja da IRD.Net (#e46e33) só aparece dentro do logo.
+ */
+
+:root {
+  --lri-green: #74b527;
+  --lri-green-secondary: #3d7a12;
+  --lri-green-dark: #2c5a0d;
+  --lri-green-light: #9ecb68;
+  --button-primary-background: #3d7a12;
+  --button-primary-background-active: #2c5a0d;
+  --text-button-primary: #3d7a12;
+  --text-button-primary-active: #2c5a0d;
+  --text-link: #3d7a12;
+  --text-nav: #3d7a12;
+  --text-muted-highlight: #eef6e5;
+  --highlight: #3d7a12;
+  --border-highlight: #3d7a12;
+  --shadow-highlight: #3d7a12;
+  --background-highlight: #eaf4df;
+  --lri-accent-text: #3d7a12;
+}
+
+[data-theme='dark'] {
+  --button-primary-background: #3d7a12;
+  --button-primary-background-active: #2c5a0d;
+  --text-button-primary: #74b527;
+  --text-button-primary-active: #9ecb68;
+  --text-link: #74b527;
+  --highlight: #3d7a12;
+  --border-highlight: #74b527;
+  --shadow-highlight: #74b527;
+  --background-highlight: #3a502e;
+  --text-muted-highlight: #eef6e5;
+  --lri-accent-text: #74b527;
+}
+
+/* Usos de --highlight como TEXTO ou ÍCONE: no escuro --highlight é papel de fundo (#3d7a12, 2,20:1 como texto). */
+.label-highlight,
+.state-internal,
+.primary-email-switch:checked + label,
+.scheduled-widget[data-state='internal'] {
+  color: var(--lri-accent-text);
+}
+
+.controls-button.is-active .icon,
+.list-item-insert:hover .icon {
+  fill: var(--lri-accent-text);
+}
+
+/* Azuis fixos do zammad.scss (não usam variável). */
+.dropArea {
+  color: var(--lri-accent-text);
+}
+
+.bubble-wrapper .bubble-menu .bubble-menu-item .icon-highlight {
+  color: var(--lri-accent-text);
+}
+
+.attachmentUpload-progressBar {
+  background: var(--lri-accent-text);
+}
+
+.switchBackToUser {
+  background: #3d7a12;
+  border-bottom-color: #74b527;
+}
+
+.searchableSelect .searchableSelect-autocomplete-visible {
+  background: var(--background-highlight);
+}
+
+[data-theme='dark'] .searchableSelect .searchableSelect-autocomplete-visible {
+  color: var(--text-normal);
+}
+
+.datepicker .year.focused,
+.datepicker .focused {
+  box-shadow: 0 0 0 1px #3d7a12 inset;
+}
+
+.datepicker .year.active,
+.datepicker td.active,
+.datepicker span.active {
+  background: #3d7a12;
+  color: #fff;
+}
+
+/*
+ * Item ativo do menu lateral e aba de tarefa ativa: #3d7a12 contra o menu (#25262c) dá 2,86:1,
+ * abaixo de 3:1 (WCAG 1.4.11). A barra interna de 3 px em #74b527 (6,00:1) mantém o estado
+ * perceptível sem mudar o layout (box-shadow não ocupa espaço). Questão aberta na ux-spec (C5).
+ */
+.menu-item.is-active,
+.menu-item.is-hovered,
+.nav-tab.is-active {
+  box-shadow: inset 3px 0 0 #74b527;
+}
+
+[dir='rtl'] .menu-item.is-active,
+[dir='rtl'] .menu-item.is-hovered,
+[dir='rtl'] .nav-tab.is-active {
+  box-shadow: inset -3px 0 0 #74b527;
+}
+
+/* Link dentro de popover no tema escuro (fundo #4a4c4f): #74b527 dá 3,44:1, #9ecb68 dá 4,59:1. */
+[data-theme='dark'] .popover a {
+  color: #9ecb68;
+}
+
+/* Logo da instância no tema escuro: a variante clara tem preto (IRD.Net) que some no fundo escuro. */
+[data-theme='dark'] .login .company-logo,
+[data-theme='dark'] .branding .logo-preview {
+  content: url('/assets/lri/grupo-lri-logo-escuro.svg');
+}

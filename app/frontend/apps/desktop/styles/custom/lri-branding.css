@@ -1,0 +1,57 @@
+/*
+ * Branding Grupo LRI — app desktop (Vue). Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml
+ * (visual_tokens.vue_desktop). Só os tokens de destaque azuis viram verde; tokens.css não é editado.
+ * A interface beta vem desligada (ui_desktop_beta_switch); isto evita azul residual se for ligada.
+ */
+
+:root {
+  --color-blue-600: #d5e9be; /* hover leve com texto escuro: 16,2:1 */
+  --color-blue-700: #74b527;
+  --color-blue-800: #3d7a12; /* primário, seleção com texto branco (5,26:1), link e foco no claro */
+  --color-blue-850: #2c5a0d; /* hover de link e do secundário (8,15:1) */
+  --color-blue-900: #2c5a0d; /* hover e subtle no escuro com texto branco (8,15:1) */
+
+  /* O gradiente de IA usa blue-800; a ux-spec manda mantê-lo como está. */
+  --gradient-ai: linear-gradient(to right, #23a2cd, var(--color-pink-200));
+}
+
+/*
+ * No tema escuro, #3d7a12 continua como FUNDO (texto branco 5,26:1), mas como texto ou foco sobre
+ * #323234 daria 2,43:1. Texto e foco passam a #74b527 (5,11:1 sobre #323234; 6,50:1 sobre #202021).
+ *
+ * Estas regras ficam DENTRO das camadas do Tailwind de propósito (exceção ao README da pasta): fora
+ * de camada elas venceriam também as utilidades `text-white` dos itens com fundo bg-blue-800 (item de
+ * navegação ativo, menus, linhas selecionadas) e deixariam texto verde sobre verde. Dentro da mesma
+ * camada, com especificidade maior, trocam só a cor de destaque.
+ */
+@layer base {
+  [data-theme='dark'] a {
+    color: #74b527;
+  }
+
+  [data-theme='dark'] a:hover {
+    color: #9ecb68;
+  }
+
+  [data-theme='dark'] a:focus-visible {
+    outline-color: #74b527;
+  }
+}
+
+@layer utilities {
+  [data-theme='dark'] .text-blue-800,
+  [data-theme='dark'] .dark\:text-blue-800 {
+    color: #74b527;
+  }
+
+  [data-theme='dark'] .focus-visible\:outline-blue-800:focus-visible,
+  [data-theme='dark'] .focus-visible-app-default:focus-visible {
+    outline-color: #74b527;
+  }
+}
+
+/* Logo da instância no tema escuro (a variante clara tem preto que some no fundo escuro). */
+[data-theme='dark'] [data-zammad-target='CommonLogo'] img,
+[data-theme='dark'] img[data-zammad-target='CommonLogo'] {
+  content: url('/assets/lri/grupo-lri-logo-escuro.svg');
+}

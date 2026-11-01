@@ -304,6 +304,11 @@ um listener diferente do proxy próprio da central:
 - **TLS**: o certificado público é o da borda da Cloudflare; entre a borda e o `cloudflared` o túnel é cifrado.
   Não há Let's Encrypt nem certificado de origem para gerenciar na central.
 - **Nginx compartilhado da VPS**: não muda. A central não disputa as portas 80 e 443.
+- **Base oficial**: a stack `zammad/zammad-docker-compose` já traz o cenário `scenarios/add-cloudflare-tunnel.yml`:
+  container `cloudflared` com o token do túnel, `RAILS_TRUSTED_PROXIES` no `zammad-railsserver` e no
+  `zammad-websocket` (o servidor de WebSocket calcula o IP do cliente por conta própria), `NGINX_SERVER_SCHEME=https`
+  (sem ele o cookie de sessão não sai com `Secure` e o login falha por CSRF) e nenhuma porta publicada. A central
+  parte desse cenário e acrescenta o listener interno e o Access.
 
 **WebSocket**. A Cloudflare repassa WebSocket nos dois tipos de nome, e os dois listeners mandam `Upgrade` e
 `Connection` em `/ws` e `/cable`. O Zammad só aceita como origem `fqdn` e `alternative_fqdn`

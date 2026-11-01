@@ -1,0 +1,34 @@
+/*
+ * Branding Grupo LRI — app mobile (Vue, só tema escuro). Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml
+ * (visual_tokens.vue_mobile). Destaque #74b527 (7,02:1 sobre #191919); sobre ele, texto PRETO (8,38:1),
+ * porque texto branco daria 2,51:1.
+ */
+
+:root {
+  --color-blue: #74b527;
+  --color-blue-dark: #2c5a0d;
+  --color-blue-highlight: #74b5271a;
+}
+
+/* Botão primário (CommonButton: bg-blue + text-white) e variante primária do FormKit. */
+.bg-blue.text-white,
+[data-variant='primary'] .formkit-input,
+[data-variant='primary'].formkit-input {
+  color: #000;
+}
+
+[data-variant='primary'] .formkit-input .icon,
+.bg-blue.text-white .icon {
+  color: #000;
+}
+
+/* Marca de seleção do checkbox marcado sobre o verde: preta para 3:1 de componente. */
+input[type='checkbox']:checked.checked\:bg-blue {
+  color: #000;
+}
+
+/* O app só tem tema escuro: o logo é sempre a variante escura. */
+[data-zammad-target='CommonLogo'] img,
+img[data-zammad-target='CommonLogo'] {
+  content: url('/assets/lri/grupo-lri-logo-escuro.svg');
+}

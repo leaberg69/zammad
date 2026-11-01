@@ -1,8 +1,8 @@
 # Revisões do slice "Branding Grupo LRI"
 
 Esteira no Nível 1: os papéis seguem `leaberg69/esteira-softwarehouse-LR` sem registrar o ciclo no CLI. Revisor ≠
-autor em todas as rodadas; cada revisor trabalhou em contexto novo, sobre a tela real (imagem Docker construída a partir do
-commit revisado, rodando localmente com os dados de `contrib/lri/qa/`).
+autor em todas as rodadas; cada revisor trabalhou em contexto novo, sobre a tela real (imagem Docker construída a
+partir do commit revisado, rodando localmente com os dados de `contrib/lri/qa/`).
 
 ## Contrato
 

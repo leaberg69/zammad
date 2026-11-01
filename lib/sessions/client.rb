@@ -46,6 +46,8 @@ class Sessions::Client
       return if !user&.active?
       return if Auth::SwitchedSession.revoked?(session_data[:user]['switched_from_user_id'])
       return if Auth::MaintenanceMode.blocks?(user, switched_from_user_id: session_data[:user]['switched_from_user_id'])
+      # Grupo LRI: nada é enviado a um socket público cujo usuário virou equipe.
+      return if !Lri::ZonePolicy.realtime_user_allowed?(session_data[:user], user)
 
       UserInfo.current_user_id = user.id
 

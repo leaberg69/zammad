@@ -36,6 +36,10 @@ To execute this manually, just paste the following into the browser console
         'id' => user.id,
       }
 
+      # Grupo LRI: a zona da conexão é reconferida a cada evento (Sessions::Event::Base#session_user_allowed?).
+      lri_zone = Lri::ZoneGuard.realtime_zone_name(->(name) { header_value(name) })
+      new_session_data['lri_zone'] = lri_zone if lri_zone
+
       # Carried along because the prerequisites are re-checked while the session is served, and
       #   the session record this was read from is not available there: a session an admin
       #   switched to is exempt from maintenance mode, and nothing else tells it apart later.

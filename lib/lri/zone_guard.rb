@@ -71,6 +71,13 @@ class Lri::ZoneGuard
     raise StaffInPublicZone, reason
   end
 
+  # Zona de uma conexão de tempo real, para o WebSocket legado gravar na sessão da conexão; nil com a guarda desligada.
+  def self.realtime_zone_name(header_lookup, config: Lri::Zone::Config.current)
+    return if !config.enforced?
+
+    Lri::Zone.resolve(config, header_lookup).name
+  end
+
   # Para os transportes de tempo real (WebSocket legado e ActionCable), que autenticam fora do fluxo Rack dos
   # controllers. Devolve o motivo da recusa ou nil.
   def self.realtime_denial(session_data, header_lookup, config: Lri::Zone::Config.current)

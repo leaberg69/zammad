@@ -169,6 +169,9 @@ class KnowledgeBase::Public::BaseController < ApplicationController
 
     return if user.blank?
 
+    # Grupo LRI: token de prévia é credencial da equipe; na zona pública é recusado (docs/lri/PLANO.md, seção 2.9.3).
+    Lri::ZoneGuard.authenticating!(request.env, user)
+
     @_auth_type    = 'kb_preview_token'
     @_current_user = user
   end

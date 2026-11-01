@@ -46,6 +46,7 @@ module Lri::ZonePolicy
     data = session_data.to_h.stringify_keys
     return 'sessão criada na zona interna' if data['lri_zone'] == Lri::Zone::INTERNAL
     return 'sessão com troca de usuário ("entrar como")' if data['switched_from_user_id'].present?
+    return 'token de prévia da base de conhecimento da equipe' if staff_preview_token?(data['kb_preview_token'])
     return if data['user_id'].blank?
 
     user = User.lookup(id: data['user_id'])
@@ -53,5 +54,22 @@ module Lri::ZonePolicy
     return "usuário da equipe (id #{user.id})" if staff?(user)
 
     nil
+  end
+
+  # O token de prévia da KB fica na sessão e autentica sem user_id (KnowledgeBase::Public::BaseController e a
+  #   política de anexos o leem direto da sessão).
+  def staff_preview_token?(token)
+    return false if token.blank?
+
+    owner = Token.check(action: 'KnowledgeBasePreview', token: token)
+    owner.present? && staff?(owner)
+  end
+
+  # Para o WebSocket legado, que guarda a sessão em memória pela vida da conexão e reconfere o usuário a cada
+  #   evento: um socket aberto na zona pública não pode continuar autenticado se o usuário virou equipe.
+  def realtime_user_allowed?(session_data, user)
+    return true if session_data.to_h.stringify_keys['lri_zone'] != Lri::Zone::PUBLIC
+
+    !staff?(user)
   end
 end

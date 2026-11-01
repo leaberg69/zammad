@@ -53,10 +53,10 @@ RSpec.describe 'Grupo LRI zone guard on realtime transports' do # rubocop:disabl
       let(:user)    { create(:agent) }
       let(:headers) { { 'Origin' => origin, 'Cookie' => session_cookie }.merge(lri_internal_headers) }
 
-      it 'starts the agent session' do
+      it 'starts the agent session and records the internal zone' do
         run_event
 
-        expect(client[:session]).to eq({ 'id' => user.id })
+        expect(client[:session]).to eq({ 'id' => user.id, 'lri_zone' => 'internal' })
       end
     end
 
@@ -76,11 +76,49 @@ RSpec.describe 'Grupo LRI zone guard on realtime transports' do # rubocop:disabl
       let(:user)    { create(:customer) }
       let(:headers) { { 'Origin' => origin, 'Cookie' => session_cookie } }
 
-      it 'starts the customer session' do
+      it 'starts the customer session and records the public zone' do
         run_event
 
-        expect(client[:session]).to eq({ 'id' => user.id })
+        expect(client[:session]).to eq({ 'id' => user.id, 'lri_zone' => 'public' })
       end
+    end
+  end
+
+  # Revisão Codex (PR #1): cliente com /ws aberto na zona pública promovido a agente.
+  describe 'an open public websocket whose customer is promoted to agent' do
+    let(:user)  { create(:customer) }
+    let(:event) do
+      Class.new(Sessions::Event::Base) do
+        database_connection_required
+
+        def run
+          @session
+        end
+      end
+    end
+
+    it 'loses the authentication on the next event', :aggregate_failures do
+      expect(event.new(session: { 'id' => user.id, 'lri_zone' => 'public' }, client_id: 'c3', client: {}).run).to eq({ 'id' => user.id, 'lri_zone' => 'public' })
+
+      user.update!(roles: Role.where(name: 'Agent'))
+
+      expect(event.new(session: { 'id' => user.id, 'lri_zone' => 'public' }, client_id: 'c3', client: {}).run).to eq({ 'lri_zone' => 'public' })
+    end
+
+    it 'keeps an internal socket of the same user' do
+      user.update!(roles: Role.where(name: 'Agent'))
+
+      expect(event.new(session: { 'id' => user.id, 'lri_zone' => 'internal' }, client_id: 'c4', client: {}).run).to eq({ 'id' => user.id, 'lri_zone' => 'internal' })
+    end
+
+    it 'stops the background pusher (Sessions::Client) from sending data', :aggregate_failures do
+      user.update!(roles: Role.where(name: 'Agent'))
+      allow(Sessions).to receive_messages(session_exists?: true, get: { user: { 'id' => user.id, 'lri_zone' => 'public' } })
+      allow(Sessions::Backend::TicketOverviewList).to receive(:new)
+
+      Timeout.timeout(10) { Sessions::Client.new('c5', 'node').fetch }
+
+      expect(Sessions::Backend::TicketOverviewList).not_to have_received(:new)
     end
   end
 

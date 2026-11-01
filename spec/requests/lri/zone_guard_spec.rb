@@ -167,6 +167,18 @@ RSpec.describe 'Grupo LRI zone guard', type: :request do
         expect(response).to have_http_status(:forbidden)
       end
 
+      # Revisão Codex (PR #1): token de prévia da KB de um agente autenticava sem passar por current_user_set.
+      it 'refuses a staff knowledge base preview token and clears it from the session', :aggregate_failures do
+        create(:knowledge_base)
+        token = create(:token, action: 'KnowledgeBasePreview', user: agent)
+
+        get "/help?preview_token=#{token.token}", headers: { 'Accept' => 'text/html' }
+
+        expect(response).to have_http_status(:forbidden)
+        expect(response.body).to include('Acesso da equipe só pelo endereço interno')
+        expect(session[:kb_preview_token]).to be_nil
+      end
+
       it 'does not block search engine robots that send a From header' do
         get '/api/v1/users/me', headers: { 'From' => 'googlebot(at)googlebot.com' }, as: :json
 

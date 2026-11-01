@@ -64,6 +64,8 @@ class Sessions::Event::Base
   def session_user_allowed?(user)
     return false if !user&.active?
     return false if Auth::SwitchedSession.revoked?(@session['switched_from_user_id'])
+    # Grupo LRI: socket aberto na zona pública perde a autenticação se o usuário virar equipe.
+    return false if !Lri::ZonePolicy.realtime_user_allowed?(@session, user)
 
     !Auth::MaintenanceMode.blocks?(user, switched_from_user_id: @session['switched_from_user_id'])
   end

@@ -1,0 +1,59 @@
+/*
+ * Branding Grupo LRI — app mobile (Vue, só tema escuro). Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml
+ * (visual_tokens.vue_mobile). Destaque #74b527 (7,02:1 sobre #191919); sobre ele, texto e ícone PRETOS (8,38:1),
+ * porque branco daria 2,51:1.
+ */
+
+:root {
+  --color-blue: #74b527;
+  --color-blue-dark: #2c5a0d;
+  --color-blue-highlight: #74b5271a;
+}
+
+/*
+ * Botão primário (CommonButton: bg-blue + text-white) e variante primária do FormKit — só quando o fundo é de fato o
+ * verde: botões primários com fundo próprio (ex.: "Carregar mais", formkit-variant-primary:bg-gray-500) ficam com o
+ * texto branco do upstream.
+ */
+.bg-blue.text-white,
+[data-variant='primary'] .formkit-input.formkit-variant-primary\:bg-blue:not([class*='primary:bg-gray'], [class*='primary:bg-red'], [class*='primary:bg-yellow'], [class*='primary:bg-transparent']),
+[data-variant='primary'].formkit-input.formkit-variant-primary\:bg-blue:not([class*='primary:bg-gray'], [class*='primary:bg-red'], [class*='primary:bg-yellow'], [class*='primary:bg-transparent']) {
+  color: #000;
+}
+
+/*
+ * Botão "Responder" do chamado: variante secundária com `!text-white formkit-variant-secondary:bg-blue`
+ * (TicketDetailViewActions.vue). O utilitário usa !important DENTRO da camada `utilities` do Tailwind, e um
+ * !important em camada vence qualquer !important fora de camada; por isso esta regra entra na mesma camada, com
+ * especificidade maior (exceção ao README da pasta).
+ */
+@layer utilities {
+  [data-variant='secondary'] .formkit-input.formkit-variant-secondary\:bg-blue,
+  [data-variant='secondary'].formkit-input.formkit-variant-secondary\:bg-blue {
+    color: #000 !important;
+  }
+}
+
+/* Botões só de ícone sobre o verde: rolar para baixo (bg-blue), menu de tabela do editor (bg-blue/80) e
+   ícones com fundo bg-blue (icon-bg). */
+.bg-blue:not(.text-black, .text-black-full),
+.bg-blue\/80 {
+  color: #000;
+}
+
+.bg-blue .icon,
+.bg-blue\/80 .icon {
+  color: #000;
+}
+
+/* Checkbox marcado: o input é appearance-none e a marca de seleção é o decorator (elemento irmão). */
+[data-type='checkbox'][data-is-checked] .formkit-decorator,
+[data-is-checked] > .formkit-wrapper .formkit-decorator {
+  color: #000;
+}
+
+/* O app só tem tema escuro: o logo é sempre a variante escura. */
+[data-zammad-target='CommonLogo'] img,
+img[data-zammad-target='CommonLogo'] {
+  content: url('/assets/lri/grupo-lri-logo-escuro.svg');
+}

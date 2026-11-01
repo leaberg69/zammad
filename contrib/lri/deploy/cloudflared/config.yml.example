@@ -1,0 +1,29 @@
+# Cloudflare Tunnel da Central de Atendimento Grupo LRI — túnel gerenciado LOCALMENTE (este arquivo é a fonte da
+# verdade; regras criadas no painel não valem). Copie para config.yml na VPS e preencha os valores <...>.
+# Ver docs/lri/PLANO.md, seção 2.9.2, e docs/lri/VPS-CHECKLIST.md, seção 4.
+
+tunnel: <ID-DO-TUNEL>
+credentials-file: /etc/cloudflared/<ID-DO-TUNEL>.json
+no-autoupdate: true
+
+ingress:
+  # Equipe: só depois de validar o JWT do Cloudflare Access (equipe e audience do aplicativo).
+  - hostname: atendimento.lri.com.br
+    service: http://127.0.0.1:8082
+    originRequest:
+      access:
+        required: true
+        teamName: lriauto
+        audTag:
+          - <AUD-DO-APLICATIVO-DA-EQUIPE>
+
+  # Portais dos clientes (sem Access).
+  - hostname: suporte.lri.com.br
+    service: http://127.0.0.1:8081
+  - hostname: suporte.meanwellbrasil.com.br
+    service: http://127.0.0.1:8081
+  - hostname: suporte.ird.net.br
+    service: http://127.0.0.1:8081
+
+  # Qualquer outro nome: nada.
+  - service: http_status:404

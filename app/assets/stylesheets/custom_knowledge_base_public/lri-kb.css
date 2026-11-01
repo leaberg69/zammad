@@ -1,0 +1,10 @@
+/*
+ * Branding Grupo LRI — base de conhecimento pública. Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml
+ * (visual_tokens.kb_publica). As cores da KB vêm das configurações dela (color_highlight #3d7a12,
+ * color_header_link #3d7a12), gravadas por contrib/lri/branding/aplicar_branding.rb. Aqui só a troca do
+ * logo do cabeçalho pela variante horizontal, que cabe na altura de 2em (32 px) sem ficar minúscula.
+ */
+
+.header .logo img {
+  content: url('/assets/lri/grupo-lri-logo-horizontal.svg');
+}

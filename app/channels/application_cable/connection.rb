@@ -11,6 +11,9 @@ module ApplicationCable
     #   'ActionCable.server.remote_connections.where(current_user: user).disconnect'.
     attr_accessor :sid
 
+    # Grupo LRI: zona em que a conexão nasceu, reconferida a cada uso (Lri::ZoneGuard.cable_allowed?).
+    attr_accessor :lri_zone
+
     # current_user is stored in the context of GraphQL which is persistent
     #   for the scope of a subscription and cannot be changed from within
     #   other subscriptions.
@@ -21,6 +24,7 @@ module ApplicationCable
 
       self.current_user = find_verified_user
       self.sid          = session_id
+      self.lri_zone     = Lri::ZoneGuard.realtime_zone_name(->(name) { request.headers[name] })
     end
 
     private
@@ -39,6 +43,8 @@ module ApplicationCable
       return if !user&.active?
       return if Auth::SwitchedSession.revoked?(session.data['switched_from_user_id'])
       return if Auth::MaintenanceMode.blocks?(user, switched_from_user_id: session.data['switched_from_user_id'])
+      # Grupo LRI: guarda de zona (docs/lri/PLANO.md, seção 2.9.3).
+      return if Lri::ZoneGuard.realtime_denial(session.data, ->(name) { request.headers[name] })
 
       user
     end

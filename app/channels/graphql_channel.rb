@@ -5,6 +5,14 @@ class GraphqlChannel < ApplicationCable::Channel
     @subscription_ids = []
   end
 
+  # Grupo LRI: conexão pública cujo usuário virou equipe é encerrada antes de qualquer ação (docs/lri/PLANO.md,
+  #   seção 2.9.3).
+  def perform_action(data)
+    return Lri::ZoneGuard.close_cable(connection) if !Lri::ZoneGuard.cable_allowed?(connection)
+
+    super
+  end
+
   def execute(data)
     query = data['query']
     variables = ensure_hash(data['variables'])

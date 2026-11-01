@@ -63,6 +63,8 @@ module ApplicationController::HasUser
   end
 
   def current_user_set(user, auth_type = 'session')
+    # Grupo LRI: na zona pública, a equipe nunca chega a ser o usuário corrente (docs/lri/PLANO.md, seção 2.9.3).
+    Lri::ZoneGuard.authenticating!(request.env, user)
     session[:user_id] = user.id
 
     @_auth_type      = auth_type

@@ -1,0 +1,216 @@
+# ux-spec-v3 — Branding Grupo LRI, DELTA sobre a v2 (reprovação do UX-B no commit 23952e790d)
+# Resolve H1 (estado em verde sobre superfície escura abaixo de 3:1), corrige textos da spec (M4, L4, L2,
+# L3), registra a derivada #a8d17a (M2), decide L1 (barra sobre aba com cor de estado) e M3 (verde de
+# marca x verde de sucesso), confirma a regra do mobile e mantém a ordem das categorias da KB.
+# Tudo o que esta v3 não cita continua valendo como está na v2 e na v1.
+artifact_meta:
+  name: ux-spec
+  version: 3
+  produced_by: ux_engineer_a
+  created_at: "2026-10-31T00:00:00Z"
+  base_git_commit: 23952e790d5fc30bd940416c37176ae3a3d2490c
+  cycle_id: nivel-1-sem-ciclo-registrado  # esteira Nível 1; invariantes = docs/lri/PLANO.md §3 e §4
+  identity_raw_sha256: null  # sem ciclo v5.4 registrado (Nível 1)
+  consumed:
+    - { artifact: ux-spec-v2, raw_sha256: 1234cd5a01dae2c1b1cfb2566341ef12af5cce3ce73f6c5407e0a5d7d728f584 }
+    - { artifact: ux-report-v1, verdict: REPROVADO, commit: 23952e790d }
+    - { artifact: review-report, origem: code-reviewer, commit: 23952e790d }
+format_version: 2
+
+ui_impact: med   # inalterado
+
+user_flows:
+  - id: F2-portal-cliente
+    goal: Cliente escolhe o grupo em "Novo ticket" vendo claramente qual opção está realçada.
+    steps:
+      - Abre o seletor de Grupo (dropdown escuro do legado, nos dois temas).
+      - Move com seta ou mouse; o item realçado tem fundo #3d7a12, texto branco e barra de 3 px #74b527 à esquerda.
+      - O item já escolhido mostra o filete de 5 px em #74b527.
+      - Aciona "Criar" (botão de envio, agora no verde de marca; ver M3).
+    error_paths:
+      - Nenhum.
+  - id: F3-agente
+    goal: Agente identifica a visão ativa e o item realçado nos dois temas.
+    steps:
+      - Na barra de visões ("Meus tickets" e demais), no escuro, a visão ativa tem barra #74b527 à esquerda.
+      - Nas abas de tarefa com cor de estado (aberta, fechada, escalonada), a cor de estado continua e a barra não aparece.
+    error_paths:
+      - Nenhum.
+
+components:
+  - id: C2-botao-primario
+    purpose: Corrige a v1 (M4) e estende o papel ao botão de envio (M3).
+    states:
+      default: "fundo #3d7a12, texto #ffffff (5,26:1). Mobile: fundo #74b527, texto #000000 (8,38:1)."
+      hover: "não existe no upstream para .btn--primary (zammad.scss:872-878 só declara :active); a marca não cria hover."
+      active: "fundo #2c5a0d, texto #ffffff (8,15:1)."
+      focus_visible: "anel #3d7a12 (claro) ou #74b527 (escuro), inalterado."
+      disabled: comportamento upstream.
+    behavior: "Mesma regra para .btn--success, .btn--create e .btn--positive (ver visual_tokens.m3_verde_de_sucesso)."
+  - id: C11-estado-em-superficie-escura
+    purpose: Indicar item realçado, ativo ou escolhido quando a superfície em volta é escura (dropdowns, menus e popovers do legado nos dois temas; barra de visões, campos e controles no tema escuro).
+    states:
+      linha_realcada: "regra A — fundo #3d7a12 com texto #ffffff (5,26:1) e barra interna de 3 px #74b527 à esquerda (5,46:1 sobre #2c2d35; 5,79:1 sobre #28292e; 4,60:1 sobre #38393e)."
+      peca_pequena_escolhida: "regra B — fundo #74b527 com texto ou ícone #000000 (8,38:1); a peça contra a superfície fica entre 4,58 e 6,50:1."
+      marcador_escolhido: "filete existente recolorido para #74b527 (5,46 a 5,79:1)."
+      sem_estado: upstream.
+    behavior: "Regra A para linhas (cabe a barra sem mudar layout); regra B para peças pequenas (chip, segmento, célula, círculo), onde não cabe barra. Lista fechada por seletor em visual_tokens.h1_estado_em_superficie_escura."
+
+interaction_rules:
+  escopo: "Inalterado. A barra e o filete acompanham o estado que o upstream já aplica (hover, is-active, is-selected, ui-state-focus, is-highlighted); nenhum estado novo, nenhuma mudança de teclado."
+  rtl: "Em [dir=rtl] a barra vai para a direita (inset -3px 0 0)."
+
+accessibility:
+  - requirement: "Todo estado indicado por fundo verde (realçado, ativo, escolhido) tem um indicador com 3:1 ou mais contra a superfície adjacente nos dois temas: o próprio fundo (regra B), a barra (regra A) ou o filete."
+    wcag_ref: "WCAG 2.2 SC 1.4.11 (AA)"
+  - requirement: "Texto sobre o fundo de estado com 4,5:1 ou mais: branco só sobre #3d7a12 ou #2c5a0d; sobre #74b527 só preto."
+    wcag_ref: "WCAG 2.2 SC 1.4.3 (AA)"
+  - requirement: "Botão de envio (Criar, Atualizar e similares) com texto 4,5:1 ou mais; o verde de sucesso upstream dava 2,85:1 com texto branco."
+    wcag_ref: "WCAG 2.2 SC 1.4.3 (AA)"
+
+visual_tokens:
+  delta_de: "ux-spec v2 — acrescenta h1_estado_em_superficie_escura, m3_verde_de_sucesso, l1_barra_e_cor_de_estado, derivadas.verde_claro_bolha_escura, excecoes_azuladas, medicao_do_logo e mobile; corrige C2, V6, V7 e V8."
+
+  h1_estado_em_superficie_escura:
+    superficies_de_referencia:
+      dropdown_menu_popover: "--background-tertiary: #2c2d35 no claro e #28292e no escuro (zammad.scss:10267, 8310, 9910) — escuro nos DOIS temas"
+      menu_principal: "#25262c (claro) e #1f2023 (escuro)"
+      barra_lateral_e_cartao_escuro: "#38393e (--background-secondary no escuro)"
+      overlay_de_lote: "entrada hsl(233,9%,24%) = #383943 (zammad.scss:14613)"
+    contraste_do_problema: "#3d7a12 sobre #2c2d35 2,60; sobre #28292e 2,76; sobre #38393e 2,19; sobre #383943 2,18; sobre #25262c 2,87"
+    regra_a_linha:
+      descricao: "manter fundo #3d7a12 e texto branco; acrescentar box-shadow inset 3px 0 0 #74b527. Onde o upstream já usa box-shadow na mesma regra (separador 0 1px rgba(255,255,255,0.13) inset das linhas de dropdown, zammad.scss:10373), somar as duas sombras na mesma declaração para não perder o separador."
+      aplica_em:
+        - { seletor: ".dropdown li:hover, .dropdown li.is-active", linha: "zammad.scss:10384-10386", temas: "claro e escuro", excluir: "li.danger, li.create e, no searchableSelect, li.js-back e li.inactive-with-children (têm fundo próprio de perigo ou sucesso, zammad.scss:10393-10400 e 12840-12852)" }
+        - { seletor: ".dropdown-menu > li > a.is-hovered", linha: "zammad.scss:10433-10436", temas: "claro e escuro", nota: "barra no a" }
+        - { seletor: ".pop-selectable:hover", linha: "zammad.scss:8313-8314", temas: "claro e escuro" }
+        - { seletor: ".ui-menu .ui-menu-item.ui-state-focus (autocompletar)", linha: "zammad.scss:9929-9933", temas: "claro e escuro" }
+        - { seletor: ".searchableSelect .dropdown li.js-enter.is-highlighted e li.js-enter:hover (o realce do upstream fica só no span do texto)", linha: "zammad.scss:12833-12836, 12894-12896", temas: "claro e escuro", nota: "barra no li; o span mantém #3d7a12 com texto branco" }
+        - { seletor: ".nav-pills > li.active > a (barra de visões, ex.: Meus tickets)", linha: "zammad.scss:6062-6067", temas: "SÓ escuro (no claro --background-active continua o cinza escuro upstream #2c2d35 sobre branco, 13+:1)" }
+        - { seletor: ".menu-item e .nav-tab ativos", linha: "zammad.scss:4797, 5039", temas: "já implementado na v1 (C5); ver L1" }
+    regra_b_peca_pequena:
+      descricao: "fundo #74b527, texto e ícone #000000 (8,38:1)"
+      aplica_em:
+        - { seletor: ".btn-group .btn--text.is-selected (controle segmentado)", linha: "zammad.scss:1202-1204", temas: "SÓ escuro (no claro #3d7a12 sobre branco 5,26)" }
+        - { seletor: ".status-field .is-active (celular)", linha: "zammad.scss:1315-1319", temas: "SÓ escuro; borda e sombra em #74b527" }
+        - { seletor: ".token.active", linha: "zammad.scss:9819-9822", temas: "SÓ escuro" }
+        - { seletor: ".select-value.is-selected", linha: "zammad.scss:12711-12714", temas: "SÓ escuro" }
+        - { seletor: ".user-menu > li.is-active .list-button::before e .user-menu > li.is-active .user-menu-icon (ícone #000000)", linha: "zammad.scss:5559-5561, 5583-5585", temas: "claro e escuro (fica no menu principal escuro)", nota: "o + de criar (li.add) mantém o verde de sucesso upstream" }
+        - { seletor: ".icon_picker .dropdown-grid li.is-active (ícone #000000)", linha: "zammad.scss:14926-14928", temas: "claro e escuro (dentro de dropdown escuro)" }
+    marcador_e_borda:
+      - { seletor: ".searchableSelect .dropdown li.is-selected::before (filete de 5 px)", linha: "zammad.scss:12811-12821", valor: "#74b527 nos dois temas (5,46 sobre #2c2d35; 5,79 sobre #28292e)" }
+      - { seletor: ".batch-dragger .avatar e entrada .is-hovered (border-color)", linha: "zammad.scss:14568-14570, 14623-14624", valor: "#74b527 nos dois temas (4,58 sobre #383943)" }
+    sem_mudanca_com_motivo:
+      - { seletor: ".btn--primary (874)", motivo: "botão identificado pelo rótulo (texto 5,26); 1.4.11 não exige contraste do contorno de botão com texto" }
+      - { seletor: ".badge--primary (1496), contadores .tabsSidebar-tab-count--info (9076, 9181) e .batch-dragger-counter (14718)", motivo: "informação em número com texto branco 5,26; não indicam estado de controle" }
+      - { seletor: ".alert--info (9237)", motivo: "aviso com texto branco 5,26; o sentido vem do texto" }
+      - { seletor: "toggle .zammad-switch ligado (12259)", motivo: "estado também pela posição do botão branco (branco sobre #3d7a12 5,26)" }
+      - { seletor: "--highlight como texto ou ícone (2110, 2135, 2834, 2908, 9374, 15470)", motivo: "já resolvido na v1 por seletor (#74b527 no escuro)" }
+
+  m3_verde_de_sucesso:
+    decisao: >-
+      Os botões de envio do upstream (.btn--success, .btn--create, .btn--positive; zammad.scss:890-910 e
+      987-992; 36 telas, entre elas "Criar" em customer_ticket_create.jst.eco:23 e agent_ticket_create.jst.eco:56)
+      passam para o verde de marca: fundo #3d7a12, ativo #2c5a0d, texto branco; variante .btn--secondary e
+      .btn--text com texto #3d7a12 no claro e #74b527 no escuro. O verde semântico hsl(145,51%,45%) = #38ad69
+      continua em tudo o que é ESTADO: --supergood-color, rótulos e estados publicados, alerta de sucesso,
+      aba de tarefa fechada, li.create do dropdown, + de criar do menu, js-back e inactive-with-children.
+    motivo: >-
+      (1) No Zammad esses botões são a ação principal do formulário, o mesmo papel do primário; dois verdes
+      diferentes para "seguir" na mesma tela (Entrar e Criar) parecem erro de marca. (2) Texto branco sobre
+      #38ad69 dá 2,85:1, abaixo de 4,5:1; no verde de marca dá 5,26:1. (3) Verde de marca (matiz 95) e de
+      sucesso (matiz 145) ficam separados por papel: marca = ação, sucesso = estado com texto ou ícone.
+    contraste: "branco sobre #3d7a12 5,26; ativo branco sobre #2c5a0d 8,15; texto #3d7a12 sobre branco 5,26; #74b527 sobre #38393e 4,60"
+
+  l1_barra_e_cor_de_estado:
+    decisao: "Sem barra quando a aba ativa tem cor de estado: .nav-tab.is-active.task-state-open, .task-state-closed e .task-state-escalating (zammad.scss:5157-5185) ficam com box-shadow none."
+    motivo: "A cor de estado já é o indicador (âmbar --ok-color, verde --supergood-color e laranja --superbad-color contra o menu escuro, todos acima de 3:1) e a barra #74b527 sobre o âmbar dá 1,30:1, ruído sem função."
+
+  derivadas:
+    verde_claro_bolha_escura:
+      valor: "#a8d17a"
+      origem: "#74b527 clareado (mais branco que o #9ecb68)"
+      uso: "link em [data-theme=dark] .textBubble a (fundo da bolha #4b5058)"
+      contraste: "4,66:1 sobre #4b5058 (#9ecb68 dá 4,33; #74b527 dá 3,24)"
+    nota: "As quatro derivadas da v1 continuam; esta é a quinta."
+
+  excecoes_azuladas:
+    acrescenta: "Fundo da bolha de artigo .textBubble do legado no claro (rgb(229,240,245) = #e5f0f5) e as variáveis --background-article-customer, --background-article-customer-meta, --border-article-customer e --border-article-customer-selected seguem upstream. São superfícies neutras levemente azuladas, como blue-50 a 550 do Vue (exceção da v1); não são destaque e não entram no critério de 'azul residual' do V3 e V5."
+
+  medicao_do_logo:
+    regra: >-
+      O elemento img mede a caixa inteira (200 x 100 no legado, 224 x 112 no Vue, tolerância de 1 px). Cada
+      marca dentro dele é medida pela TINTA (retângulo dos pixels não transparentes da marca), tolerância de 2 px.
+      Os tamanhos de caixa da v2 incluem o respiro de 4% do recorte do LRI; os de tinta são estes:
+    tinta_legado_200x100: "LRI 87 x 44 px; IRD.Net 125 x 24 px; Mean Well 59 x 44 px"
+    tinta_vue_224x112: "LRI 97 x 50 px; IRD.Net 140 x 27 px; Mean Well 66 x 49 px"
+    tinta_kb_horizontal: "LRI 58 x 30 px; IRD.Net 89 x 17 px; Mean Well 43 x 32 px"
+    nota: "No claro, o retângulo branco sob o bloco Mean Well some contra o cartão branco; a tinta da Mean Well é o bloco vermelho."
+
+  mobile:
+    confirmacao: "Concordo com a leitura do code-reviewer; a regra da v1 vale para TODO verde de marca usado como fundo no mobile: texto e ícone #000000 sobre #74b527."
+    aplica_em:
+      - "bg-blue com text-white (CommonButton.vue:24) e formkit [data-variant=primary]"
+      - "variant secondary com !text-white e formkit-variant-secondary:bg-blue no botão Responder (TicketDetailViewActions.vue:80)"
+      - "botão de rolar com bg-blue (TicketDetailViewActions.vue:55)"
+      - "bg-blue/80 com text-white (form/index.ts:87): sobre #191919 a mistura dá #629624; preto 5,89:1, branco 3,56:1 — preto"
+      - "ícones com icon-bg=bg-blue: ícone #000000"
+      - "checkbox: a marca é o decorator ([data-is-checked] .formkit-decorator), não o input; marca #000000 sobre #74b527"
+    nao_aplica: "text-blue sobre fundo escuro (#74b527 sobre #191919 7,02) e bg-blue com text-black que já existiam (LayoutBottomNavigation.vue:35, ArticleBubble.vue:65)"
+
+  kb_publica:
+    categorias: "ordem mantida: LRI, IRD.Net, Mean Well Brasil (o dado position é corrigido no provisionamento)"
+
+acceptance_visuals:
+  ambiente: "Igual à v2."
+  telas_que_mudam:
+    - id: V1-login
+      url: "/#login, claro e escuro"
+      verdade:
+        - "Medição do logo pela regra de visual_tokens.medicao_do_logo: img 200 x 100; tinta LRI 87 x 44, IRD.Net 125 x 24, Mean Well 59 x 44 (tolerância de 2 px)."
+    - id: V3-portal-lista-cliente
+      url: "/#ticket/view/my_tickets como cliente, claro e escuro"
+      verdade:
+        - "No escuro, a visão ativa (Meus tickets) tem barra #74b527 de 3 px à esquerda; contraste da barra contra #38393e 4,5:1 ou mais."
+        - "Critério de azul residual exclui .textBubble e as variáveis --*-article-customer* (excecoes_azuladas)."
+    - id: V4-portal-novo-chamado
+      url: "/#customer_ticket_new como cliente, claro e escuro, com o seletor de Grupo aberto"
+      verdade:
+        - "Item realçado: fundo #3d7a12, texto branco, barra #74b527 à esquerda; barra contra #2c2d35 (claro) ou #28292e (escuro) 3:1 ou mais."
+        - "Separador entre linhas do dropdown continua visível (sombra somada, não substituída)."
+        - "Item já escolhido: filete de 5 px em #74b527."
+        - "Botão Criar com fundo #3d7a12 e texto branco (não mais #38ad69)."
+    - id: V5-agente-dashboard
+      url: "/#dashboard como agente, claro e escuro, com uma aba de tarefa aberta (âmbar) ativa e outra sem estado ativa"
+      verdade:
+        - "Aba ativa sem estado: fundo #3d7a12 com barra. Aba ativa com cor de estado: cor de estado sem barra."
+        - "Círculo do item ativo do menu do usuário (user-menu) em #74b527 com ícone preto."
+    - id: V6-agente-chamado-aberto
+      url: "/#ticket/zoom/ID como agente, claro e escuro"
+      verdade:
+        - "Botão de atualizar (btn--success no upstream) com fundo #3d7a12 e texto branco; no estado :active, #2c5a0d. Não há hover (upstream)."
+        - "No escuro, link dentro de bolha de artigo (.textBubble a) em #a8d17a, 4,5:1 ou mais sobre #4b5058."
+        - "Seletor de visibilidade e campos com token: token ativo no escuro em #74b527 com texto preto."
+    - id: V7-botao-primario-estados
+      url: "recortes de .btn--primary e .btn--success: default, :active e focus-visible, claro e escuro"
+      verdade:
+        - "Default #3d7a12 com texto branco; :active #2c5a0d; foco conforme C4. Nenhuma verificação de hover."
+    - id: V8-link-estados
+      url: "link de texto dentro de um artigo (claro e escuro), link dentro do popover de usuário (escuro) e link dentro da bolha de artigo (escuro)"
+      verdade:
+        - "Claro #3d7a12 (5,0:1 ou mais); escuro #74b527 (4,6:1 ou mais); popover escuro #9ecb68 (4,5:1 ou mais); bolha escura #a8d17a (4,5:1 ou mais)."
+        - "'Esqueceu a senha?' NÃO entra na verificação: é .btn--text.btn--secondary com cinza upstream (--text-button-secondary, cerca de 2,1:1), não usa cor de marca. Registrar como falha upstream preexistente, fora do escopo de branding."
+    - id: V14-dropdowns-e-popovers
+      url: "abrir, nos dois temas: seletor de Grupo (searchableSelect), menu de ações de um chamado (dropdown), autocompletar de cliente (ui-menu), seletor de ícone da KB (icon_picker) e o arrastar em lote (batch overlay)"
+      verdade:
+        - "Linha realçada com barra #74b527 (regra A); célula escolhida do icon_picker em #74b527 com ícone preto (regra B); borda da entrada realçada do lote em #74b527."
+        - "Linhas de perigo (li.danger) e de criar (li.create) mantêm a cor própria, sem barra."
+    - id: V15-controles-no-escuro
+      url: "tema escuro: controle segmentado (.btn-group com .btn--text.is-selected), grade .select-value e status no celular (390 px)"
+      verdade:
+        - "Peça escolhida em #74b527 com texto preto (8,38:1); contraste da peça contra a superfície 3:1 ou mais."
+    - id: V11-mobile
+      url: "/mobile, 390 x 844: chamado aberto com botões Responder e rolar, formulário com checkbox marcado e editor com menu de tabela"
+      verdade:
+        - "Responder, rolar, botão do menu de tabela, ícones com icon-bg e marca do checkbox: texto e ícone pretos sobre #74b527 (ou #629624 no bg-blue/80)."
+  telas_inalteradas: "V2, V9, V10, V12 e V13 seguem como estão na v1 e na v2."

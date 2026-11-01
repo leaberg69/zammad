@@ -1,0 +1,402 @@
+# ux-spec-v1 — Branding Grupo LRI (fase 3 do PLANO)
+# DESENHADO SEM VER A TELA: não houve screenshot da instância rodando em 1440 px nem saída do
+# medir-tela.js. Mapeamento feito no código (base aad8867cd2). Faltou: screenshots claro/escuro
+# do login, portal do cliente, painel do agente, chamado aberto e KB pública antes da mudança
+# (servem de "antes" para o UX-B). A primeira tarefa do UX-B é capturar o "antes".
+artifact_meta:
+  name: ux-spec
+  version: 1
+  produced_by: ux_engineer_a
+  created_at: "2026-10-31T00:00:00Z"
+  base_git_commit: aad8867cd2641df6981a1c585f36b351c78090f9
+  cycle_id: nivel-1-sem-ciclo-registrado  # esteira Nível 1: papéis seguidos sem o CLI; invariantes do projeto = docs/lri/PLANO.md §3 e §4
+  identity_raw_sha256: null  # sem ciclo v5.4 registrado (Nível 1)
+  consumed: []  # Nível 1: sem plan registrado no CLI; o slice está no PLANO.md, fase 3
+format_version: 2
+
+ui_impact: med   # toca toda a UI renderizada (cor de destaque, logo, nome do produto, idioma), sem fluxo novo
+
+user_flows:
+  - id: F1-login-cliente
+    goal: Cliente reconhece a Central de Atendimento Grupo LRI e entra no portal.
+    steps:
+      - Abre suporte.lri.com.br ou suporte.ird.net.br (mesma tela nos dois).
+      - Vê o logo composto Grupo LRI (LRI em cima, IRD.Net embaixo) no cartão de login e o título da aba "Central de Atendimento Grupo LRI".
+      - Preenche usuário e senha e aciona "Entrar" (botão primário verde).
+    error_paths:
+      - Logo não carrega -> o texto alternativo "Central de Atendimento Grupo LRI" aparece (alt já vem de product_name em login.jst.eco:16).
+      - Tema escuro -> cartão escuro com a variante do logo para fundo escuro; nada preto sobre cinza escuro.
+      - Credencial errada -> mensagem de erro do Zammad, sem mudança (cor de erro não é de marca).
+  - id: F2-portal-cliente
+    goal: Cliente acompanha os próprios chamados e abre um novo.
+    steps:
+      - Após o login vê "Meus tickets" (rótulo da tradução oficial; ver questão de terminologia).
+      - Abre um chamado, responde e aciona o botão primário de envio.
+      - Usa "Novo ticket", escolhe o grupo da marca (LRI ou IRD.Net) e envia.
+    error_paths:
+      - Campo obrigatório vazio -> borda e texto de erro do Zammad (vermelho upstream, não muda).
+  - id: F3-agente
+    goal: Agente trabalha a fila sem estranhar a nova cor.
+    steps:
+      - Painel com menu lateral escuro; item ativo com fundo #3d7a12, texto branco e barra interna #74b527.
+      - Abre um chamado da lista (hover e seleção com destaque verde).
+      - Navega com Tab; anel de foco verde visível em campos e botões.
+      - Responde e aciona o botão primário.
+    error_paths:
+      - Nota interna continua com o laranja-claro upstream (--border-internal); por isso o laranja IRD.Net não entra na UI.
+  - id: F4-kb-publica
+    goal: Visitante encontra resposta na base de conhecimento pública.
+    steps:
+      - Abre /help; cabeçalho com logo horizontal Grupo LRI e links do menu em verde.
+      - Busca, abre a categoria LRI ou IRD.Net e lê o artigo; links e ícones de categoria em #3d7a12.
+    error_paths:
+      - Busca sem resultado -> "Nenhum resultado foi encontrado." (tradução oficial).
+  - id: F5-troca-de-tema
+    goal: Usuário alterna claro e escuro e a marca continua legível.
+    steps:
+      - Menu do avatar > Modo escuro (legado) ou preferência do sistema.
+      - Logo, links, foco, botão primário e seleção trocam para os tokens do tema escuro sem recarregar.
+    error_paths:
+      - Variante escura do logo ausente (404) -> UX-B reprova; a rede não pode ter 404 em /assets/lri/.
+
+components:
+  - id: C1-logo-produto
+    purpose: Identidade Grupo LRI no login legado, portal, assistente, prévia de Admin > Marca, login Vue desktop e mobile e KB.
+    states:
+      tema_claro: grupo-lri-logo.svg (setting product_logo) sobre cartão branco.
+      tema_escuro: "grupo-lri-logo-escuro.svg trocado por CSS (content: url) sob [data-theme=dark] no legado e no desktop Vue; no mobile sempre a escura (app só tem tema escuro)."
+      kb: grupo-lri-logo-horizontal.svg trocado por CSS no cabeçalho da KB, altura 2em (32 px) mantida.
+      falha_de_carga: alt "Central de Atendimento Grupo LRI" visível.
+      alta_densidade: vetorial, nítido em 2x e 3x.
+    behavior: Não é link no login; na KB mantém o link existente para a home. Sem animação.
+  - id: C2-botao-primario
+    purpose: Ação principal (Entrar, Enviar, Salvar) — legado .btn--primary, Vue CommonButton primary, mobile CommonButton e formkit primary.
+    states:
+      default: "fundo #3d7a12, texto #ffffff (5,26:1). Mobile: fundo #74b527, texto #000000 (8,38:1)."
+      hover_active: "fundo #2c5a0d, texto #ffffff (8,15:1)."
+      focus_visible: "anel #3d7a12 (claro) ou #74b527 (escuro), 3:1 ou mais contra o fundo da página."
+      disabled: comportamento upstream (opacidade), sem mudança.
+    behavior: Sem mudança de tamanho, raio ou posição.
+  - id: C3-link
+    purpose: Texto clicável (legado a e .u-highlight via --text-link; Vue a e text-blue-800; KB via color_highlight).
+    states:
+      default_claro: "#3d7a12 — 5,26:1 sobre branco, 5,03:1 sobre #f9fafb."
+      default_escuro: "#74b527 — 5,35:1 sobre #2e2f33, 4,62:1 sobre #38393e; dentro de popover escuro (#4a4c4f) #9ecb68, 4,59:1."
+      hover: "claro #2c5a0d (8,15:1); escuro #9ecb68."
+      focus_visible: anel na cor de foco do tema.
+      visitado: igual ao default (upstream não diferencia).
+    behavior: Sublinhado segue o upstream.
+  - id: C4-foco-teclado
+    purpose: Indicador de foco (legado --shadow-highlight e --border-highlight; Vue outline-blue-800; mobile outline e ring blue).
+    states:
+      claro: "#3d7a12 — 5,26:1 sobre branco, 5,03:1 sobre #f9fafb."
+      escuro: "#74b527 — 4,62 a 6,52:1 nos fundos escuros do legado; 5,11:1 sobre #323234 e 6,50:1 sobre #202021 no Vue."
+    behavior: Espessura e deslocamento upstream (sombra de 3 px no legado; 1 px com offset 1 no Vue). Só a cor muda.
+  - id: C5-item-ativo-menu-lateral
+    purpose: Navegação principal do agente (legado .menu-item e .nav-tab; menu escuro nos dois temas).
+    states:
+      default: "upstream (texto #bdbdbd sobre #25262c)."
+      hover_e_ativo: "fundo #3d7a12, texto #ffffff (5,26:1) e barra interna de 3 px #74b527 à esquerda (6,00:1 contra #25262c), por box-shadow inset, sem deslocar layout."
+    behavior: "A barra existe porque #3d7a12 contra o fundo do menu dá 2,86:1, abaixo de 3:1 para estado de componente; o azul upstream dava 5,07:1. Sem a barra a marca pioraria a acessibilidade do estado ativo."
+  - id: C6-selecao-e-destaque
+    purpose: Itens selecionados e realçados (legado --highlight como fundo; Vue bg-blue-800 com texto branco em menus, linhas e abas).
+    states:
+      default: upstream.
+      hover_leve_vue: "claro: fundo #d5e9be com texto preto (16,2:1); escuro: #2c5a0d com texto branco (8,15:1)."
+      selecionado: "fundo #3d7a12 com texto #ffffff (5,26:1), nos dois temas."
+      texto_secundario_no_selecionado: "--text-muted-highlight #eef6e5 sobre #3d7a12 (4,75:1)."
+    behavior: Toggle ligado também é indicado pela posição do botão; cor não é sinal único.
+  - id: C7-texto-em-cor-de-destaque
+    purpose: Usos de --highlight como texto ou ícone no legado (label-highlight, state-internal, primary-email-switch, controls-button, list-item-insert, artigo interno).
+    states:
+      claro: "#3d7a12 (5,26:1)."
+      escuro: "#74b527 por seletor, porque --highlight no escuro fica #3d7a12 (papel de fundo) e daria 2,20:1 como texto."
+    behavior: Lista fechada em visual_tokens.legado.azuis_por_seletor.
+  - id: C8-faixa-voltar-ao-usuario
+    purpose: Faixa exibida quando um admin assume outro usuário (.switchBackToUser, azul fixo).
+    states:
+      default: "fundo #3d7a12, texto #ffffff (5,26:1), borda inferior de 5 px #74b527."
+    behavior: Sem mudança de texto nem de altura.
+  - id: C9-kb-publica
+    purpose: Base de conhecimento pública (cores pelas configurações da KB, não por CSS).
+    states:
+      cabecalho: "color_header #f9fafb (padrão); color_header_link #3d7a12 (5,03:1)."
+      destaque: "color_highlight #3d7a12 — links 5,26:1, ícones de categoria, tag com texto branco 5,26:1."
+      logo: variante horizontal.
+    behavior: KB só tem tema claro (knowledge_base.scss não declara data-theme nem prefers-color-scheme).
+  - id: C10-titulo-da-aba
+    purpose: product_name no title (application.html.erb:7) e em "Join %s".
+    states:
+      default: Central de Atendimento Grupo LRI
+    behavior: Por setting, não por código.
+
+interaction_rules:
+  escopo: Branding não muda interação; teclado, Enter, Esc, arrastar e soltar e desfazer seguem o Zammad.
+  teclado: Ordem do Tab no login inalterada (usuário, senha, lembrar, Entrar, Esqueceu a senha?). Foco visível em cada parada, nos dois temas.
+  troca_de_tema: Instantânea; nenhuma cor de marca depende de recarregar a página.
+  hostname: Mesma aparência nos dois endereços; nenhuma regra por hostname.
+
+accessibility:
+  - requirement: Texto normal em cor de marca (links, botões de texto, rótulos) com 4,5:1 ou mais contra o fundo real, nos temas claro e escuro.
+    wcag_ref: "WCAG 2.2 SC 1.4.3 (AA)"
+  - requirement: "Texto sobre fundo de marca com 4,5:1 ou mais — branco só sobre #3d7a12 ou #2c5a0d; sobre #74b527 só texto preto."
+    wcag_ref: "WCAG 2.2 SC 1.4.3 (AA)"
+  - requirement: Indicador de foco, borda de campo em foco e indicador de estado (item ativo do menu, toggle) com 3:1 ou mais contra a cor adjacente.
+    wcag_ref: "WCAG 2.2 SC 1.4.11 (AA)"
+  - requirement: Foco visível em todo controle alcançável por Tab, nos dois temas, inclusive em popover e dropdown.
+    wcag_ref: "WCAG 2.2 SC 2.4.7 (AA)"
+  - requirement: Estado nunca só por cor — toggle mantém a posição do botão; item ativo do menu mantém a troca de cor do texto e ganha a barra.
+    wcag_ref: "WCAG 2.2 SC 1.4.1 (A)"
+  - requirement: Logo com texto alternativo igual ao product_name; cores do logo isentas de contraste (logotipo), mas a variante precisa ser visível no fundo do tema.
+    wcag_ref: "WCAG 2.2 SC 1.1.1 (A); exceção de logotipo do SC 1.4.3"
+  - requirement: Título da página com o nome do produto.
+    wcag_ref: "WCAG 2.2 SC 2.4.2 (A)"
+  - requirement: Idioma da página pt-BR com locale_default pt-br (legado grava lang="pt" em i18n.coffee:182; Vue grava o locale completo em locale.ts:83).
+    wcag_ref: "WCAG 2.2 SC 3.1.1 (A)"
+
+visual_tokens:
+  nota_precedencia: >-
+    A interface do Zammad é o contrato visual (UI-LRI-2). O padrão ui-lr (azul #0b57d0, cinco botões etc.)
+    não se aplica aqui: só troca de cor de destaque, logo, nome e idioma. Nenhuma cor além da paleta fixada
+    pelo PM, salvo quatro derivadas (tintas de #74b527), cada uma com o motivo.
+
+  paleta:
+    lri_primaria: "#74b527"          # destaque no ESCURO (texto, foco, barra); como fundo, só com texto preto
+    lri_secundaria: "#3d7a12"        # destaque no CLARO (texto, foco) e FUNDO com texto branco nos dois temas
+    lri_secundaria_escura: "#2c5a0d" # hover e ativo de fundo com texto branco; hover de link no claro
+    ird_primaria: "#e46e33"          # SOMENTE dentro do logo IRD.Net
+    ird_apoio: "#000000"             # SOMENTE dentro do logo IRD.Net (claro); vira branco na variante escura
+    derivadas:
+      verde_tinta_30: { valor: "#d5e9be", origem: "#74b527 a 30% sobre branco", uso: "hover leve no Vue claro (papel do blue-600)", motivo: "fundo claro com texto preto, 16,2:1" }
+      verde_tinta_15: { valor: "#eaf4df", origem: "#74b527 a 15% sobre branco", uso: "--background-highlight claro e autocomplete visível", motivo: "texto normal #585856 sobre ele, 6,32:1" }
+      verde_tinta_texto: { valor: "#eef6e5", origem: "#74b527 a 12% sobre branco", uso: "--text-muted-highlight (texto pequeno em item selecionado)", motivo: "4,75:1 sobre #3d7a12" }
+      verde_claro_escuro: { valor: "#9ecb68", origem: "#74b527 com 30% de branco", uso: "link em popover escuro e hover de link no escuro", motivo: "#74b527 dá 3,44:1 no popover escuro #4a4c4f; #9ecb68 dá 4,59:1" }
+
+  papel_do_laranja_ird: >-
+    O laranja #e46e33 aparece SOMENTE no logo IRD.Net, dentro do logo composto. Não entra em botão, link,
+    foco nem seleção. Razões: (1) instância única com identidade Grupo LRI e CSS que não sabe por qual
+    endereço o usuário entrou; duas cores de ação concorrendo quebram "uma cor de ação"; (2) o Zammad já usa
+    laranja COM SIGNIFICADO: --bad-color hsl(30,93%,50%) e --superbad-color hsl(19,90%,51%) em prioridade e
+    escalonamento, --border-internal hsl(18,91%,89%) na nota interna e red-300/red-400 alaranjados no Vue;
+    laranja de marca seria lido como alerta ou nota interna; (3) contraste: texto laranja sobre branco e texto
+    branco sobre laranja ficam em 3,19:1, abaixo de 4,5:1. A IRD.Net fica representada pelo logo, pelo grupo
+    escolhido na abertura do chamado e pela categoria da KB.
+
+  fundos_de_referencia:
+    legado_claro: { cartao_conteudo: "#ffffff (--background-secondary)", pagina: "#f9fafb (--background-primary)", menu: "#25262c (--background-quaternary)", menu_2_e_fundo_login: "#2c2d35 (--background-tertiary)" }
+    legado_escuro: { pagina: "#2e2f33", cartao: "#38393e", tertiary: "#28292e", quaternary: "#1f2023", popover: "#4a4c4f" }
+    vue_desktop: { claro: "#ffffff, #fafafa (neutral-50), #edf1f2 (blue-200, superfície que não muda)", escuro: "#323234 (gray-500), #262627 (gray-700), #202021 (gray-900)" }
+    vue_mobile: { unico_tema_escuro: "#191919 (black), #282829 (gray-500)" }
+    kb: { claro: "#ffffff, #f9fafb (cabeçalho padrão)" }
+
+  razoes_de_contraste_conferidas:
+    metodo: "fórmula WCAG 2.x (luminância relativa sRGB), script próprio; a tabela do PLANO §3 confere em todos os valores (diferença máxima 0,01)"
+    c74b527: { sobre_ffffff: 2.51, sobre_f9fafb: 2.40, sobre_25262c: 6.00, sobre_2e2f33: 5.35, sobre_38393e: 4.62, sobre_4a4c4f: 3.44, sobre_323234: 5.11, sobre_202021: 6.50, sobre_191919: 7.02, branco_sobre: 2.51, preto_sobre: 8.38 }
+    c3d7a12: { sobre_ffffff: 5.26, sobre_f9fafb: 5.03, sobre_25262c: 2.86, sobre_2c2d35: 2.60, sobre_2e2f33: 2.55, sobre_38393e: 2.20, sobre_323234: 2.43, sobre_202021: 3.09, branco_sobre: 5.26, preto_sobre: 3.99 }
+    c2c5a0d: { sobre_ffffff: 8.15, sobre_f9fafb: 7.80, sobre_38393e: 1.42, sobre_202021: 2.00, branco_sobre: 8.15, preto_sobre: 2.58 }
+    ce46e33: { sobre_ffffff: 3.19, sobre_f9fafb: 3.05, sobre_38393e: 3.62, sobre_323234: 4.01, sobre_202021: 5.10, branco_sobre: 3.19, preto_sobre: 6.58 }
+    derivadas: { c9ecb68_sobre_4a4c4f: 4.59, c9ecb68_sobre_38393e: 6.18, ceef6e5_sobre_3d7a12: 4.75, c585856_sobre_eaf4df: 6.32, preto_sobre_d5e9be: 16.23, c3a502e_texto_escuro: 6.43 }
+    upstream_para_comparacao: { branco_sobre_primario_legado_429ed7: 2.97, branco_sobre_highlight_3da8f5: 2.58, link_legado_2492db_sobre_branco: 3.39, branco_sobre_vue_blue800_23a2cd: 2.95, menu_ativo_429ed7_contra_25262c: 5.07 }
+    impossibilidade_registrada: >-
+      Nenhum verde serve ao mesmo tempo como fundo com texto branco (luminância até 0,183) e como texto ou foco
+      no escuro sobre #323234/#38393e (luminância a partir de 0,196 para 3:1 e 0,318 para 4,5:1). Por isso os
+      papéis "fundo" e "texto/foco" se separam no tema escuro, e o mobile (só escuro) usa #74b527 com texto preto.
+
+  legado:
+    onde: "app/assets/stylesheets/custom/lri-*.css — application.css carrega require_tree ./custom/ depois de zammad, então :root e [data-theme=dark] com a mesma especificidade vencem por ordem"
+    variaveis:
+      button_primary_background:        { var: "--button-primary-background", arquivo: "zammad.scss:20", claro: "#3d7a12", escuro: "#3d7a12", papel: "fundo do .btn--primary (874), aba ativa da barra lateral (9076, 9181, 9237), ícone do checklist (7784); alimenta --menu-background-active e --text-button-primary", contraste: "branco sobre 5,26" }
+      button_primary_background_active: { var: "--button-primary-background-active", arquivo: "zammad.scss:21", claro: "#2c5a0d", escuro: "#2c5a0d", papel: "hover e ativo do primário (877), item de menu ativo (4812)", contraste: "branco sobre 8,15" }
+      text_button_primary:              { var: "--text-button-primary", arquivo: "zammad.scss:32", claro: "#3d7a12", escuro: "#74b527", papel: ".btn--text (940)", contraste: "claro 5,26; escuro 4,62 sobre #38393e", nota: "no escuro declarar explicitamente; senão herda #3d7a12 e dá 2,20" }
+      text_button_primary_active:       { var: "--text-button-primary-active", arquivo: "zammad.scss:33", claro: "#2c5a0d", escuro: "#9ecb68" }
+      text_link:                        { var: "--text-link", arquivo: "zammad.scss:28 e 132", claro: "#3d7a12", escuro: "#74b527", papel: "a e .u-highlight (332, 353), rótulos colapsáveis (2332), busca (3047), 16157", contraste: "claro 5,26 e 5,03; escuro 5,35 e 4,62" }
+      text_nav:                         { var: "--text-nav", arquivo: "zammad.scss:31", claro: "#3d7a12", escuro: "manter upstream hsl(205,1%,84%)", papel: "nav-pills (6026), dropdown claro (10310)" }
+      highlight:                        { var: "--highlight", arquivo: "zammad.scss:36 e 135", claro: "#3d7a12", escuro: "#3d7a12", papel: "FUNDO com texto branco em 14 usos (1496, 5560, 8314, 9820, 9932, 10386, 12259 toggle, 12712, 12820, 12835, 12895, 14718, 14927) e TEXTO em 6 usos (ver azuis_por_seletor)", contraste: "branco sobre 5,26" }
+      background_active:                { var: "--background-active", arquivo: "zammad.scss:50 e 149", claro: "manter upstream", escuro: "var(--highlight) = #3d7a12 (upstream já referencia)" }
+      menu_background_active:           { var: "--menu-background-active", arquivo: "zammad.scss:101", valor: "var(--button-primary-background) = #3d7a12, sem redeclarar", papel: "item ativo e hover do menu (4799), aba de tarefa ativa (5042), item hover de dropdown com --text-inverted (10436)", contraste: "branco sobre 5,26; contra o menu 2,86, por isso a barra inset #74b527 (C5)" }
+      border_highlight:                 { var: "--border-highlight", arquivo: "zammad.scss:65 e 164", claro: "#3d7a12", escuro: "#74b527", papel: "borda de campo em foco (2785) e mais 16 usos", contraste: "claro 5,26; escuro 4,62 a 6,52" }
+      shadow_highlight:                 { var: "--shadow-highlight", arquivo: "zammad.scss:70 e 169", claro: "#3d7a12", escuro: "#74b527", papel: "anel de foco de 3 px em .btn (750), campos (2786), tokenfield (2639), toggle (12254)", contraste: "claro 5,26; escuro 4,62 ou mais", nota: "upstream claro hsl(201,62%,90%) dava cerca de 1,3:1; o foco passa a cumprir 1.4.11" }
+      text_muted_highlight:             { var: "--text-muted-highlight", arquivo: "zammad.scss:26", valor: "#eef6e5", papel: "texto small em item ativo de dropdown (10354)", contraste: "4,75 sobre #3d7a12" }
+      background_highlight:             { var: "--background-highlight", arquivo: "zammad.scss:51 e 150", claro: "#eaf4df", escuro: "#3a502e (#3d7a12 a 35% sobre #38393e)", papel: "item do batch-dragger (14664)", contraste: "texto normal 6,32 claro; 6,43 escuro" }
+      menu_text_active:                 { var: "--menu-text-active", arquivo: "zammad.scss:97", valor: "manter #ffffff" }
+    nao_alterar: [ "--supergood-color", "--good-color", "--ok-color", "--bad-color", "--superbad-color", "--danger-color", "--border-internal e --border-internal-stripe", "--highlighter-*", "$low-priority-color (zammad.scss:5)", "--ai-assist-*", "--backdrop-clue-* (sem uso)", "botão de login do Twitter #2daee1 (zammad.scss:4009, marca de terceiro)" ]
+    azuis_por_seletor:
+      - { seletor: ".label-highlight, .state-internal", linha: "zammad.scss:2110, 2135", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".primary-email-switch:checked + label", linha: "zammad.scss:2834", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".controls-button.is-active .icon (fill)", linha: "zammad.scss:2908", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".list-item-insert:hover .icon (fill)", linha: "zammad.scss:9374", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: "[data-state=internal] no seletor de visibilidade do artigo", linha: "zammad.scss:15470", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".dropArea (texto e borda)", linha: "zammad.scss:8152", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".bubble-menu-item .icon-highlight", linha: "zammad.scss:8448", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".attachmentUpload-progressBar", linha: "zammad.scss:8804", claro: "#3d7a12", escuro: "#74b527" }
+      - { seletor: ".switchBackToUser (fundo e borda inferior)", linha: "zammad.scss:10024, 10030", valor: "fundo #3d7a12, borda #74b527, texto branco 5,26" }
+      - { seletor: ".searchableSelect-autocomplete-visible (fundo)", linha: "zammad.scss:12923", valor: "#eaf4df" }
+      - { seletor: "datepicker .focused (inset) e .active (fundo)", linha: "zammad.scss:13212-13219", valor: "#3d7a12, texto branco 5,26" }
+      - { seletor: ".menu-item.is-active, .menu-item.is-hovered, .nav-tab.is-active", linha: "zammad.scss:4797, 5039", valor: "acrescentar box-shadow inset 3px 0 0 #74b527 (em RTL, -3px)" }
+      - { seletor: "[data-theme=dark] .popover a", linha: "nova regra no custom", valor: "#9ecb68 (4,59 sobre #4a4c4f)" }
+
+  vue_desktop:
+    onde: "app/frontend/apps/desktop/styles/custom/lri-*.css, sem @layer (README da pasta); tokens.css não é editado"
+    prioridade: "baixa — UI BETA desligada por padrão (ui_desktop_beta_switch=false em seeds/settings.rb:6464); aplica-se para não haver azul se o beta for ligado"
+    mecanismo: "redefinir --color-blue-* em :root e em [data-theme=dark]"
+    tokens:
+      blue_600: { var: "--color-blue-600", arquivo: "desktop/styles/tokens.css:49", claro: "#d5e9be", papel: "hover leve com text-contrast (variante subtle, CommonSelectItem, CommonPopoverMenu) e outline de hover" }
+      blue_700: { var: "--color-blue-700", arquivo: "tokens.css:50", valor: "#74b527", papel: "listras (main.css:563, 578)" }
+      blue_800: { var: "--color-blue-800", arquivo: "tokens.css:51", claro: "#3d7a12", escuro: "#3d7a12", papel: "primário (CommonButton.vue:38), seleção bg-blue-800 com text-white em 34 arquivos, link e text-blue-800, outline de foco", contraste: "branco sobre 5,26" }
+      blue_850: { var: "--color-blue-850", arquivo: "tokens.css:52", valor: "#2c5a0d", papel: "hover de link e do botão secundário (8,15 sobre branco)" }
+      blue_900: { var: "--color-blue-900", arquivo: "tokens.css:54", valor: "#2c5a0d", papel: "hover e subtle no escuro com texto branco (8,15)" }
+    nao_alterar: [ "--color-blue-50 a 550 (superfícies azuladas neutras; blue-200 é fundo de tooltip)", "--color-blue-875 e 950", "--gradient-ai", "highlighters de main.css:433-523", "verde, amarelo, vermelho, rosa (semânticos)" ]
+    sobrescritas_no_escuro:
+      - "Texto em cor de destaque (a em main.css:70; text-blue-800 em link e botão secundário, CommonButton.vue:95) para #74b527 (5,11 sobre #323234; 6,50 sobre #202021); hover #9ecb68."
+      - "Outline de foco (focus-visible:outline-blue-800 em CommonButton.vue:166, main.css:70 e utilidade focus-visible-app-default em main.css:869) para #74b527."
+      - "Restrição: a sobrescrita de texto não pode alcançar elemento com fundo bg-blue-800 e texto branco (item de navegação ativo em navigationItemClasses.ts:10, menus, linhas). O UX-B confere."
+
+  vue_mobile:
+    onde: "app/frontend/apps/mobile/styles/custom/lri-*.css; o app só tem tema escuro (AppMobile.vue:124 bg-black #191919)"
+    tokens:
+      blue:           { var: "--color-blue", arquivo: "mobile/styles/tokens.css:24", valor: "#74b527", papel: "text-blue (27 usos) e bg-blue (17)", contraste: "7,02 sobre #191919; 5,88 sobre #282829; preto sobre 8,38" }
+      blue_dark:      { var: "--color-blue-dark", arquivo: "tokens.css:25", valor: "#2c5a0d", papel: "listras do artigo (ArticleBubble.vue:354)" }
+      blue_highlight: { var: "--color-blue-highlight", arquivo: "tokens.css:26", valor: "#74b5271a", papel: "fundo de foco em listas" }
+    sobrescritas:
+      - "Botão primário (CommonButton.vue:24 bg-blue com text-white; formkit-variant-primary em getCoreMobileClasses.ts:16): texto #000000 (8,38). Branco daria 2,51."
+      - "Checkbox marcado (getCoreMobileClasses.ts:61, checked:bg-blue): marca de seleção preta (3:1 de componente)."
+      - "Botão do menu de tabela do editor (form/index.ts:87, bg-blue/80 com text-white): ícone preto."
+
+  kb_publica:
+    onde: "configurações da KB no Admin, gravadas pelo provisionamento em contrib/lri/; o _inline_stylesheet.html.erb aplica"
+    color_highlight: "#3d7a12"    # links, ícones de categoria, tag com texto branco
+    color_header: "#f9fafb"       # padrão mantido
+    color_header_link: "#3d7a12"  # o padrão hsl(206,8%,50%) dá 3,82:1; sobe para 5,03:1
+    css_custom: "app/assets/stylesheets/custom_knowledge_base_public/lri-kb.css: só a troca da imagem do logo do cabeçalho (.header .logo img) para a variante horizontal; altura 2em mantida (knowledge_base.scss:287). A presença de qualquer .css na pasta liga knowledge_base_custom.css (initializer knowledge_base_custom_css_presence.rb)."
+    observacao: "$highlight-color (knowledge_base.scss:1) só aparece em :906, que o inline stylesheet já sobrescreve."
+
+  logos:
+    destino: "public/assets/lri/ (fontes em docs/lri/brand-assets/)"
+    regras_de_geracao:
+      - "Não redesenhar: só recorte de viewBox, cor de preenchimento e composição."
+      - "SVG sem script, sem href externo, sem foreignObject; raster só embutido como data:image/png;base64 (ponto para o security-A)."
+      - "LRI: área útil medida nos paths do original = x 233 a 767, y 251 a 524 (534 x 273, cerca de 1,96:1); viewBox recortado com 4% de respiro."
+    variantes:
+      - { arquivo: "lri-logo-claro.svg", base: "lri-logo.svg", fill: "#3d7a12", uso: "fundo claro, compõe o logo composto claro", motivo: "mesmo verde do destaque no claro; 5,26 sobre branco, firme a 32 px de altura" }
+      - { arquivo: "lri-logo-escuro.svg", base: "lri-logo.svg", fill: "#74b527", uso: "fundo escuro", motivo: "verde primário da marca; 4,62 a 7,02 sobre os fundos escuros" }
+      - { arquivo: "ird-logo-escuro.png", base: "ird-logo.png 874 x 246", tratamento: "preto vira #ffffff, laranja mantido, fundo transparente", uso: "fundo escuro", motivo: "o preto do logo dá 1,64 a 1,81 sobre fundo escuro" }
+      - { arquivo: "grupo-lri-logo.svg", uso: "setting product_logo (tema claro)", composicao: "empilhado, viewBox 400 x 200 (2:1): LRI claro centrado em cima, 176 x 90; respiro de 20; IRD.Net original centrado embaixo, 320 x 90", tamanho_exibido: "legado .login .company-logo máx. 200 x 100 (zammad.scss:3644) e prévia Admin > Marca 200 x 100 (zammad.scss:11216) = 200 x 100; Vue CommonLogo max-h-32 max-w-56 (128 x 224) = 224 x 112", por_que_svg: "o servidor redimensiona raster para caber em 200 x 100 (product_logo.rb, FIT 200 x 100) e perde nitidez em 2x; SVG é guardado sem redimensionar (store_logo)" }
+      - { arquivo: "grupo-lri-logo-escuro.svg", uso: "troca por CSS no escuro: legado [data-theme=dark] .login .company-logo e .branding .logo-preview; Vue desktop [data-theme=dark] [data-zammad-target=CommonLogo]; mobile [data-zammad-target=CommonLogo] sempre", composicao: "igual ao claro, com lri-logo-escuro e ird-logo-escuro" }
+      - { arquivo: "grupo-lri-logo-horizontal.svg", uso: "cabeçalho da KB (fundo #f9fafb)", composicao: "LRI claro, fio vertical de 1 px #b7b7b7, IRD.Net original; mesma altura 64, espaçamento 24; viewBox cerca de 402 x 64 (6,3:1), exibido 201 x 32 a 2em" }
+    alt_text: "vem de product_name (Central de Atendimento Grupo LRI); não escrever texto no arquivo"
+    favicon: >-
+      FORA DO SLICE. O legado não declara link rel=icon (o navegador busca /favicon.ico); desktop.html.erb:8 e
+      mobile.html.erb:9 apontam para /favicon.ico e /apple-touch-icon.png, arquivos versionados do upstream em
+      public/. Trocar é editar núcleo. Caminhos a decidir: (a) o proxy reverso da fase 5 serve /favicon.ico e
+      /apple-touch-icon.png a partir de /assets/lri/; (b) alteração de núcleo registrada em
+      DIFERENCAS-UPSTREAM.md. Depende também do símbolo quadrado de 512 px (lacuna do PLANO).
+
+  pt_br:
+    settings:
+      locale_default: "pt-br"               # padrão upstream en-us (seeds/settings.rb)
+      timezone_default: "America/Sao_Paulo"
+      product_name: "Central de Atendimento Grupo LRI"
+      organization: "Grupo LRI"             # aparece no app e no rodapé dos e-mails (área System::Branding)
+    textos_com_atencao:
+      - { msgid: "Join %s", hoje: "Participe do %s", problema: "com o nome do produto vira 'Participe do Central de Atendimento...' (gênero errado); sugerir upstream 'Cadastre-se em %s'", onde: "signup.jst.eco:4, Signup.vue:50" }
+      - { msgid: "Ticket, New Ticket, My Tickets", hoje: "Ticket, Novo ticket, Meus tickets", problema: "o PLANO e a comunicação do grupo dizem 'chamado'; o portal diz 'ticket' (ver questões)" }
+      - { msgid: "Username / email", hoje: "Usuário / email", problema: "grafia pt-BR é 'e-mail'" }
+      - { msgid: "Zammad Helpdesk", hoje: "Zammad Helpdesk", problema: "aparece se product_name não for configurado; o provisionamento precisa configurar" }
+      - { msgid: "Zammad is currently in maintenance mode...", hoje: "sem tradução encontrada no .po pt-BR (busca exata de msgid de uma linha)", problema: "cita 'Zammad' ao cliente; usar a mensagem de manutenção configurável quando houver janela" }
+      - { msgid: "How can we help you? Search for an answer or a topic…", hoje: "Como podemos te ajudar? Procure uma resposta ou um tópico…", problema: "tom informal; aceitável, registrar para consistência" }
+      - { msgid: "Powered by", hoje: "Desenvolvido por", problema: "o rodapé 'Desenvolvido por Zammad' do login (login.jst.eco:123-125) permanece; é atribuição do projeto" }
+
+  fora_de_escopo:
+    - "Favicon e apple-touch-icon (núcleo ou proxy), ver logos.favicon."
+    - "Ícone do Zammad no topo do menu do legado (.search .logo .icon-logo, botão do fluxo de atividades) e LeftSidebarHeader.vue:55 do Vue: vêm do sprite do núcleo."
+    - "Rodapé 'Desenvolvido por Zammad' do login."
+    - "Templates e assinaturas de e-mail (fase 2)."
+    - "Superfícies azuladas neutras do Vue (blue-50 a 550) e cores semânticas (prioridade, escalonamento, nota interna, erro, sucesso)."
+    - "Redesign, componente novo, mudança de layout ou de fluxo (UI-LRI-2)."
+    - "Cor por hostname."
+    - "Edição de i18n/*.po (UI-LRI-4)."
+    - "Símbolo quadrado de 512 px e regras de uso do logo (lacunas do PLANO)."
+    - "SVG oficial da IRD.Net (pedido à IRD.Net; até lá, PNG embutido)."
+
+  questoes_abertas:
+    - { severidade: high, questao: "O CLAUDE.md do repo não tem a seção '## Invariantes do projeto (INV-1)' e não existe .esteira/profile.yaml. Pela regra da esteira o artefato não deve seguir sem ela. A fronteira hoje está no PLANO §3 (UI-LRI-2 e 3) e §4; criar a seção, ou apontar invariants_doc para docs/lri/PLANO.md, antes do register." }
+    - { severidade: med, questao: "Barra inset #74b527 no item ativo do menu (C5): é só cor, sem mudar layout, mas é um traço visual novo. Necessária para manter 3:1 no estado ativo (2,86 sem ela). O PM confirma?" }
+    - { severidade: med, questao: "Terminologia: 'chamado' (PLANO) ou 'ticket' (tradução oficial pt-BR). Mudar exige contribuição em translations.zammad.org, ou aceitar 'ticket' na UI." }
+    - { severidade: low, questao: "Cor do LRI no logo claro: escolhido #3d7a12, coerente com o destaque. O verde primário #74b527 também é permitido (logotipo é isento de contraste), mas fica fraco a 32 px na KB." }
+
+acceptance_visuals:
+  ambiente: "Playwright headless, viewport 1440 x 900, deviceScaleFactor 1; tema forçado por document.documentElement.dataset.theme = light ou dark (legado e Vue) e emulateMedia colorScheme. Dados: 1 cliente com 3 chamados (aberto, pendente, fechado), 1 agente, KB com categorias LRI e IRD.Net e 1 artigo em cada. Locale pt-br."
+  antes_e_depois: "Capturar as mesmas telas no commit base (aad8867cd2) e no diff e anexar o par."
+  telas:
+    - id: V1-login
+      url: "/#login (legado), claro e escuro"
+      verdade:
+        - "Logo composto Grupo LRI dentro do cartão, máximo 200 x 100, sem distorção; no escuro a variante escura (nenhum preto sobre #38393e)."
+        - "Título da aba: Central de Atendimento Grupo LRI."
+        - "Botão Entrar com fundo #3d7a12 (rgb 61,122,18) e texto branco."
+        - "Rótulos em pt-BR (Usuário / email, Senha, Lembrar de mim, Esqueceu a senha?)."
+        - "Rede sem 404 em /assets/lri/* e em /api/v1/system_assets/product_logo/*."
+    - id: V2-foco-teclado
+      url: "/#login, claro e escuro, foco por Tab em usuário, senha, Entrar e Esqueceu a senha?"
+      verdade:
+        - "Borda e anel de foco #3d7a12 no claro e #74b527 no escuro em cada parada; recorte com zoom de 200% anexado."
+        - "Contraste medido do anel contra o fundo adjacente: 3:1 ou mais."
+    - id: V3-portal-lista-cliente
+      url: "/#ticket/view/my_tickets como cliente, claro e escuro"
+      verdade:
+        - "Nenhum azul de destaque residual: nenhum elemento visível com cor computada de matiz 195 a 215 e saturação acima de 40% (exceto avatares e as cores de visual_tokens.legado.nao_alterar)."
+        - "Item ativo do menu com fundo #3d7a12, texto branco e barra inset #74b527 à esquerda."
+        - "Links em #3d7a12 (claro) e #74b527 (escuro)."
+    - id: V4-portal-novo-chamado
+      url: "/#customer_ticket_new como cliente, claro"
+      verdade:
+        - "Campo em foco com borda e anel verdes; botão primário de envio verde com texto branco."
+        - "Seletor de grupo com grupos LRI e IRD.Net; item realçado do dropdown com fundo #3d7a12 e texto branco."
+    - id: V5-agente-dashboard
+      url: "/#dashboard como agente, claro e escuro"
+      verdade:
+        - "Menu lateral com item ativo verde e barra; abas de tarefa ativas (.nav-tab.is-active) verdes."
+        - "Nenhum azul de destaque residual (mesmo critério de V3)."
+    - id: V6-agente-chamado-aberto
+      url: "/#ticket/zoom/ID como agente, claro e escuro, com resposta em edição"
+      verdade:
+        - "Botão primário de atualizar verde com texto branco; hover #2c5a0d."
+        - "Botão de visibilidade interno ([data-state=internal]) verde; a nota interna mantém a borda alaranjada upstream."
+        - "Contador da barra lateral (tabsSidebar-tab-count--info) verde com texto branco."
+        - "No escuro, texto em cor de destaque (label-highlight, state-internal) em #74b527, não #3d7a12."
+    - id: V7-botao-primario-estados
+      url: "recortes do V6: default, hover, focus-visible e active, claro e escuro"
+      verdade:
+        - "Fundo e texto conforme C2; contraste do texto 4,5:1 ou mais, medido no recorte."
+    - id: V8-link-estados
+      url: "link Esqueceu a senha?, link em artigo e link dentro do popover de usuário (escuro)"
+      verdade:
+        - "Claro #3d7a12 (5,0:1 ou mais); escuro #74b527 (4,6:1 ou mais); dentro de popover escuro #9ecb68 (4,5:1 ou mais)."
+    - id: V9-kb-publica
+      url: "/help/pt-br e um artigo da categoria IRD.Net (só claro)"
+      verdade:
+        - "Cabeçalho com logo horizontal Grupo LRI a 32 px de altura, sem distorção; links do menu em #3d7a12."
+        - "Ícones de categoria e links do artigo em #3d7a12; tag com fundo #3d7a12 e texto branco."
+        - "Placeholder da busca em pt-BR."
+    - id: V10-admin-marca
+      url: "/#settings/branding como admin, claro"
+      verdade:
+        - "Nome do produto Central de Atendimento Grupo LRI; prévia do logo 200 x 100 com o composto; Organização Grupo LRI; idioma pt-BR e fuso America/Sao_Paulo em Sistema."
+    - id: V11-mobile
+      url: "/mobile/login e lista de chamados em /mobile como agente, viewport 390 x 844"
+      verdade:
+        - "Logo na variante escura; botão primário #74b527 com texto preto; links #74b527."
+    - id: V12-desktop-beta
+      url: "/desktop/login e /desktop/dashboard com ui_desktop_beta_switch ligado só no ambiente de teste, claro e escuro"
+      verdade:
+        - "Botão primário e item de navegação ativo em #3d7a12 com texto branco nos dois temas; link e foco #74b527 no escuro."
+        - "Logo na variante escura no tema escuro."
+  regua:
+    - "Texto abaixo de 4,5:1 nas telas capturadas: 0 nos pares que envolvem cor de marca (medir-tela.js ou axe color-contrast). Pares upstream sem cor de marca que já falham são listados e não bloqueiam."
+    - "Layout entre antes e depois: só cor e imagem do logo mudam; mesma caixa por elemento, tolerância de 1 px, exceto a imagem do logo."
+    - "Emoji como ícone e avisos de página simultâneos: inalterados."
+  so_se_prova_rodando:
+    - "Troca do logo por content: url no tema escuro em Chrome, Firefox e WebKit."
+    - "Ordem de cascata: custom/ depois de zammad.scss no build de produção (assets:precompile)."
+    - "Sobrescritas do Vue sem @layer vencendo as utilidades sem alcançar seleção bg-blue-800 com texto branco."
+    - "Logo SVG com PNG embutido aceito pelo upload de product_logo e servido como image/svg+xml."

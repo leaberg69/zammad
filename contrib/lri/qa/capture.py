@@ -54,8 +54,11 @@ PROBE = r"""
         blues.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 60), prop, color: cs[prop] });
     }
     const ownBg = parse(cs.backgroundColor);
-    if (ownBg && brand.includes(ownBg.join(',')) && !cs.boxShadow.includes('rgb(116, 181, 39)')) {
+    // Botões ficam de fora (identificados pelo rótulo; ux-spec v3, sem_mudanca_com_motivo); elemento dentro de
+    // superfície da mesma cor também (não há fronteira para medir).
+    if (ownBg && brand.includes(ownBg.join(',')) && !cs.boxShadow.includes('rgb(116, 181, 39)') && !el.closest('.btn')) {
       const around = bgOf(el.parentElement); const sr = ratio(ownBg, around);
+      if (around.join(',') === ownBg.join(',')) { skipped++; } else
       if (sr < 3) state.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 60), bg: cs.backgroundColor,
         vizinho: `rgb(${around.join(',')})`, ratio: +sr.toFixed(2) });
     }
@@ -66,7 +69,7 @@ PROBE = r"""
       if (isBrand && rr < (big ? 3 : 4.5)) low.push({ text: el.textContent.trim().slice(0, 40), fg: cs.color, bg: `rgb(${bg.join(',')})`, ratio: +rr.toFixed(2) }); }
   }
   return { blues: blues.slice(0, 40), blue_count: blues.length, low_contrast_brand: low.slice(0, 40), low_count: low.length,
-    state_low_contrast: state.slice(0, 40), state_low_count: state.length, text_sem_cor_parseavel: skipped };
+    state_low_contrast: state.slice(0, 40), state_low_count: state.length, ignorados_sem_medida: skipped };
 }
 """
 
@@ -146,8 +149,10 @@ with sync_playwright() as p:
         for th in ('light', 'dark'):
             try:
                 set_theme(pg, th)
-                pg.locator('[data-attribute-name=group_id] .js-input, [data-attribute-name=group_id] input:visible').first.click(timeout=5000)
+                pg.locator('[data-attribute-name=group_id] input.js-input').first.click(timeout=5000, force=True)
+                pg.wait_for_timeout(400)
                 pg.keyboard.press('ArrowDown')
+                pg.wait_for_timeout(300)
                 shot(pg, 'V4-grupo-aberto', th)
                 pg.keyboard.press('Escape')
             except Exception as exc:

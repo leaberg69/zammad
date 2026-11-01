@@ -19,11 +19,15 @@
 
 /*
  * Botão "Responder" do chamado: variante secundária com `!text-white formkit-variant-secondary:bg-blue`
- * (TicketDetailViewActions.vue). O utilitário usa !important, então a correção também precisa.
+ * (TicketDetailViewActions.vue). O utilitário usa !important DENTRO da camada `utilities` do Tailwind, e um
+ * !important em camada vence qualquer !important fora de camada; por isso esta regra entra na mesma camada, com
+ * especificidade maior (exceção ao README da pasta).
  */
-[data-variant='secondary'] .formkit-input.formkit-variant-secondary\:bg-blue,
-[data-variant='secondary'].formkit-input.formkit-variant-secondary\:bg-blue {
-  color: #000 !important;
+@layer utilities {
+  [data-variant='secondary'] .formkit-input.formkit-variant-secondary\:bg-blue,
+  [data-variant='secondary'].formkit-input.formkit-variant-secondary\:bg-blue {
+    color: #000 !important;
+  }
 }
 
 /* Botões só de ícone sobre o verde: rolar para baixo (bg-blue), menu de tabela do editor (bg-blue/80) e

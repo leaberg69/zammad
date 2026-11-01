@@ -1,0 +1,52 @@
+name: LRI
+
+# CI do código próprio do Grupo LRI no fork (branding, contrib/lri, docs/lri e a guarda de zona).
+# O CI completo do upstream (ci.yaml) fica desligado no fork; o docker-ci continua construindo a imagem.
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint do código LRI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Use Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Stylelint (CSS de branding)
+        run: >-
+          pnpm exec stylelint
+          'app/assets/stylesheets/custom/lri-*.css'
+          'app/assets/stylesheets/custom_knowledge_base_public/lri-*.css'
+          'app/frontend/apps/desktop/styles/custom/lri-*.css'
+          'app/frontend/apps/mobile/styles/custom/lri-*.css'
+      - name: Markdownlint (docs/lri)
+        run: pnpm exec markdownlint-cli2 'docs/lri/**/*.md'
+      - name: Use Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Logos gerados batem com as fontes
+        run: |
+          python contrib/lri/branding/gerar_logos.py
+          if ! git diff --exit-code -- public/assets/lri; then
+            echo "::error::public/assets/lri difere do que gerar_logos.py produz a partir de docs/lri/brand-assets. Rode o gerador e commite."
+            exit 1
+          fi
+      - name: Scripts Python compilam
+        run: python -m py_compile contrib/lri/qa/capture.py contrib/lri/branding/gerar_logos.py

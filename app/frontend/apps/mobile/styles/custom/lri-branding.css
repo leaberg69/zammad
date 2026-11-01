@@ -10,10 +10,14 @@
   --color-blue-highlight: #74b5271a;
 }
 
-/* Botão primário (CommonButton: bg-blue + text-white) e variante primária do FormKit. */
+/*
+ * Botão primário (CommonButton: bg-blue + text-white) e variante primária do FormKit — só quando o fundo é de fato o
+ * verde: botões primários com fundo próprio (ex.: "Carregar mais", formkit-variant-primary:bg-gray-500) ficam com o
+ * texto branco do upstream.
+ */
 .bg-blue.text-white,
-[data-variant='primary'] .formkit-input,
-[data-variant='primary'].formkit-input {
+[data-variant='primary'] .formkit-input.formkit-variant-primary\:bg-blue:not([class*='primary:bg-gray'], [class*='primary:bg-red'], [class*='primary:bg-yellow'], [class*='primary:bg-transparent']),
+[data-variant='primary'].formkit-input.formkit-variant-primary\:bg-blue:not([class*='primary:bg-gray'], [class*='primary:bg-red'], [class*='primary:bg-yellow'], [class*='primary:bg-transparent']) {
   color: #000;
 }
 

@@ -39,16 +39,26 @@
 }
 
 @layer utilities {
-  /* :not(:hover) preserva os hovers do upstream (hover:text-blue-850, dark:hover:text-blue-600). */
-  [data-theme='dark'] .text-blue-800:not(:hover),
-  [data-theme='dark'] .dark\:text-blue-800:not(:hover) {
+  [data-theme='dark'] .text-blue-800,
+  [data-theme='dark'] .dark\:text-blue-800 {
     color: #74b527;
   }
 
+  /* Hover no escuro: verde mais claro (#9ecb68), também nos elementos sem cor de hover própria. */
+  [data-theme='dark'] .text-blue-800:hover,
+  [data-theme='dark'] .dark\:text-blue-800:hover {
+    color: #9ecb68;
+  }
+
   /* Variante com ! do Tailwind v4 (classe `text-blue-800!`, com !important). */
-  [data-theme='dark'] .text-blue-800\!:not(:hover),
-  [data-theme='dark'] .dark\:text-blue-800\!:not(:hover) {
+  [data-theme='dark'] .text-blue-800\!,
+  [data-theme='dark'] .dark\:text-blue-800\! {
     color: #74b527 !important;
+  }
+
+  [data-theme='dark'] .text-blue-800\!:hover,
+  [data-theme='dark'] .dark\:text-blue-800\!:hover {
+    color: #9ecb68 !important;
   }
 
   [data-theme='dark'] .focus-visible\:outline-blue-800:focus-visible,

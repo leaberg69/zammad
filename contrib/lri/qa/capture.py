@@ -1,24 +1,30 @@
-"""Captura as telas de aceite da ux-spec de branding (docs/lri/esteira/branding/ux-spec-v1.yaml).
+"""Captura as telas de aceite da ux-spec de branding (docs/lri/esteira/branding/ux-spec-v*.yaml).
 
 Uso: python contrib/lri/qa/capture.py <url-base> <pasta-de-saida>
 
-Roda contra uma instância local do Zammad (nunca produção), com os usuários de teste do
-contrib/lri/qa/wizard.json. Gera PNG por tela e tema e um relatorio.json com, por tela:
-os azuis de destaque residuais (matiz 195-215, saturação > 40%) e os pares de contraste
-abaixo de 4,5:1 que envolvem as cores de marca. Qualquer falha de etapa entra no relatório
-com o motivo; nada é descartado em silêncio.
+Roda só contra instância LOCAL do Zammad (recusa outra URL), com os usuários de teste do
+contrib/lri/qa/wizard.json; a senha vem de LRI_QA_PASSWORD (padrão: a do wizard de teste).
+Gera PNG por tela e tema e um relatorio.json com, por tela: os azuis de destaque residuais
+(matiz 195-215, saturação > 40%), os textos com cor de marca abaixo de 4,5:1 (3:1 se grandes)
+e os fundos de estado em cor de marca abaixo de 3:1 contra o vizinho (WCAG 1.4.11; ignorado
+quando o elemento tem a barra inset #74b527). Qualquer falha de etapa entra no relatório com
+o motivo, e todo corte de lista registra o total; nada é descartado em silêncio.
 """
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1].rstrip('/')
+if not re.match(r'^http://(localhost|127\.0\.0\.1)(:\d+)?$', BASE):
+    sys.exit(f'capture.py recusado: {BASE!r} não é instância local (http://localhost ou http://127.0.0.1)')
 OUT = Path(sys.argv[2])
 OUT.mkdir(parents=True, exist_ok=True)
-SENHA = 'LriTeste#2026'
+SENHA = os.environ.get('LRI_QA_PASSWORD', 'LriTeste#2026')
 USERS = {
     'cliente': 'cliente1@cliente.example.com',
     'agente': 'agente@lri.example',
@@ -37,7 +43,7 @@ PROBE = r"""
   const ratio = (a, b) => { const la = lum(a), lb = lum(b); return (Math.max(la, lb)+0.05)/(Math.min(la, lb)+0.05); };
   const bgOf = (el) => { while (el) { const c = parse(getComputedStyle(el).backgroundColor); if (c) return c; el = el.parentElement; } return [255,255,255]; };
   const brand = ['116,181,39','61,122,18','44,90,13','158,203,104'];
-  const blues = [], low = [];
+  const blues = [], low = [], state = []; let skipped = 0;
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
     const cs = getComputedStyle(el); if (cs.visibility === 'hidden' || cs.display === 'none') continue;
@@ -47,13 +53,20 @@ PROBE = r"""
       const [h, s] = hsl(c); if (h >= 195 && h <= 215 && s > 40 && !el.closest('.avatar, [data-zammad-target=CommonAvatar]'))
         blues.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 60), prop, color: cs[prop] });
     }
+    const ownBg = parse(cs.backgroundColor);
+    if (ownBg && brand.includes(ownBg.join(',')) && !cs.boxShadow.includes('rgb(116, 181, 39)')) {
+      const around = bgOf(el.parentElement); const sr = ratio(ownBg, around);
+      if (sr < 3) state.push({ tag: el.tagName.toLowerCase(), cls: String(el.className).slice(0, 60), bg: cs.backgroundColor,
+        vizinho: `rgb(${around.join(',')})`, ratio: +sr.toFixed(2) });
+    }
     const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-    if (hasText) { const fg = parse(cs.color); if (!fg) continue; const bg = bgOf(el);
+    if (hasText) { const fg = parse(cs.color); if (!fg) { skipped++; continue; } const bg = bgOf(el);
       const isBrand = brand.includes(fg.join(',')) || brand.includes(bg.join(','));
       const rr = ratio(fg, bg); const big = parseFloat(cs.fontSize) >= 24 || (parseFloat(cs.fontSize) >= 18.66 && parseInt(cs.fontWeight) >= 700);
       if (isBrand && rr < (big ? 3 : 4.5)) low.push({ text: el.textContent.trim().slice(0, 40), fg: cs.color, bg: `rgb(${bg.join(',')})`, ratio: +rr.toFixed(2) }); }
   }
-  return { blues: blues.slice(0, 40), blue_count: blues.length, low_contrast_brand: low.slice(0, 40), low_count: low.length };
+  return { blues: blues.slice(0, 40), blue_count: blues.length, low_contrast_brand: low.slice(0, 40), low_count: low.length,
+    state_low_contrast: state.slice(0, 40), state_low_count: state.length, text_sem_cor_parseavel: skipped };
 }
 """
 
@@ -130,6 +143,15 @@ with sync_playwright() as p:
         go(pg, '#customer_ticket_new')
         pg.locator('input[name=title]').first.focus()
         shot(pg, 'V4-novo-chamado', 'light')
+        for th in ('light', 'dark'):
+            try:
+                set_theme(pg, th)
+                pg.locator('[data-attribute-name=group_id] .js-input, [data-attribute-name=group_id] input:visible').first.click(timeout=5000)
+                pg.keyboard.press('ArrowDown')
+                shot(pg, 'V4-grupo-aberto', th)
+                pg.keyboard.press('Escape')
+            except Exception as exc:
+                note(f'V4-grupo-aberto-{th}', erro=f'{type(exc).__name__}: {exc}'[:300])
     except Exception as exc:
         note('V3-V4', erro=f'{type(exc).__name__}: {exc}'[:300])
     c.close()
@@ -159,6 +181,7 @@ with sync_playwright() as p:
         legacy_login(pg, 'admin')
         go(pg, '#settings/branding')
         shot(pg, 'V10-admin-marca', 'light')
+        shot(pg, 'V10-admin-marca', 'dark')
     except Exception as exc:
         note('V10', erro=f'{type(exc).__name__}: {exc}'[:300])
     c.close()
@@ -174,6 +197,7 @@ with sync_playwright() as p:
 
     # V11 — mobile
     c = browser.new_context(viewport={'width': 390, 'height': 844}, locale='pt-BR', device_scale_factor=1)
+    c.on('page', lambda p_: p_.on('console', lambda m: errors.append(f'mobile: {m.text}') if m.type == 'error' else None))
     pg = c.new_page()
     try:
         pg.goto(f'{BASE}/mobile/login'); pg.wait_for_timeout(2500)
@@ -181,12 +205,14 @@ with sync_playwright() as p:
         pg.fill('input[name=login]', USERS['agente']); pg.fill('input[name=password]', SENHA)
         pg.keyboard.press('Enter'); pg.wait_for_timeout(3500)
         shot(pg, 'V11-mobile-inicio', 'dark')
+        pg.goto(f'{BASE}/mobile/tickets/2'); pg.wait_for_timeout(3500)
+        shot(pg, 'V11-mobile-chamado', 'dark')
     except Exception as exc:
         note('V11', erro=f'{type(exc).__name__}: {exc}'[:300])
     c.close()
 
-    note('meta', erros_console_e_rede=errors[:50])
+    note('meta', erros_console_e_rede=errors[:50], erros_total=len(errors))
     browser.close()
 
 (OUT / 'relatorio.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
-print(json.dumps({k: {kk: v for kk, v in d.items() if kk in ('blue_count', 'low_count', 'erro', 'titulo', 'chamados_visiveis')} for k, d in report.items()}, ensure_ascii=False, indent=1))
+print(json.dumps({k: {kk: v for kk, v in d.items() if kk in ('blue_count', 'low_count', 'state_low_count', 'erro', 'titulo', 'chamados_visiveis', 'erros_total')} for k, d in report.items()}, ensure_ascii=False, indent=1))

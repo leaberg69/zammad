@@ -39,15 +39,35 @@
 }
 
 @layer utilities {
-  [data-theme='dark'] .text-blue-800,
-  [data-theme='dark'] .dark\:text-blue-800 {
+  /* :not(:hover) preserva os hovers do upstream (hover:text-blue-850, dark:hover:text-blue-600). */
+  [data-theme='dark'] .text-blue-800:not(:hover),
+  [data-theme='dark'] .dark\:text-blue-800:not(:hover) {
     color: #74b527;
+  }
+
+  /* Variante com ! do Tailwind v4 (classe `text-blue-800!`, com !important). */
+  [data-theme='dark'] .text-blue-800\!:not(:hover),
+  [data-theme='dark'] .dark\:text-blue-800\!:not(:hover) {
+    color: #74b527 !important;
   }
 
   [data-theme='dark'] .focus-visible\:outline-blue-800:focus-visible,
   [data-theme='dark'] .focus-visible-app-default:focus-visible {
     outline-color: #74b527;
   }
+}
+
+/*
+ * Faixas de IA e de tradução (main.css: ai-stripe, animate-ai-stripe*, translation-stripe*) usam
+ * var(--color-blue-800) direto; a ux-spec manda manter as marcas de IA como estão, então o token volta ao azul
+ * do upstream só nesses elementos (a variável é herdada pelos pseudo-elementos).
+ */
+.ai-stripe,
+.animate-ai-stripe,
+.animate-ai-stripe-vertical,
+.translation-stripe,
+.translation-stripe-machine {
+  --color-blue-800: #23a2cd;
 }
 
 /* Logo da instância no tema escuro (a variante clara tem preto que some no fundo escuro). */

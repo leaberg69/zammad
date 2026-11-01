@@ -1,7 +1,7 @@
 /*
  * Branding Grupo LRI — app mobile (Vue, só tema escuro). Contrato: docs/lri/esteira/branding/ux-spec-v1.yaml
- * (visual_tokens.vue_mobile). Destaque #74b527 (7,02:1 sobre #191919); sobre ele, texto PRETO (8,38:1),
- * porque texto branco daria 2,51:1.
+ * (visual_tokens.vue_mobile). Destaque #74b527 (7,02:1 sobre #191919); sobre ele, texto e ícone PRETOS (8,38:1),
+ * porque branco daria 2,51:1.
  */
 
 :root {
@@ -17,13 +17,30 @@
   color: #000;
 }
 
-[data-variant='primary'] .formkit-input .icon,
-.bg-blue.text-white .icon {
+/*
+ * Botão "Responder" do chamado: variante secundária com `!text-white formkit-variant-secondary:bg-blue`
+ * (TicketDetailViewActions.vue). O utilitário usa !important, então a correção também precisa.
+ */
+[data-variant='secondary'] .formkit-input.formkit-variant-secondary\:bg-blue,
+[data-variant='secondary'].formkit-input.formkit-variant-secondary\:bg-blue {
+  color: #000 !important;
+}
+
+/* Botões só de ícone sobre o verde: rolar para baixo (bg-blue), menu de tabela do editor (bg-blue/80) e
+   ícones com fundo bg-blue (icon-bg). */
+.bg-blue:not(.text-black, .text-black-full),
+.bg-blue\/80 {
   color: #000;
 }
 
-/* Marca de seleção do checkbox marcado sobre o verde: preta para 3:1 de componente. */
-input[type='checkbox']:checked.checked\:bg-blue {
+.bg-blue .icon,
+.bg-blue\/80 .icon {
+  color: #000;
+}
+
+/* Checkbox marcado: o input é appearance-none e a marca de seleção é o decorator (elemento irmão). */
+[data-type='checkbox'][data-is-checked] .formkit-decorator,
+[data-is-checked] > .formkit-wrapper .formkit-decorator {
   color: #000;
 }
 

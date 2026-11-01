@@ -10,6 +10,7 @@ forma que quebre essas premissas.
 
 import re
 import sys
+import xml.etree.ElementTree as ET  # entrada: arquivos versionados do próprio repo
 from pathlib import Path
 from typing import NoReturn
 
@@ -56,7 +57,7 @@ def lri_body():
 
 def ird_body(dark):
     body = inner(read_source('ird-logo.svg'))
-    fills = set(re.findall(r'fill="(#[0-9a-fA-F]{6})"', body))
+    fills = set(re.findall(r'fill="([^"]*)"', body))
     if fills != {'#000000', '#e76e33'}:
         fail(f'ird-logo.svg com cores inesperadas: {sorted(fills)}')
     return body.replace('fill="#000000"', 'fill="#ffffff"') if dark else body
@@ -129,9 +130,34 @@ def standalone_lri(fill):
         '></svg>', f'><g fill="{fill}">{lri_body()}</g></svg>')
 
 
+ALLOWED_TAGS = {'svg', 'g', 'path', 'rect', 'polygon', 'circle', 'linearGradient', 'stop'}
+ALLOWED_ATTRS = {'xmlns', 'viewBox', 'width', 'height', 'x', 'y', 'preserveAspectRatio', 'role', 'aria-label', 'id',
+                 'd', 'points', 'cx', 'cy', 'r', 'fill', 'fill-rule', 'offset', 'gradientUnits', 'x1', 'y1', 'x2', 'y2',
+                 'style'}
+SAFE_PAINT = re.compile(r'^(#[0-9a-fA-F]{3,8}|none|url\(#[A-Za-z0-9_-]+\))$')
+SAFE_STYLE = re.compile(r'^((fill|stop-color):(#[0-9a-fA-F]{3,8}|url\(#[A-Za-z0-9_-]+\));?)+$')
+
+
 def check(name, text):
-    if FORBIDDEN.search(text) or '<style' in text:
-        fail(f'{name} gerado com conteúdo proibido')
+    """Lista positiva: só formas, gradientes e cores; url() só para #id local. Falha com o motivo."""
+    if '<!' in text:  # DOCTYPE/ENTITY ou CDATA não têm uso num logo; recusa antes do parse
+        fail(f'{name} gerado contém declaração <!...>')
+    try:
+        tree = ET.fromstring(text)
+    except ET.ParseError as exc:
+        fail(f'{name} gerado não é XML válido: {exc}')
+    for el in tree.iter():
+        tag = el.tag.split('}')[-1]
+        if tag not in ALLOWED_TAGS:
+            fail(f'{name}: elemento <{tag}> fora da lista permitida')
+        for attr, value in el.attrib.items():
+            local = attr.split('}')[-1]
+            if local not in ALLOWED_ATTRS:
+                fail(f'{name}: atributo {local!r} em <{tag}> fora da lista permitida')
+            if local == 'fill' and not SAFE_PAINT.match(value):
+                fail(f'{name}: fill={value!r} em <{tag}> não é cor nem url(#id)')
+            if local == 'style' and not SAFE_STYLE.match(value.replace(' ', '')):
+                fail(f'{name}: style={value!r} em <{tag}> fora do permitido (só fill e stop-color)')
 
 
 def main():
@@ -150,8 +176,9 @@ def main():
     for stale in OUT.iterdir():
         if stale.name not in expected:
             print(f'atenção: {stale.name} em {OUT} não é gerado por este script (v1?); remova-o se não for mais usado')
-    for name, text in files.items():
+    for name, text in files.items():  # valida tudo antes de gravar qualquer arquivo
         check(name, text)
+    for name, text in files.items():
         (OUT / name).write_text(text, encoding='utf-8', newline='\n')
         print(f'{name}: {len(text.encode())} bytes')
 

@@ -2,7 +2,8 @@
 
 """Renderiza a stack oficial com contrib/lri/deploy/docker-compose.lri.yml e confere as regras do go-live.
 
-Uso: python3 check_compose_overlay.py <docker-compose.yml oficial> <overlay>
+Uso: python3 check_compose_overlay.py <docker-compose.yml oficial> <overlay> [--image <imagem construída>]
+Com --image, a checagem de tag roda dentro da imagem e o entrypoint do Nginx do overlay tem de existir nela.
 Cada regra violada é listada com o serviço e o motivo; o código de saída é o número de violações.
 """
 
@@ -46,7 +47,18 @@ GOOD_TAGS = ["develop-" + "a1" * 20, "1.2.3", "7.3.0-rc.1"]
 BAD_TAGS = ["latest", "develop", "develop-abc1234", "1.2", "v1.2.3", "1.2.3-", "01.2.3", "1.2.3; true"]
 
 
-def check_tag_command(service):
+def run_shell(script, env, image):
+    """sh -c no runner ou, com image, dentro da imagem (o mesmo shell que o compose usará)."""
+    if image:
+        args = ["docker", "run", "--rm", "--network", "none", "--entrypoint", "/bin/sh"]
+        for key, value in env.items():
+            args += ["-e", f"{key}={value}"]
+        return subprocess.run([*args, image, "-c", script], capture_output=True, text=True, check=False)
+    return subprocess.run(["sh", "-c", script], env={"PATH": os.environ["PATH"], **env},
+                          capture_output=True, text=True, check=False)
+
+
+def check_tag_command(service, image=None):
     """Executa o comando real do lri-config-check contra tags válidas e inválidas."""
     command = service.get("command") or []
     if service.get("entrypoint") != ["/bin/sh", "-c"] or len(command) != 1:
@@ -55,8 +67,7 @@ def check_tag_command(service):
     script = command[0].replace("$$", "$")
     problems = []
     for tag, should_pass in [(t, True) for t in GOOD_TAGS] + [(t, False) for t in BAD_TAGS]:
-        result = subprocess.run(["sh", "-c", script], env={"PATH": os.environ["PATH"], "LRI_IMAGE_TAG": tag},
-                                capture_output=True, text=True, check=False)
+        result = run_shell(script, {"LRI_IMAGE_TAG": tag}, image)
         if (result.returncode == 0) != should_pass:
             problems.append(f"lri-config-check: tag {tag!r} {'recusada' if should_pass else 'aceita'} indevidamente")
         if not should_pass and "recusada" not in result.stderr:
@@ -64,7 +75,16 @@ def check_tag_command(service):
     return problems
 
 
-def check(config):
+def check_image(services, image):
+    """O entrypoint do Nginx usado pelo overlay tem de existir e ser executável na imagem construída."""
+    entrypoint = (services.get("zammad-nginx", {}).get("entrypoint") or [""])[0]
+    result = run_shell(f'test -x "{entrypoint}"', {}, image)
+    if not entrypoint or result.returncode != 0:
+        return [f"zammad-nginx: entrypoint {entrypoint!r} ausente ou não executável na imagem {image}"]
+    return []
+
+
+def check(config, image=None):
     problems = []
     services = config["services"]
 
@@ -83,7 +103,9 @@ def check(config):
         if condition != "service_completed_successfully":
             problems.append(f"{name}: não espera a checagem da tag (lri-config-check)")
 
-    problems += check_tag_command(services.get("lri-config-check", {}))
+    problems += check_tag_command(services.get("lri-config-check", {}), image)
+    if image:
+        problems += check_image(services, image)
 
     opts = services.get("zammad-elasticsearch", {}).get("environment", {}).get("ES_JAVA_OPTS", "")
     heaps = [heap_bytes(h) for h in re.findall(r"-Xm[sx](\S+)", opts)]
@@ -99,12 +121,12 @@ def check(config):
     return problems
 
 
-def main(official, overlay):
+def main(official, overlay, image=None):
     result = render(official, overlay, DUMMY_ENV)
     if result.returncode != 0:
         print(f"docker compose config falhou:\n{result.stderr}")
         return 1
-    problems = check(json.loads(result.stdout))
+    problems = check(json.loads(result.stdout), image)
 
     # Sem token, a stack não pode subir: o compose tem de recusar com a mensagem do overlay.
     without_token = {**DUMMY_ENV, "CLOUDFLARED_TUNNEL_TOKEN": ""}
@@ -115,9 +137,16 @@ def main(official, overlay):
     for problem in problems:
         print(f"ERRO  {problem}")
     if not problems:
-        print("ok    overlay: sem portas no host, imagem do fork, heap do ES <= 1g, mem_limit em todos, token por env")
+        where = f" (checagens dentro de {image})" if image else ""
+        print(f"ok    overlay: sem portas no host, imagem do fork, heap do ES <= 1g, mem_limit em todos, token por env{where}")
     return len(problems)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    args = sys.argv[1:]
+    built_image = None
+    if "--image" in args:
+        position = args.index("--image")
+        built_image = args[position + 1]
+        del args[position:position + 2]
+    sys.exit(main(args[0], args[1], built_image))

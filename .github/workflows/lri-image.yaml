@@ -120,6 +120,18 @@ jobs:
             -e LRI_MW_HOST=suporte.example.net -e LRI_PUBLIC_HOSTS="suporte.example.com suporte.example.net" \
             "$LOCAL_IMAGE"
 
+      - name: Stack oficial (commit fixo) para conferir o overlay
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: zammad/zammad-docker-compose
+          ref: cee5e1cef02543977de6d13937ba8cc7276b5a5a
+          path: stack-oficial
+
+      - name: Conferir o overlay do go-live dentro da imagem construída
+        run: |
+          python3 contrib/lri/deploy/test/check_compose_overlay.py stack-oficial/docker-compose.yml \
+            contrib/lri/deploy/docker-compose.lri.yml --image "$LOCAL_IMAGE"
+
       - name: Scan de vulnerabilidades (Trivy)
         run: |
           mkdir -p trivy "$HOME/.cache/trivy"

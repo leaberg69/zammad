@@ -14,7 +14,7 @@ existente (volumes, containers, stacks) é etapa à parte, com OK próprio.
 | Decisão de capacidade da VPS (ampliar ou reduzir a central) tomada; a soma dos `mem_limit` do overlay em operação é de cerca de 8,2 GB | [checklist](VPS-CHECKLIST.md), seção 1 |
 | Snapshot completo da VPS no provedor, com data e responsável | checklist, seção 7 |
 | Leitura do servidor refeita com LF (`contrib/lri/vps/checklist-leitura.sh`) e registrada | checklist, introdução |
-| Imagem escolhida: uma tag `develop-<sha>` publicada pelo workflow `LRI imagem` (resumo da execução no GitHub Actions) ou uma versão `X.Y.Z` (tag `lri-vX.Y.Z`); anotar também o digest | GitHub, aba Actions e pacote `zammad-lri` |
+| Imagem escolhida: uma tag `develop-<sha>` publicada pelo workflow `LRI imagem` (resumo da execução no GitHub Actions) ou uma versão `X.Y.Z` (tag `lri-vX.Y.Z`); anotar o digest e o **commit do fork** que gerou a imagem (o `<sha>` da tag `develop-`, ou o commit da tag `lri-v`) | GitHub, aba Actions e pacote `zammad-lri` |
 | Scan da imagem conferido: artefato `trivy-zammad-lri` da mesma execução, sem CRITICAL com correção disponível | GitHub Actions |
 
 ## 1. Acesso da VPS à imagem
@@ -33,15 +33,17 @@ Como o usuário de sistema da central (checklist, seção 7):
 ```sh
 git clone https://github.com/zammad/zammad-docker-compose.git central && cd central
 git checkout cee5e1cef02543977de6d13937ba8cc7276b5a5a   # o commit conferido pelo CI do fork
-curl -fsSL https://raw.githubusercontent.com/leaberg69/zammad/develop/contrib/lri/deploy/docker-compose.lri.yml \
+FORK_COMMIT=<commit do fork anotado no passo 0>         # o mesmo da imagem: overlay e imagem conferidos juntos
+curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/contrib/lri/deploy/docker-compose.lri.yml" \
   -o docker-compose.lri.yml
 mkdir -p cloudflared
-curl -fsSL https://raw.githubusercontent.com/leaberg69/zammad/develop/contrib/lri/deploy/cloudflared/config.yml.example \
+curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/contrib/lri/deploy/cloudflared/config.yml.example" \
   -o cloudflared/config.yml
 ```
 
-O commit da stack oficial é o mesmo que o CI usa para conferir o overlay (`compose-overlay` e `LRI imagem`); outro
-commit exige refazer essa conferência.
+Overlay e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse par que o
+workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack oficial é o
+mesmo que o CI usa nessa conferência; outro commit exige refazê-la.
 
 ## 3. Cloudflare
 
@@ -102,16 +104,18 @@ No nome interno, pelo navegador (passando pelo Access):
 
 1. Assistente inicial do Zammad: criar o administrador com o login de `LRI_EMERGENCY_LOGIN`.
 2. Nesse usuário, cadastrar o 2FA por **aplicativo autenticador (TOTP)**; manter o método ligado nas configurações.
-3. Provisionamento, primeiro simulado e depois aplicado:
+3. Provisionamento: simular, aplicar e conferir. O mesmo comando três vezes, a primeira com `DRY_RUN=1`:
 
    ```sh
    docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
-     sh -c 'DRY_RUN=1 bundle exec rails runner contrib/lri/provisionamento/provisionar.rb'
+     sh -c 'DRY_RUN=1 bundle exec rails runner contrib/lri/provisionamento/provisionar.rb'   # Simulação: nada foi gravado.
    docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
-     bundle exec rails runner contrib/lri/provisionamento/provisionar.rb
+     bundle exec rails runner contrib/lri/provisionamento/provisionar.rb                     # Provisionamento aplicado.
+   docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
+     bundle exec rails runner contrib/lri/provisionamento/provisionar.rb                     # Nada a mudar
    ```
 
-   Nenhuma linha `CONFLITO`; a segunda execução diz `Nada a mudar`.
+   Nenhuma linha `CONFLITO` em nenhuma das três; a terceira, que confere a idempotência, termina com `Nada a mudar`.
 4. Branding, no mesmo container: `docker compose -f docker-compose.yml -f docker-compose.lri.yml exec
    zammad-railsserver bundle exec rails runner contrib/lri/branding/aplicar_branding.rb`.
 5. Login por Google e Microsoft configurados (com `auth_third_party_no_create_user` ligado) e agentes cadastrados com
@@ -145,8 +149,16 @@ No nome interno, pelo navegador (passando pelo Access):
 
 - **Problema na central, VPS sã**: `docker compose -f docker-compose.yml -f docker-compose.lri.yml down` (os volumes
   ficam) e DNS dos `suporte` de volta ao estado anterior. Os outros projetos do servidor não são tocados.
-- **Imagem com defeito**: voltar `LRI_IMAGE_TAG` à tag anterior anotada e repetir os passos 5 e 7; as tags
-  publicadas são imutáveis, então a anterior continua igual.
+- **Imagem com defeito**: uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banco migrado.
+  Por isso, **toda troca de imagem** (inclusive a primeira atualização depois do go-live) começa com backup
+  consistente: parar a central (`docker compose ... stop`, os volumes ficam), copiar os volumes `postgresql-data` e
+  `zammad-storage` (ou um `zammad-backup` com o `BACKUP_ON_START`), anotar a tag em uso e só então trocar a tag. Para
+  voltar:
+  - se as notas da versão nova confirmarem que não há migração de banco entre as duas tags, basta voltar
+    `LRI_IMAGE_TAG` à tag anterior e repetir os passos 5 e 7 (tags publicadas são imutáveis, a anterior continua
+    igual);
+  - nos demais casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo
+    momento) e só então subir a tag anterior. Restaurar apaga o que entrou depois do backup: decisão do Leandro.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Registro

@@ -149,15 +149,27 @@ cenario 'cloudflared nunca conecta' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tun
 confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
   'grep -q "sem conexão ativa" "$work/saida" && grep -q "Starting tunnel" "$work/saida" && fechado_de_novo'
 
-# Interrupção durante a espera do /ready: o túnel recém-aberto tem de ser fechado.
-: > "$work/log"
-(cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=50 \
-  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='20241/ready' ABRIR_TUNEL=1 bash "$script" > "$work/saida" 2>&1) &
-pid=$!
-for _ in $(seq 1 100); do grep -q '20241/ready' "$work/log" 2>/dev/null && break; sleep 0.1; done
-kill -TERM "$pid"
-wait "$pid"
-codigo=$?
+# Roda o script em segundo plano, com o mesmo ambiente de cenario(), e manda TERM só depois de ver $1 no log.
+#   Se o passo não for alcançado em 30 s, o cenário falha por si (não vale interromper outra fase).
+interromper_em() {
+  local marca=$1; shift
+  : > "$work/log"
+  (cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_ESTABILIZAR=0 \
+    SUBIR_PRAZO_TENTATIVA=1 "$@" bash "$script" > "$work/saida" 2>&1) &
+  local pid=$! visto=0
+  for _ in $(seq 1 300); do
+    if grep -q -- "$marca" "$work/log" 2>/dev/null; then visto=1; break; fi
+    sleep 0.1
+  done
+  kill -TERM "$pid" 2>/dev/null
+  wait "$pid"
+  codigo=$?
+  if [ "$visto" != 1 ]; then
+    echo "ERRO  interrupção: o passo '$marca' não foi alcançado em 30 s"; cat "$work/saida"; falhas=$((falhas + 1))
+  fi
+}
+
+interromper_em '20241/ready' SUBIR_TENTATIVAS=50 PENDURAR_EM='20241/ready' ABRIR_TUNEL=1
 confere 'interrupção com o túnel aberto fecha o túnel e diz por quê' \
   '[ "$codigo" != 0 ] && fechado_de_novo && grep -q "execução interrompida" "$work/saida"'
 
@@ -185,14 +197,7 @@ cenario 'duas tags do fork na mesma configuração' 1 ABRIR_TUNEL=1 IMAGEM_CONFI
 confere 'tags divergentes recusadas antes de parar algo' '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "mais de uma tag" "$work/saida"'
 
 # Interrupção durante o init: o container do init tem de ser encerrado e a remoção confirmada.
-: > "$work/log"
-(cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 INIT_PRAZO=60 \
-  PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1 bash "$script" > "$work/saida" 2>&1) &
-pid=$!
-for _ in $(seq 1 100); do grep -q 'name lri-zammad-init' "$work/log" 2>/dev/null && break; sleep 0.1; done
-kill -TERM "$pid"
-wait "$pid"
-codigo=$?
+interromper_em 'name lri-zammad-init' INIT_PRAZO=60 PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1
 confere 'interrupção durante o init encerra o init e confirma' \
   '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
 

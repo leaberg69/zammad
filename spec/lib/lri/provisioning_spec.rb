@@ -149,6 +149,21 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
     end
 
+    it 'gives each audience its own queues back when a workflow fixes the field to the other audience', :aggregate_failures do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => %w[set_fixed_to hide set_readonly], 'set_fixed_to' => [internal_queue.id.to_s],
+                                               'hide' => true, 'set_readonly' => true } })
+      outsider = create(:customer)
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
+
+      expect(result[:restrict_values]['group_id'].map(&:to_s)).to include(brand_queue.id.to_s)
+      expect(result[:restrict_values]['group_id'].map(&:to_s)).not_to include(internal_queue.id.to_s)
+      expect(result[:visibility]['group_id']).to eq('show')
+      expect(result[:readonly]['group_id']).to be(false)
+    end
+
     it 'treats an internal queue created after provisioning as internal on the server' do
       new_queue = create(:group, name: 'Interno::RH')
 

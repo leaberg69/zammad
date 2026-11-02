@@ -80,12 +80,24 @@ module Lri::QueueAudience
       return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
 
       dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
-      return if dropped.drop(1).none?
+      emptied = lri_restore_options_if_empty
+      return if !emptied && dropped.drop(1).none?
 
-      # Uma fila escolhida por workflow saiu: o campo volta a aparecer e a ser editável, senão o cliente não troca.
-      Rails.logger.warn "Lri::QueueAudience: workflow escolheu fila de outro público para o usuário #{user.id}; campo de fila liberado"
+      # A regra de público prevalece sobre os workflows: o campo volta a aparecer e a ser editável, senão o cliente
+      #   fica sem como escolher uma fila permitida.
+      Rails.logger.warn "Lri::QueueAudience: workflow deixaria o usuário #{user.id} sem fila do seu público; campo de fila liberado"
       @result[:visibility]['group_id'] = 'show'
       @result[:readonly]['group_id']   = false
+    end
+
+    # Se nenhuma fila permitida sobrou nas opções, volta às filas do público do cliente. true se precisou.
+    def lri_restore_options_if_empty
+      return false if !@result[:restrict_values].key?('group_id')
+      return false if Array(@result[:restrict_values]['group_id']).any?(&:present?)
+
+      base = Group.where(id: Setting.get('customer_ticket_create_group_ids'), active: true).pluck(:id)
+      @result[:restrict_values]['group_id'] = [''] + Lri::QueueAudience.allowed_group_ids(user, base).map(&:to_s)
+      true
     end
 
     # true se algo foi retirado.

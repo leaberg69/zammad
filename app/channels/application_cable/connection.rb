@@ -20,11 +20,11 @@ module ApplicationCable
     # Therefore, on login/logout, a new web socket connection must be made to
     #   reflect the changes within GraphQL.
     def connect
+      self.lri_zone = Lri::ZoneGuard.realtime_zone_name(->(name) { request.headers[name] })
       return if session_id.blank?
 
       self.current_user = find_verified_user
       self.sid          = session_id
-      self.lri_zone     = Lri::ZoneGuard.realtime_zone_name(->(name) { request.headers[name] })
     end
 
     private

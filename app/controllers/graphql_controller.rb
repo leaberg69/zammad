@@ -60,6 +60,8 @@ class GraphqlController < ApplicationController
       current_user_id: current_user&.id,
       # :controller is used by login/logout mutations and MUST NOT be used otherwise.
       controller:      self,
+      # Grupo LRI: zona da requisição, nil com a guarda desligada (Lri::ZoneGuard.frontend_value).
+      lri_zone:        request.env['lri.zone']&.name,
     }
   end
 

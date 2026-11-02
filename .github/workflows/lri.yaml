@@ -114,7 +114,7 @@ jobs:
             lib/auth.rb app/models/user.rb app/models/external_credential.rb lib/external_credential \
             spec/models/external_credential \
             app/controllers/sessions_controller.rb app/graphql/gql/queries/application_config.rb \
-            app/graphql/gql/subscriptions/config_updates.rb
+            app/graphql/gql/subscriptions/config_updates.rb app/controllers/graphql_controller.rb
       - name: RSpec da guarda de zona e das suítes do upstream que ela toca
         shell: bash
         run: |

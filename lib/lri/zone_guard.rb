@@ -86,13 +86,9 @@ class Lri::ZoneGuard
     false
   end
 
-  # Zona de uma requisição GraphQL, vinda por HTTP (GraphqlController) ou por ActionCable (GraphqlChannel).
+  # Zona de uma requisição GraphQL, gravada no contexto pelo GraphqlController e pelo GraphqlChannel.
   def self.graphql_zone_name(context)
-    if (controller = context[:controller])
-      controller.request.env['lri.zone']&.name
-    else
-      context[:channel].try(:connection).try(:lri_zone)
-    end
+    context[:lri_zone]
   end
 
   # Zona de uma conexão de tempo real, para o WebSocket legado gravar na sessão da conexão; nil com a guarda desligada.

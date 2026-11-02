@@ -39,11 +39,12 @@ RSpec.describe 'Grupo LRI login providers per zone', type: :request do
       expect(graphql_config.keys & Lri::ZoneGuard::PUBLIC_HIDDEN_SETTINGS).to be_empty
     end
 
-    it 'sends the providers as boolean false to a signed-in customer' do
+    it 'sends the providers as boolean false to a signed-in customer', :aggregate_failures do
       customer = create(:customer, password: 'Senha-Forte-123')
       post '/api/v1/signin', params: { username: customer.login, password: 'Senha-Forte-123', fingerprint: '123456789' }, as: :json
 
       expect(legacy_config.slice('auth_google_oauth2', 'auth_microsoft_office365')).to eq('auth_google_oauth2' => false, 'auth_microsoft_office365' => false)
+      expect(graphql_config.slice('auth_google_oauth2', 'auth_microsoft_office365')).to eq('auth_google_oauth2' => false, 'auth_microsoft_office365' => false)
     end
 
     it 'keeps the rest of the public configuration' do

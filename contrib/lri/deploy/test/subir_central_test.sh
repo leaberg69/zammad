@@ -79,6 +79,16 @@ cenario 'zammad-init pendurado e a remoção não se confirma' 1 ABRIR_TUNEL=1 I
 confere 'não afirma encerramento sem confirmar' \
   '! tunel_aberto && grep -q "NÃO foi possível confirmar o encerramento" "$work/saida" && ! grep -q "foi encerrado e removido" "$work/saida"'
 
+cenario 'zammad-init falha com erro comum' 1 ABRIR_TUNEL=1 FALHAR_EM='name lri-zammad-init'
+confere 'erro comum do init também encerra e confirma o container' \
+  '! tunel_aberto && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "foi encerrado e removido" "$work/saida"'
+
+cenario 'zammad-init falha e o container continua lá' 1 ABRIR_TUNEL=1 FALHAR_EM='name lri-zammad-init' INIT_RESTANTE=abc123
+confere 'container remanescente vira aviso explícito' 'grep -q "NÃO foi possível confirmar o encerramento" "$work/saida"'
+
+cenario 'zammad-init falha e o daemon não responde à consulta' 1 ABRIR_TUNEL=1 FALHAR_EM='name lri-zammad-init' PS_FALHA=1
+confere 'consulta indisponível vira aviso explícito' 'grep -q "NÃO foi possível confirmar o encerramento" "$work/saida"'
+
 cenario 'zammad-init pendurado e a consulta ao Docker falha' 1 ABRIR_TUNEL=1 INIT_PRAZO=1 PENDURAR_EM='name lri-zammad-init' PS_FALHA=1
 confere 'consulta que falha não confirma a remoção' \
   'grep -q "NÃO foi possível confirmar o encerramento" "$work/saida" && ! grep -q "foi encerrado e removido" "$work/saida"'

@@ -97,11 +97,13 @@ passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:
 init_running=1
 timeout --kill-after=30 "${INIT_PRAZO:-1800}" "${DC[@]}" run --rm --no-deps --name "$init_name" zammad-init
 init_code=$?
+# Qualquer saída diferente de 0 (prazo, erro do cliente Docker ou do próprio init) passa por encerrar_init(), via
+#   parar(): o cliente pode ter caído com o container ainda migrando.
 if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
   parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s"
 fi
-init_running=0
 [ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
+init_running=0
 
 passo "aplicação"
 "${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${ZAMMAD_SERVICES[@]}" \

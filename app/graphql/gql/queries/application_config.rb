@@ -24,7 +24,7 @@ module Gql::Queries
       Setting.select('name, preferences').where(frontend: true).each_with_object([]) do |setting, result|
         next if setting.preferences[:authentication] && unauthenticated?
 
-        value = Setting.get(setting.name)
+        value = Lri::ZoneGuard.frontend_value(Lri::ZoneGuard.graphql_zone_name(context), setting.name, Setting.get(setting.name))
         next if unauthenticated? && !value
 
         result << { key: setting.name, value: value }

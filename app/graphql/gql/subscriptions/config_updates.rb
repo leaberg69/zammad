@@ -18,7 +18,7 @@ module Gql::Subscriptions
 
       # Some setting values use interpolation to reference other settings.
       # This is applied in `Setting.get`, thus direct reading of the value should be avoided.
-      value = Setting.get(object.name)
+      value = Lri::ZoneGuard.frontend_value(Lri::ZoneGuard.graphql_zone_name(context), object.name, Setting.get(object.name))
 
       { setting: { key: object.name, value: value } }
     end

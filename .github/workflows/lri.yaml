@@ -112,7 +112,9 @@ jobs:
             app/controllers/knowledge_base/public/base_controller.rb \
             app/channels/graphql_channel.rb app/graphql/gql/action_cable_subscriptions.rb \
             lib/auth.rb app/models/user.rb app/models/external_credential.rb lib/external_credential \
-            spec/models/external_credential
+            spec/models/external_credential \
+            app/controllers/sessions_controller.rb app/graphql/gql/queries/application_config.rb \
+            app/graphql/gql/subscriptions/config_updates.rb
       - name: RSpec da guarda de zona e das suítes do upstream que ela toca
         shell: bash
         run: |
@@ -123,5 +125,5 @@ jobs:
             spec/requests/knowledge_base \
             spec/lib/auth_spec.rb spec/lib/external_credential spec/models/external_credential \
             spec/models/organization_spec.rb spec/graphql/gql/mutations/user/password_reset \
-            spec/requests/user_spec.rb \
+            spec/requests/user_spec.rb spec/graphql/gql/queries/application_config_spec.rb \
             -t ~searchindex -t ~integration -t ~required_envs

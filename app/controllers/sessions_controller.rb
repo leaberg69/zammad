@@ -353,7 +353,7 @@ class SessionsController < ApplicationController
     Setting.select('name, preferences').where(frontend: true).each do |setting|
       next if setting.preferences[:authentication] == true && !current_user
 
-      value = Setting.get(setting.name)
+      value = Lri::ZoneGuard.frontend_value(request.env['lri.zone']&.name, setting.name, Setting.get(setting.name))
       next if !current_user && (value == false || value.nil?)
 
       config[setting.name] = value

@@ -16,7 +16,7 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
   end
 
   def capture(name)
-    page.save_screenshot(screenshot_dir.join("#{name}.png").to_s)
+    page.save_screenshot(screenshot_dir.join("#{name}.png").to_s) # rubocop:disable Lint/Debugger
   end
 
   shared_examples 'a login screen per zone' do |prefix, width, height|

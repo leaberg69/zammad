@@ -19,7 +19,7 @@ Rails.application.config.middleware.insert_after ActionDispatch::Session::Active
 
 # Organizações novas sem compartilhamento (Lri::PrivateOrganizations), reaplicado a cada recarga de código.
 Rails.application.config.to_prepare do
-  Organization.include(Lri::PrivateOrganizations) if !Organization.include?(Lri::PrivateOrganizations)
+  Organization.include(Lri::PrivateOrganizations) if !(Organization < Lri::PrivateOrganizations)
 end
 
 # Guarda ligada com configuração incompleta não sobe: melhor parar na partida do que proteger pela metade.

@@ -79,16 +79,30 @@ module Lri::QueueAudience
     def lri_filter_group_options
       return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
 
-      %i[restrict_values select fill_in].each do |group|
-        value = @result.dig(group, 'group_id')
-        next if value.blank?
+      dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
+      return if dropped.drop(1).none?
 
-        allowed = Lri::QueueAudience.allowed_group_ids(user, value).map(&:to_s)
-        kept    = Array(value).select { |entry| entry.blank? || allowed.include?(entry.to_s) }
-        next @result[group]['group_id'] = kept if value.is_a?(Array)
+      # Uma fila escolhida por workflow saiu: o campo volta a aparecer e a ser editável, senão o cliente não troca.
+      Rails.logger.warn "Lri::QueueAudience: workflow escolheu fila de outro público para o usuário #{user.id}; campo de fila liberado"
+      @result[:visibility]['group_id'] = 'show'
+      @result[:readonly]['group_id']   = false
+    end
 
-        @result[group].delete('group_id') if kept.empty?
+    # true se algo foi retirado.
+    def lri_drop_forbidden(group)
+      value = @result.dig(group, 'group_id')
+      return false if value.blank?
+
+      allowed = Lri::QueueAudience.allowed_group_ids(user, value).map(&:to_s)
+      kept    = Array(value).select { |entry| entry.blank? || allowed.include?(entry.to_s) }
+      return false if kept.size == Array(value).size
+
+      if value.is_a?(Array)
+        @result[group]['group_id'] = kept
+      else
+        @result[group].delete('group_id')
       end
+      true
     end
   end
 

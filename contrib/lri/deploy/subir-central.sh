@@ -96,6 +96,14 @@ running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
   || parar "não foi possível confirmar a parada da aplicação: $running"
 [ -z "$running" ] || parar "serviços da aplicação ainda em execução depois do stop: $running"
 
+# Um init de antes (execução interrompida à força, ou iniciado pelo compose) não pode migrar junto com o novo.
+#   Na dúvida (outra stack com serviço zammad-init, consulta que falha), para.
+old_inits=$( { docker ps -q --filter status=running --filter label=com.docker.compose.service=zammad-init \
+             && docker ps -q --filter status=running --filter name=lri-zammad-init-; } 2>&1 ) \
+  || parar "não foi possível consultar containers de init em execução: $old_inits"
+[ -z "$old_inits" ] || parar "há zammad-init em execução de antes ($(printf '%s' "$old_inits" | sort -u | tr '\n' ' '));" \
+  "esperar terminar ou conferir com docker ps antes de subir"
+
 passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 "${DC[@]}" run --rm --no-deps lri-config-check || parar "tag recusada pelo lri-config-check"
 
@@ -179,6 +187,17 @@ background_started=1
 "${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${BACKGROUND_SERVICES[@]}" \
   || parar "processos de fundo não ficaram prontos"
 conferir_imagens "${BACKGROUND_SERVICES[@]}"
+
+# Scheduler e backup não têm healthcheck: depois de uma janela de observação, ainda em execução e sem reinícios.
+passo "processos de fundo estáveis (${SUBIR_ESTABILIZAR:-60} s)"
+sleep "${SUBIR_ESTABILIZAR:-60}"
+for service in "${BACKGROUND_SERVICES[@]}"; do
+  id=$("${DC[@]}" ps -q "$service")
+  state=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id" 2>&1) \
+    || parar "não foi possível conferir $service: $state"
+  [ "$state" = "true 0" ] \
+    || parar "$service instável (em execução, reinícios: $state): $("${DC[@]}" logs --tail 5 "$service" 2>&1 | tr '\n' ' ')"
+done
 
 passo "reabrindo o túnel"
 tunnel_started=1

@@ -22,7 +22,9 @@ saude_padrao='{"status":"yellow","timed_out":false}'
 ultimo="${!#}"
 case "$*" in
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
+  "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
+  "ps -q --filter status=running --filter "*) printf '%s' "${INIT_ANTIGO:-}" ;;
   "ps -a -q --filter "*) [ "${PS_FALHA:-0}" = 1 ] && exit 1; printf '%s' "${INIT_RESTANTE:-}" ;;
   *" ps -q --status running "*) printf '%s' "${APP_RODANDO:-}" ;;
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
@@ -39,7 +41,7 @@ falhas=0
 cenario() {
   local nome=$1 esperado_codigo=$2; shift 2
   : > "$work/log"
-  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 "$@" \
+  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 SUBIR_ESTABILIZAR=0 "$@" \
     bash "$script" > "$work/saida" 2>&1)
   local codigo=$?
   if [ "$codigo" != "$esperado_codigo" ]; then
@@ -68,6 +70,13 @@ confere 'processos de fundo só na liberação, depois dos portões e antes do t
 
 cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
 confere 'túnel e processos de fundo não liberados sem ABRIR_TUNEL' '! tunel_aberto && ! fundo_iniciado'
+
+cenario 'init anterior ainda rodando' 1 ABRIR_TUNEL=1 INIT_ANTIGO=velho123
+confere 'init anterior impede a migração nova' '! grep -q "name lri-zammad-init" "$work/log" && grep -q "zammad-init em execução de antes" "$work/saida"'
+
+cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='false 2'
+confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \
+  '! tunel_aberto && grep -q "instável" "$work/saida" && grep -q "processos de fundo parados de novo" "$work/saida"'
 
 cenario 'restauração com reindexação falhando' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='searchindex:rebuild'
 confere 'reindexação que falha não libera processos de fundo nem túnel' '! fundo_iniciado && ! tunel_aberto'

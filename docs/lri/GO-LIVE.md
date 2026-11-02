@@ -200,7 +200,11 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 
      ```sh
      docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver bundle exec rails runner '
-       indice = SearchIndexBackend.search("*", "Ticket", only_total_count: true)[:total_count]
+       url = SearchIndexBackend.build_url(type: "Ticket", action: "_count",
+                                          with_pipeline: false, with_document_type: false)
+       resp = url.present? && SearchIndexBackend.make_request(url, data: { query: { match_all: {} } }, method: :post)
+       indice = resp && resp.success? && resp.data.is_a?(Hash) ? resp.data["count"] : nil
+       abort "FALHA: contagem do índice não respondeu (#{resp ? resp.code : "sem URL"})" if !indice.is_a?(Integer)
        ultimo = Ticket.order(updated_at: :desc).first
        if ultimo.nil?
          puts "banco=0 indice=#{indice} achado=sem_chamados"
@@ -210,6 +214,8 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
        end'
      ```
 
+     A contagem vai direto ao `_count` do índice e só vale com resposta de sucesso: índice inexistente ou busca fora do
+     ar terminam em `FALHA:` com o código HTTP, nunca em contagem 0.
      Aceite: `banco` igual a `indice` e `achado=true` (ou `achado=sem_chamados` com os dois em 0). A busca é pelo campo
      `number`, não por texto livre, para outro chamado que cite o número não atrapalhar. Outro resultado: não liberar;
      repetir a reconstrução do índice e, se persistir, levar ao Leandro com a saída.

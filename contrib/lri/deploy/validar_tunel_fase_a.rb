@@ -53,7 +53,8 @@ class ValidarTunelFaseA
 
   def problemas_da_regra_interna(rule)
     list   = []
-    access = rule.dig('originRequest', 'access')
+    origin = rule['originRequest']
+    access = origin.is_a?(Hash) ? origin['access'] : nil
     access = {} if !access.is_a?(Hash)
     list << "nome interno entregue a #{rule['service'].inspect}, esperado #{INTERNAL_SERVICE}" if rule['service'] != INTERNAL_SERVICE
     list << 'regra do nome interno sem Access obrigatório (originRequest.access.required: true)' if access['required'] != true

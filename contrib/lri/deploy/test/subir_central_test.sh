@@ -2,7 +2,7 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 # subir-central.sh com um docker falso: ordem dos passos, portões e túnel fechado em qualquer falha.
-# shellcheck disable=SC2016,SC2317 # conferências e funções auxiliares são avaliadas depois, por confere (eval)
+# shellcheck disable=SC2016,SC2034,SC2317 # conferências, variáveis e funções auxiliares são lidas por confere (eval)
 set -u
 
 script="$(cd "$(dirname "$0")/.." && pwd)/subir-central.sh"

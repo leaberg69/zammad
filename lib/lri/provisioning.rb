@@ -37,7 +37,9 @@ class Lri::Provisioning
     'Agente Interno'          => 'Interno',
   }.freeze
 
-  ACTION_LABELS = { created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
+  STEPS = %i[apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews apply_customer_groups].freeze
+
+  ACTION_LABELS ={ created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
 
   Result = Struct.new(:kind, :name, :action, :detail) do
     def to_s
@@ -59,12 +61,13 @@ class Lri::Provisioning
   def apply!(dry_run: false)
     ActiveRecord::Base.transaction do
       UserInfo.ensure_current_user_id do
-        apply_settings
-        apply_groups
-        apply_organizations
-        apply_agent_roles
-        apply_overviews
-        apply_customer_groups
+        STEPS.each do |step|
+          send(step)
+          next if !conflicts?
+
+          record(:provisionamento, step.to_s, :warning, 'interrompido depois deste passo por conflito')
+          break
+        end
       end
       raise ActiveRecord::Rollback if dry_run || conflicts?
     end
@@ -117,13 +120,16 @@ class Lri::Provisioning
 
   def apply_groups
     GROUPS.each_key do |brand|
-      self.class.group_names(brand).each { |name| ensure_group(name) }
+      parent, *queues = self.class.group_names(brand)
+      next queues.each { |name| record(:group, name, :conflict, "grupo pai #{parent} em conflito") } if ensure_group(parent) == :conflict
+
+      queues.each { |name| ensure_group(name) }
     end
   end
 
   def ensure_group(name)
     group = find_exact(Group, :group, name)
-    return if group == :conflict
+    return :conflict if group == :conflict
     return record(:group, name, :unchanged) if group&.active?
 
     if group

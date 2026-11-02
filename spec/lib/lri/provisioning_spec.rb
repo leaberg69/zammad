@@ -77,12 +77,14 @@ RSpec.describe Lri::Provisioning do
 
   it 'takes extra permissions away from an existing agent role and says which', :aggregate_failures do
     described_class.apply!
-    Role.find_by(name: 'Agente LRI').permission_grant('admin.user')
+    role = Role.find_by(name: 'Agente LRI')
+    role.permission_grant('report')
+    role.save!
 
     result = result_for(described_class.apply!, 'Agente LRI')
     expect(result.action).to eq(:updated)
-    expect(result.detail).to include('-admin.user')
-    expect(Role.find_by(name: 'Agente LRI').permissions.pluck(:name)).not_to include('admin.user')
+    expect(result.detail).to include('-report')
+    expect(role.reload.permissions.pluck(:name)).not_to include('report')
   end
 
   it 'reactivates an inactive agent role and then leaves it alone', :aggregate_failures do

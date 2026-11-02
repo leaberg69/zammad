@@ -45,7 +45,7 @@
     "node": ">=24",
     "pnpm": ">=12"
   },
-  "packageManager": "pnpm@12.15.0",
+  "packageManager": "pnpm@12.16.0",
   "devDependencies": {
     "@colbymchenry/codegraph": "^1.6.2",
     "@faker-js/faker": "^10.6.0",
@@ -72,7 +72,7 @@
     "@types/rails__actioncable": "^8.0.3",
     "@types/sinonjs__fake-timers": "^15.0.1",
     "@types/ua-parser-js": "^0.7.39",
-    "@typescript-eslint/parser": "^8.72.0",
+    "@typescript-eslint/parser": "^8.72.1",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/compiler-dom": "^3.5.43",
     "@vue/devtools-api": "^8.2.1",
@@ -86,7 +86,7 @@
     "eslint-plugin-import-x": "^4.17.1",
     "eslint-plugin-oxlint": "^1.89.0",
     "eslint-plugin-security": "^4.2.0",
-    "eslint-plugin-vue": "^10.11.1",
+    "eslint-plugin-vue": "^10.12.0",
     "eslint-plugin-vuejs-accessibility": "^2.6.3",
     "eslint-plugin-zammad": "file:.eslint-plugin-zammad",
     "fallow": "3.36.0",
@@ -186,7 +186,7 @@
   },
   "resolutions": {
     "loader-utils": "^3.3.1",
-    "postcss": "^8.5.31",
+    "postcss": "^8.5.32",
     "stylelint-config-recommended": "^18.0.0"
   }
 }

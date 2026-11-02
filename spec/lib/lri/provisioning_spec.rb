@@ -120,6 +120,17 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
+    it 'keeps both audiences apart when the portal queue list is empty', :aggregate_failures do
+      Setting.set('customer_ticket_create_group_ids', [])
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+    end
+
     it 'refuses on the server, with the message, a queue that an admin workflow adds for the other audience', :aggregate_failures do
       create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
              perform: { 'ticket.group_id' => { 'operator' => 'add_option', 'add_option' => [internal_queue.id.to_s, brand_queue.id.to_s] } })

@@ -64,8 +64,21 @@ module Lri::QueueAudience
   #   público não é suportado; nesse caso o servidor recusa o chamado com MESSAGE (docs/lri/PLANO.md, seção 2.3).
   module GroupOptions
     def groups_customer
-      groups = super
-      groups.where(id: Lri::QueueAudience.allowed_group_ids(@attributes.user, groups.pluck(:id)))
+      lri_audience_only(super)
+    end
+
+    # Usado para o cliente quando customer_ticket_create_group_ids está vazio.
+    def groups_default
+      lri_audience_only(super)
+    end
+
+    private
+
+    def lri_audience_only(groups)
+      user = @attributes.user
+      return groups if user.nil? || Lri::QueueAudience.exempt?(user)
+
+      groups.where(id: Lri::QueueAudience.allowed_group_ids(user, groups.pluck(:id)))
     end
   end
 

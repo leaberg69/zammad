@@ -78,6 +78,22 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     expect { graphql_create_as(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
   end
 
+  context 'when a workflow leaves an outsider no brand queue' do
+    before do
+      brand_ids = Group.where(name: Lri::Provisioning.customer_group_names).where.not(id: Lri::QueueAudience.internal_groups).pluck(:id).map(&:to_s)
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => 'remove_option', 'remove_option' => brand_ids } })
+    end
+
+    it 'refuses the ticket over REST' do
+      expect { rest_create(outsider, brand_queue) }.not_to change(Ticket, :count)
+    end
+
+    it 'refuses the ticket over GraphQL' do
+      expect { graphql_create_as(outsider, brand_queue) }.not_to change(Ticket, :count)
+    end
+  end
+
   it 'refuses moving a collaborator ticket into a brand queue over REST and keeps the queue', :aggregate_failures do
     rest_create(collaborator, internal_queue)
     ticket = Ticket.last

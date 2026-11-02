@@ -94,6 +94,8 @@ module Lri::QueueAudience
       return false if kept.size == Array(value).size
 
       if value.is_a?(Array)
+        # [] vale como "sem restrição" no ChecksCoreWorkflow; [''] é o "nenhuma opção" do próprio Zammad.
+        kept = [''] if kept.empty? && group == :restrict_values
         @result[group]['group_id'] = kept
       else
         @result[group].delete('group_id')

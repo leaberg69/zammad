@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           source /etc/profile.d/rvm.sh
-          bundle exec rubocop lib/lri spec/lib/lri spec/requests/lri spec/support/lri_zone.rb \
+          bundle exec rubocop lib/lri spec/lib/lri spec/requests/lri spec/system/lri spec/support/lri_zone.rb \
             config/initializers/lri_zone_guard.rb contrib/lri \
             app/channels/application_cable/connection.rb lib/sessions/event/login.rb \
             lib/sessions/event/base.rb lib/sessions/client.rb \

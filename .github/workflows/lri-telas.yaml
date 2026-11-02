@@ -1,0 +1,91 @@
+name: LRI telas
+
+# Screenshots das telas do Grupo LRI no app real (estágio B da esteira de UX): compila as interfaces, roda
+# spec/system/lri com o Chromium do Playwright e publica tmp/screenshots/lri como artefato.
+
+on:
+  pull_request:
+    paths:
+      - 'spec/system/lri/**'
+      - 'lib/lri/**'
+      - 'app/assets/stylesheets/custom*/**'
+      - '.github/workflows/lri-telas.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  telas:
+    name: Telas do Grupo LRI (screenshots)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: zammad/zammad-ci:latest
+    services:
+      postgresql:
+        image: postgres:18
+        env:
+          POSTGRES_USER: zammad
+          POSTGRES_PASSWORD: zammad
+      redis:
+        image: redis:6
+    env:
+      Z_LOCALES: "en-us:de-de"
+      TZ: 'Europe/London'
+      REDIS_URL: redis://redis:6379
+      CAPYBARA_HOSTNAME: localhost
+      TEST_BROWSER_HEADLESS: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Use Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - name: Cache Rubygems
+        uses: actions/cache@v6
+        with:
+          path: vendor/bundle
+          key: ${{ runner.os }}-lri-bundler-${{ hashFiles('Gemfile.lock') }}
+      - name: Preparar Rails, banco e dependências JavaScript
+        shell: bash
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle config set --local deployment 'true'
+          bundle install -j "$(nproc)"
+          bundle exec ruby .gitlab/configure_environment.rb
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Compilar as interfaces
+        shell: bash
+        env:
+          RAILS_ENV: production
+          VITE_TEST_MODE: '1'
+          ZAMMAD_SAFE_MODE: '1'
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle exec rake zammad:db:unseeded
+          bundle exec rake assets:precompile
+      - name: Telas de login por zona
+        shell: bash
+        env:
+          RAILS_ENV: test
+          CI_SKIP_ASSETS_PRECOMPILE: 'true'
+        run: |
+          source /etc/profile.d/rvm.sh
+          bundle exec rake zammad:db:init
+          bundle exec rspec spec/system/lri
+      - name: Publicar as screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: telas-lri
+          path: |
+            tmp/screenshots
+            log/test.log
+          if-no-files-found: warn
+          retention-days: 14

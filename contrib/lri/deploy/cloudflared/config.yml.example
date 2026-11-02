@@ -2,8 +2,9 @@
 # verdade; regras criadas no painel não valem). Copie para config.yml na VPS e preencha os valores <...>.
 # Ver docs/lri/PLANO.md, seção 2.9.2, e docs/lri/VPS-CHECKLIST.md, seção 4.
 
+# A credencial do túnel não fica neste arquivo: o serviço cloudflared do overlay recebe o token pela variável
+# TUNNEL_TOKEN (CLOUDFLARED_TUNNEL_TOKEN no .env da central, permissão 600).
 tunnel: <ID-DO-TUNEL>
-credentials-file: /etc/cloudflared/<ID-DO-TUNEL>.json
 no-autoupdate: true
 
 ingress:

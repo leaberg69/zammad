@@ -82,7 +82,7 @@ jobs:
             type=sha,prefix=develop-,format=short,enable=${{ github.ref == 'refs/heads/develop' }}
             type=match,pattern=^lri-v(\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?)$,group=1
           labels: |
-            org.opencontainers.image.title=zammad-lri
+            org.opencontainers.image.title=Central de Atendimento Grupo LRI
             org.opencontainers.image.description=Central de Atendimento Grupo LRI
 
       - name: Build (multi-stage)
@@ -156,10 +156,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # Publicações em fila, nunca canceladas: cada versão vai ao registro inteira.
-    concurrency:
-      group: lri-image-publicar
-      cancel-in-progress: false
+    # Sem grupo de concorrência, que descartaria publicações pendentes: cada execução publica tags próprias
+    #   (develop-<sha> ou X.Y.Z), e uma versão já publicada é recusada abaixo.
     steps:
       - name: Receber a imagem escaneada
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -184,14 +182,37 @@ jobs:
             echo "Nenhuma tag gerada para $GITHUB_REF; nada publicado."
             exit 1
           fi
+
+          # 0 = o registro confirmou que a tag não existe; 1 = já existe; 2 = consulta falhou (motivo impresso).
+          #   Só o 0 deixa publicar: erro de rede ou de autenticação nunca vira "não existe".
+          tag_state() {
+            local out
+            if out=$("$INSPECT" "$1" 2>&1); then return 1; fi
+            if printf '%s' "$out" | grep -Eqi 'no such manifest|manifest unknown'; then return 0; fi
+            echo "Consulta de $1 no registro falhou: $out"
+            return 2
+          }
+          fake_found()   { echo '{}'; }
+          fake_missing() { echo 'no such manifest: ghcr.io/x:1' >&2; return 1; }
+          fake_error()   { echo 'unauthorized: authentication required' >&2; return 1; }
+          for case_ in 'fake_found 1' 'fake_missing 0' 'fake_error 2'; do
+            set -- $case_
+            INSPECT=$1; state=0; tag_state teste > /dev/null || state=$?
+            [ "$state" = "$2" ] || { echo "autoteste de tag_state: $1 deu $state, esperado $2"; exit 1; }
+          done
+          INSPECT=docker_manifest_inspect
+          docker_manifest_inspect() { docker manifest inspect "$1"; }
+
           for tag in $TAGS; do
             case "$tag" in
               *:develop-*) ;;
               *)
-                if docker manifest inspect "$tag" > /dev/null 2>&1; then
+                state=0; tag_state "$tag" || state=$?
+                if [ "$state" = 1 ]; then
                   echo "A versão $tag já está publicada; uma versão não é republicada. Crie uma tag lri-v nova."
                   exit 1
-                fi ;;
+                fi
+                [ "$state" = 0 ] || exit 1 ;;
             esac
             docker tag "$LOCAL_IMAGE" "$tag"
             docker push "$tag"

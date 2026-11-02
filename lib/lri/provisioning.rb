@@ -152,11 +152,22 @@ class Lri::Provisioning
   # Recriar Interno com a raiz antiga renomeada deixaria as filas antigas fora da regra de público.
   def check_internal_root
     root_id = Lri::QueueAudience.root_id
-    root    = root_id && Group.find_by(id: root_id)
+    return check_unregistered_internal_root if root_id.nil?
+
+    root = Group.find_by(id: root_id)
     return if root.nil? || root.name == Lri::QueueAudience::INTERNAL_ROOT
 
     record(:group, Lri::QueueAudience::INTERNAL_ROOT, :conflict,
            "a raiz das filas internas (id #{root.id}) foi renomeada para #{root.name.inspect}; volte o nome para #{Lri::QueueAudience::INTERNAL_ROOT}")
+  end
+
+  # Instalação provisionada antes do registro da raiz: sem o id, uma raiz renomeada não se reconhece com certeza,
+  #   então só segue se Interno existir com esse nome.
+  def check_unregistered_internal_root
+    return if !Lri::QueueAudience.provisioned? || Group.exists?(name: Lri::QueueAudience::INTERNAL_ROOT)
+
+    record(:group, Lri::QueueAudience::INTERNAL_ROOT, :conflict,
+           "instalação já provisionada sem o grupo #{Lri::QueueAudience::INTERNAL_ROOT}; se a raiz das filas internas foi renomeada, volte o nome")
   end
 
   def store_internal_root

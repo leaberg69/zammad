@@ -224,6 +224,18 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
     end
 
+    it 'does not recreate the root on an older provisioning whose root was renamed', :aggregate_failures do
+      Setting.find_by(name: Lri::QueueAudience::ROOT_SETTING).destroy!
+      Setting.reload
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      outsider = create(:customer)
+
+      run = described_class.apply!
+      expect(result_for(run, 'Interno')).to have_attributes(action: :conflict, detail: include('volte o nome'))
+      expect(Group.find_by(name: 'Interno')).to be_nil
+      expect { create_ticket_as(outsider, Group.find_by(name: 'Apoio::TI')) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
     it 'treats a queue as internal by the stored root, not by its name' do
       Group.find_by(name: 'Interno').update!(name: 'Apoio')
       create(:group, name: 'Apoio::RH')

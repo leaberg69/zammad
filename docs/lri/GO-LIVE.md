@@ -169,25 +169,48 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 
 - **Problema na central, VPS sã**: `docker compose -f docker-compose.yml -f docker-compose.lri.yml down` (os volumes
   ficam) e DNS dos `suporte` de volta ao estado anterior. Os outros projetos do servidor não são tocados.
-- **Imagem com defeito**: uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banco migrado.
-  Por isso, **toda troca de imagem** (inclusive a primeira atualização depois do go-live) começa com backup
-  consistente: parar a central (`docker compose ... stop`, os volumes ficam), copiar os volumes `postgresql-data` e
-  `zammad-storage` (ou um `zammad-backup` com o `BACKUP_ON_START`), guardar uma cópia de `docker-compose.lri.yml` e
-  `cloudflared/config.yml` em uso, anotar a tag e o commit do fork em uso e só então trocar. A troca leva tag,
-  overlay e configuração do túnel juntos, todos do commit da imagem nova (passo 2); o `.env` só muda na tag. Para
-  voltar, sempre com o conjunto da versão anterior (tag, overlay e `config.yml` guardados):
-  - se as notas da versão nova confirmarem que não há migração de banco entre as duas, repor o conjunto anterior e
-    repetir os passos 5 e 7 (tags publicadas são imutáveis, a anterior continua igual);
-  - nos demais casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo
-    momento), repor o conjunto anterior e só então subir. Restaurar apaga o que entrou depois do backup: decisão do
-    Leandro.
+- **Imagem com defeito**: voltar ao conjunto anterior guardado na atualização (seção 10). Se as notas da versão nova
+  confirmarem que não há migração de banco entre as duas, basta repor o conjunto e subir a stack inteira; nos demais
+  casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo momento), repor
+  o conjunto e só então subir. Restaurar apaga o que entrou depois do backup: decisão do Leandro. Subir a stack
+  inteira, sempre:
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate && \
+  docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared && \
+  docker compose -f docker-compose.yml -f docker-compose.lri.yml ps -a --format '{{.Service}} {{.Image}} {{.State}}'
+  ```
+
+  Todos os serviços Zammad (`init`, `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) têm de aparecer com
+  a tag do conjunto reposto; nenhum com a tag defeituosa.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
-## 10. Registro
+## 10. Atualização da imagem depois do go-live
+
+Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banco migrado. Toda troca, portanto:
+
+1. **Guardar o conjunto em uso**: `.env` (só a linha `LRI_IMAGE_TAG` muda), `docker-compose.lri.yml` e
+   `cloudflared/config.yml`, com a tag e o commit do fork anotados. É o que a seção 9 repõe.
+2. **Backup consistente**: parar a central (`docker compose ... stop`, os volumes ficam) e copiar os volumes
+   `postgresql-data` e `zammad-storage`, ou rodar o `zammad-backup` com `BACKUP_ON_START`.
+3. **Arquivos do commit novo, sem perder os valores reais**: baixar o overlay e o exemplo do túnel do commit da imagem
+   nova (como no passo 2) para `docker-compose.lri.yml.novo` e `cloudflared/config.yml.novo`. O overlay novo
+   substitui o antigo inteiro (não tem valor local). No túnel, comparar (`diff cloudflared/config.yml
+   cloudflared/config.yml.novo`) e levar só as mudanças de estrutura para o `config.yml` em uso, mantendo ID do
+   túnel, AUD do Access e os nomes da fase em que se está; depois,
+   `docker run --rm -v "$PWD/cloudflared:/etc/cloudflared:ro" cloudflare/cloudflared:<versão do .env> tunnel --config
+   /etc/cloudflared/config.yml ingress validate` tem de responder `OK`.
+4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir a stack inteira com o bloco da seção 9, conferindo
+   a tag de todos os serviços.
+
+## 11. Registro
 
 No registro privado: data e hora de cada fase, quem autorizou, tag, digest e commit do fork da imagem, commit da stack oficial,
 resultado das conferências e qualquer desvio deste runbook. Aqui, só a data e a fase concluída.
 
 | Data | Fase | Autorização |
 | ---- | ---- | ----------- |
-| — | ainda não executado | go-live liberado por Leandro em 02/11; aguarda a imagem publicada e as decisões do passo 0 |
+| — | ainda não executado | go-live liberado por Leandro em 02/11; aguarda as decisões do passo 0 |
+
+Primeira imagem com o overlay conferido no mesmo build: `ghcr.io/leaberg69/zammad-lri:develop-7cda0a691ca9a0c61bea6fc3b1d690343d45a254`
+(digest `sha256:b1275c0e94dc4f9b4d4cfd1ea574752b34c39082775cc789f36f86b3d00161ab`, commit do fork `7cda0a69`).

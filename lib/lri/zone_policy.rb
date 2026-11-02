@@ -22,14 +22,8 @@ module Lri::ZonePolicy
 
   module_function
 
-  # Senha da equipe (docs/lri/PLANO.md, seção 2.9.3, controle 2). Com a guarda ligada, a equipe entra só por Google
-  #   ou Microsoft; senha, 2FA por senha e redefinição de senha são recusados em qualquer zona, antes de qualquer
-  #   verificação, com a mesma resposta de usuário desconhecido (sem oráculo e sem contar tentativa para bloqueio).
-  #   A exceção é a conta de emergência (LRI_EMERGENCY_LOGIN): só na zona interna e, para entrar, com 2FA do Zammad
-  #   já cadastrado. `confirming:` = confirmação de senha de quem já está logado (Service::User::PasswordCheck, o
-  #   único fluxo com skip_login_failed_tracking), para poder cadastrar o 2FA; autenticação básica e início de 2FA
-  #   sem sessão não contam como confirmação.
-  #   Devolve o motivo da recusa (só para o log) ou nil.
+  # Motivo (só para o log) de recusar a senha da equipe, ou nil; regras em docs/lri/PLANO.md, seção 2.9.3.
+  #   `confirming:` dispensa o 2FA da conta de emergência ao reconfirmar a senha com a sessão já aberta.
   def password_denial(user, confirming: false, config: Lri::Zone::Config.current, zone: Lri::Current.zone)
     return if !config.enforced?
     return if user.nil? || !staff?(user)

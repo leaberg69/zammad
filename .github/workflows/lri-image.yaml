@@ -16,14 +16,14 @@ on:
 permissions:
   contents: read
 
-# PR: uma execução por PR, a nova cancela a antiga. Tag de versão (push ou manual): uma de cada vez por tag, sem
-#   cancelar, para a checagem "já publicada" e o push não se cruzarem. develop: um grupo por execução, porque cada
-#   tag develop-<sha> é única e nenhuma publicação pendente pode ser descartada.
+# PR: uma execução por PR, a nova cancela a antiga. Fora de PR, uma de cada vez por tag de destino, sem cancelar,
+#   para a checagem "já publicada" e o push não se cruzarem: por tag de versão, ou por commit na develop
+#   (develop-<sha>). Commits diferentes da develop seguem em paralelo, sem descartar nenhum.
 concurrency:
   group: >-
     ${{ github.event_name == 'pull_request' && format('lri-image-pr-{0}', github.ref)
     || startsWith(github.ref, 'refs/tags/') && format('lri-image-tag-{0}', github.ref)
-    || format('lri-image-run-{0}', github.run_id) }}
+    || format('lri-image-sha-{0}', github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # A tag de imagem de uma versão (X.Y.Z) é imutável: republicar a mesma versão é recusado no job de publicação.
@@ -209,17 +209,14 @@ jobs:
           INSPECT=docker_manifest_inspect
           docker_manifest_inspect() { docker manifest inspect "$1"; }
 
+          # Toda tag publicada é imutável, inclusive develop-<sha>: o mesmo commit reconstruído teria outro digest.
           for tag in $TAGS; do
-            case "$tag" in
-              *:develop-*) ;;
-              *)
-                state=0; tag_state "$tag" || state=$?
-                if [ "$state" = 1 ]; then
-                  echo "A versão $tag já está publicada; uma versão não é republicada. Crie uma tag lri-v nova."
-                  exit 1
-                fi
-                [ "$state" = 0 ] || exit 1 ;;
-            esac
+            state=0; tag_state "$tag" || state=$?
+            if [ "$state" = 1 ]; then
+              echo "A tag $tag já está publicada e não é republicada (homologação e retorno dependem do mesmo digest)."
+              exit 1
+            fi
+            [ "$state" = 0 ] || exit 1
             docker tag "$LOCAL_IMAGE" "$tag"
             docker push "$tag"
             echo "publicada: $tag" | tee -a "$GITHUB_STEP_SUMMARY"

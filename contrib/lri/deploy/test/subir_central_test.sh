@@ -20,6 +20,7 @@ saude_padrao='{"status":"yellow","timed_out":false}'
 case "$*" in
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
   *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
+  *" config --images "*) echo "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   *" ps -q "* | *" ps -a -q "*) echo "id-${*##* }" ;;
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
@@ -42,10 +43,9 @@ linha() { grep -n -- "$1" "$work/log" | tail -n1 | cut -d: -f1; }
 tunel_aberto() { grep -q -- 'up -d --force-recreate --no-deps cloudflared' "$work/log"; }
 confere() { if eval "$2"; then echo "ok    $1"; else echo "ERRO  $1"; cat "$work/saida" "$work/log"; falhas=$((falhas + 1)); fi; }
 
-printf 'LRI_IMAGE_TAG=1.2.3\n' > "$work/.env"
-
 cenario 'caminho feliz com ABRIR_TUNEL=1' 0 ABRIR_TUNEL=1
-confere 'túnel parado primeiro' '[ "$(head -n1 "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
+confere 'imagem lida do compose e túnel parado antes de tudo' \
+  '[ "$(sed -n 1p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml config --images zammad-railsserver" ] && [ "$(sed -n 2p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
 confere 'túnel reaberto só depois dos portões' '[ "$(linha "zammad-railsserver curl")" -lt "$(linha "no-deps cloudflared")" ]'
 confere 'zammad-init da imagem roda antes da aplicação' '[ "$(linha "run --rm --no-deps zammad-init")" -lt "$(linha "zammad-railsserver zammad-websocket")" ]'
 confere 'Elasticsearch sobe e o estado é conferido' 'grep -q "zammad-elasticsearch$" "$work/log" && grep -q "wait_for_status=yellow" "$work/log"'
@@ -70,17 +70,27 @@ confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q 
 cenario 'REINDEXAR=1 reconstrói o índice antes do túnel' 0 ABRIR_TUNEL=1 REINDEXAR=1
 confere 'reindexação antes de reabrir' '[ "$(linha "searchindex:rebuild")" -lt "$(linha "no-deps cloudflared")" ]'
 
+fechado_de_novo() { [ "$(linha "stop cloudflared")" -gt "$(linha "no-deps cloudflared")" ] && grep -q "parado de novo" "$work/saida"; }
+
 cenario 'cloudflared cai logo depois de iniciar' 1 ABRIR_TUNEL=1 TUNNEL_LOG='ERR token inválido' TUNNEL_RUNNING=false
-confere 'queda do túnel vira falha com o motivo dos logs' 'grep -q "encerrou logo depois de iniciar" "$work/saida" && grep -q "token inválido" "$work/saida"'
+confere 'queda do túnel vira falha com o motivo e o túnel é fechado de novo' \
+  'grep -q "não está em execução" "$work/saida" && grep -q "token inválido" "$work/saida" && fechado_de_novo'
+
+cenario 'cloudflared conecta e cai' 1 ABRIR_TUNEL=1 TUNNEL_RUNNING=false
+confere 'registro antigo de conexão não vale com o container parado' '! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
 
 cenario 'cloudflared nunca registra conexão' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel'
-confere 'sem conexão registrada não há sucesso' 'grep -q "sem conexão registrada" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida"'
+confere 'sem conexão registrada não há sucesso e o túnel é fechado de novo' \
+  'grep -q "sem conexão registrada" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
 
 cenario 'falha ao parar o túnel' 1 ABRIR_TUNEL=1 FALHAR_EM='stop cloudflared'
 confere 'não afirma túnel parado sem ter parado' 'grep -q "pode continuar aberto" "$work/saida" && grep -q "não verificado" "$work/saida"'
 
-printf 'OUTRA=1\n' > "$work/.env"
-cenario 'sem LRI_IMAGE_TAG no .env' 1 ABRIR_TUNEL=1
-confere 'sem tag nada é chamado e o túnel fica como não verificado' '[ ! -s "$work/log" ] && grep -q "não verificado" "$work/saida"'
+cenario 'compose não renderiza (LRI_IMAGE_TAG ausente)' 1 ABRIR_TUNEL=1 FALHAR_EM='config --images'
+confere 'nada além da leitura é chamado e o túnel fica como não verificado' \
+  '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "não verificado" "$work/saida"'
+
+cenario 'imagem configurada fora do repositório do fork' 1 ABRIR_TUNEL=1 IMAGEM_CONFIG=ghcr.io/zammad/zammad:7.2.0
+confere 'imagem estranha recusada antes de parar algo' '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "fora de ghcr.io/leaberg69/zammad-lri" "$work/saida"'
 
 exit "$falhas"

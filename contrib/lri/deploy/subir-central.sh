@@ -17,22 +17,35 @@ DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsear
 
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
 tunnel_state="não verificado (nada foi parado ainda)"
+tunnel_started=0
 
 passo() { printf '== %s\n' "$*"; }
 parar() {
+  # Falha depois de reabrir o túnel: fecha de novo, para ele não abrir sozinho mais tarde.
+  if [ "$tunnel_started" = 1 ]; then
+    if "${DC[@]}" stop cloudflared > /dev/null 2>&1; then
+      tunnel_state="parado de novo depois da falha"
+    else
+      tunnel_state="PODE ESTAR ABERTO: falhou ao parar o cloudflared depois da falha"
+    fi
+  fi
   printf 'PARAR: %s. Estado do túnel: %s. Ver "docker compose ... logs" do serviço citado.\n' "$*" "$tunnel_state" >&2
   exit 1
 }
 
-tag=$(sed -n 's/^LRI_IMAGE_TAG=//p' .env 2>/dev/null | tail -n 1)
-[ -n "$tag" ] || parar "LRI_IMAGE_TAG ausente no .env"
-expected_image="$IMAGE_REPO:$tag"
+# A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
+expected_image=$("${DC[@]}" config --images zammad-railsserver) \
+  || parar "o compose não renderizou a configuração (ver a mensagem acima, por exemplo LRI_IMAGE_TAG ausente)"
+case "$expected_image" in
+  "$IMAGE_REPO":*) ;;
+  *) parar "zammad-railsserver configurado com '$expected_image', fora de $IMAGE_REPO" ;;
+esac
 
 passo "túnel parado"
 "${DC[@]}" stop cloudflared || parar "não foi possível parar o cloudflared (pode continuar aberto)"
 tunnel_state="parado"
 
-passo "checagem da tag $tag"
+passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 "${DC[@]}" run --rm --no-deps lri-config-check || parar "tag recusada pelo lri-config-check"
 
 passo "dependências (banco, cache, Redis, Elasticsearch)"
@@ -76,19 +89,21 @@ if [ "${ABRIR_TUNEL:-0}" != 1 ]; then
 fi
 
 passo "reabrindo o túnel"
+tunnel_started=1
 "${DC[@]}" up -d --force-recreate --no-deps cloudflared || parar "cloudflared não subiu"
 tunnel_state="iniciado, sem conexão confirmada"
 
-# Sucesso só com a conexão registrada na Cloudflare; o container cair (token ou config recusados) para na hora.
+# Sucesso só com o container em execução E a conexão registrada na Cloudflare. Container parado (token ou config
+#   recusados, ou queda depois de conectar) ou tempo esgotado: falha, e parar() fecha o túnel de novo.
 tunnel_id=$("${DC[@]}" ps -a -q cloudflared)
 for _ in $(seq 1 30); do
+  [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
+    || parar "cloudflared não está em execução: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
   if "${DC[@]}" logs cloudflared 2>&1 | grep -q 'Registered tunnel connection'; then
     tunnel_state="aberto"
     echo "TÚNEL ABERTO: conexão registrada na Cloudflare."
     exit 0
   fi
-  [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
-    || parar "cloudflared encerrou logo depois de iniciar: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
   sleep "$ESPERA"
 done
 parar "cloudflared sem conexão registrada depois de 30 tentativas"

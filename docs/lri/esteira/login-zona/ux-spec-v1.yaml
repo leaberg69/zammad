@@ -1,0 +1,114 @@
+# ux-spec-v1 — Login por zona: a tela de login pública não mostra os provedores de terceiros da equipe
+# Desenhado sem ver a tela: faltam o screenshot do app real (1440 px e 390 px, nas duas zonas) e a saída do
+# medir-tela.js. Tudo abaixo foi conferido no código, com arquivo e linha citados.
+artifact_meta:
+  name: ux-spec
+  version: 1
+  produced_by: ux_engineer_a
+  created_at: "2026-11-01T00:00:00Z"
+  base_git_commit: c14d1a3969
+  cycle_id: nivel-1-sem-ciclo-registrado
+  identity_raw_sha256: null
+  consumed:
+    - { artifact: docs/lri/PLANO.md, secoes: ["2.9", "2.9.3 item 1 (Interface)", "linha 229 (user_show_password_login ligado)"] }
+format_version: 2
+
+ui_impact: low   # só esconde o que já existe; nenhum componente, texto ou token novo
+
+tela_em_uma_frase: "Cliente entra no portal suporte.* com e-mail e senha; nada na tela leva ao login da equipe."
+
+user_flows:
+  - id: F1-cliente-zona-publica
+    goal: Entrar com e-mail e senha sem ver opção que não é dele.
+    steps:
+      - Abre suporte.<marca>; vê o logo, o formulário (usuário/e-mail, senha, Lembrar de mim, Entrar), "Esqueceu a senha?" e "Registrar" (se ativado).
+      - Não vê o separador "ou entre com" nem botões de Google, Microsoft ou outro provedor.
+    error_paths:
+      - "Credencial inválida: alerta de erro upstream acima do formulário (inalterado)."
+  - id: F2-equipe-zona-interna
+    goal: Entrar por Google (LRI) ou Microsoft (IRD.Net) atrás do Cloudflare Access.
+    steps:
+      - "Abre o endereço interno; vê os botões dos provedores ligados, como no upstream."
+    error_paths:
+      - Inalterado (upstream).
+
+o_que_sai_da_tela:
+  - { item: "separador 'ou entre com' / 'Entre com'", zona: publica, vai_para: "nenhum lugar" }
+  - { item: "botões de Google, Microsoft, SAML, OpenID Connect, SSO e demais provedores", zona: publica, vai_para: "zona interna (já estão lá)" }
+  - { item: "redirecionamento automático para provedor único (third_party_login_auto_redirect)", zona: publica, vai_para: "zona interna", nota: "com zero provedores ele não dispara (login.coffee:36, useThirdPartyAuthenticationAutoRedirect.ts:64). Antes, com um único provedor ligado, mandava o cliente direto para a página de bloqueio." }
+
+conferencia_no_codigo:   # nenhuma interface precisa de mudança; o servidor resolve
+  legado:
+    - "login.jst.eco:65-89: separador e .auth-providers ficam juntos dentro de `if !_.isEmpty(@auth_providers)`; com a lista vazia somem os dois, sem separador órfão."
+    - "login.jst.eco:13: user_show_password_login = config OU lista vazia; com zero provedores o formulário de senha aparece sempre, mesmo se o administrador desligar user_show_password_login."
+    - "login.jst.eco:103-108: o rodapé 'Se tiver problemas com o login de terceiros...' só aparece sem login por senha; na zona pública não aparece."
+    - "login.coffee:118-124: provedor ativo só se a config vale true ou 'true'; false ou ausente esconde."
+  vue_desktop:
+    - "pages/authentication/views/Login.vue:285-288: <LoginThirdParty v-if=hasEnabledProviders>; o rótulo 'Ou entre com' fica DENTRO do componente (components/LoginThirdParty.vue:18-22), então some junto."
+    - "Login.vue:179-184: showPasswordLogin = config OU !hasEnabledProviders; formulário garantido."
+  vue_mobile:
+    - "mobile/.../views/Login.vue:148-151 e components/LoginThirdParty.vue:18-21: mesmo padrão; a margem mb-16 é do próprio componente e sai com ele."
+    - "mobile Login.vue:68-70: formulário garantido."
+  contrato_com_o_servidor: "useThirdPartyAuthentication.ts:39-111 usa !!config.auth_x: o servidor tem de mandar o booleano false (ou omitir a chave), NUNCA a string 'false', que daria botão visível. Teste do servidor deve conferir o tipo."
+  perfil_do_cliente:
+    - "Vue desktop: o item 'Contas vinculadas' some sem provedores (personal-setting/.../plugins/linkedAccounts.ts:28-31). Ganho."
+    - "Legado: #profile/linked continua no menu do cliente (permissão concedida em db/seeds/permissions.rb:581) e mostra só o título 'Vincular contas', com a lista vazia (profile/linked_accounts.jst.eco:7-21). É o estado padrão do upstream sem provedores; aceito, fora do escopo desta fatia. Antes mostrava 'Adicionar' para Google e Microsoft, que caía no 403, o que era pior."
+
+estados:
+  publica_antes: "formulário + separador 'ou entre com' + botões de Google e Microsoft (o clique cai no 403 'Acesso da equipe só pelo endereço interno')"
+  publica_depois: "formulário + 'Esqueceu a senha?' + rodapé upstream ('Já está cadastrado com seu e-mail...', Registrar, links públicos, 'Continuar para versão móvel'); sem separador, sem botões"
+  interna_antes_e_depois: "igual: formulário (se user_show_password_login) + separador + botões dos provedores ligados"
+  carregando_erro_vazio: "inalterados (upstream); a fatia não cria estado novo"
+
+decisao_link_para_equipe:
+  decisao: "NÃO. A tela pública não ganha texto nem link para a equipe."
+  motivo:
+    - "Quem vê o login público é cliente, que não precisa disso. A equipe entra pelo endereço interno, salvo no navegador. Menos na tela."
+    - "Um link para um endereço que exige Cloudflare Access levaria o cliente curioso a uma tela de login do Access que não é para ele."
+    - "Fica registrado que esconder o endereço NÃO é o motivo: a página de bloqueio já mostra o endereço interno como link (lib/lri/zone_guard/deny_response.rb:66-69; spec/requests/lri/zone_guard_spec.rb:164) e o nome está no DNS. O motivo é de UX, não de sigilo."
+  copy_nova: "nenhuma"
+
+limitacao_tempo_real:
+  onde: "só no legado: o evento config_update (broadcast público) passa por App.Config.set e config_update_local; login.coffee:66-78 redesenha a tela para qualquer auth_*. No Vue a assinatura configUpdates já sai filtrada por zona."
+  efeito: "se um administrador liga um provedor, o cliente com o login legado aberto passa a ver o separador e o botão até recarregar. O formulário de senha continua visível (user_show_password_login ligado, PLANO.md:229); o redesenho apaga o que ele já tinha digitado (upstream). O clique leva ao 403."
+  veredito: "ACEITÁVEL. É raro (mudança de provedor acontece na implantação), não trava o login por senha e não dá acesso nenhum."
+  condicao: "se user_show_password_login for desligado um dia, deixa de ser aceitável: o redesenho com um provedor vazado esconderia o formulário de senha do cliente. Reavaliar nesse caso."
+  sugestao_fora_do_escopo: "a página de bloqueio não tem caminho de volta ao portal. Fatia futura e opcional: link 'Voltar ao portal dos clientes' para a raiz do host público."
+
+acceptance_visuals:
+  ambiente: "app real (não mock), guarda em enforce, Google e Microsoft LIGADOS na administração, user_show_password_login ligado; legado em /#login, Vue desktop em /desktop/login, mobile em /mobile/login; 1440 x 900 e 390 x 844"
+  telas:
+    - id: V1-publica-legado
+      deve_aparecer: ["logo da marca do host", "Usuário / e-mail, Senha, Lembrar de mim, Entrar", "Esqueceu a senha?"]
+      nao_pode_aparecer: ["separador 'ou entre com' ou 'Entre com'", "qualquer .auth-provider", "texto 'login de terceiros'", "qualquer menção ao endereço interno ou à equipe"]
+      medida: "em DevTools, document.querySelectorAll('.auth-providers, .separator').length == 0"
+    - id: V2-publica-vue-desktop
+      nao_pode_aparecer: ["[data-test-id=loginThirdParty]", "'Ou entre com'", "botões Google ou Microsoft"]
+      deve_aparecer: ["formulário e botão Entrar, sem espaço vazio visível entre o botão e o rodapé"]
+    - id: V3-publica-mobile-390
+      nao_pode_aparecer: ["[data-test-id=loginThirdParty]", "'Ou entre com'"]
+      deve_aparecer: ["formulário; 'Continuar para desktop' logo abaixo, sem faixa vazia de ~64 px"]
+    - id: V4-interna-tres-interfaces
+      deve_aparecer: ["separador e botões Google e Microsoft, como no upstream"]
+      nota: "comparar lado a lado com V1 a V3: só o bloco de provedores difere"
+    - id: V5-sem-redirecionamento
+      passos: "ligar third_party_login_auto_redirect e desligar Microsoft (um provedor só), abrir o login público"
+      verdade: "a tela de login aparece; nenhum POST para /auth/* na aba Rede"
+    - id: V6-perfil-cliente-vue
+      verdade: "Vue desktop, cliente logado na zona pública: 'Contas vinculadas' não aparece nas configurações pessoais"
+      resultado_estagio_b: "NÃO SE APLICA nesta versão: a interface desktop nova não abre para cliente (o app para antes de carregar, conferido no teste de sistema do CI). O cliente usa a interface legada, cujo perfil fica com a lista vazia (perfil_do_cliente)."
+  regua: "a tela não ganha elemento; métricas do medir-tela.js iguais ou menores que no login interno"
+
+casos_de_borda:
+  - { caso: "provedor desligado globalmente", esperado: "sem botão nas duas zonas (upstream, inalterado)" }
+  - { caso: "guarda desligada (LRI_ZONE_GUARD diferente de enforce)", esperado: "comportamento do upstream: botões dos provedores ligados aparecem em qualquer host" }
+  - { caso: "zona interna com Google e Microsoft ligados", esperado: "os dois botões visíveis, separador correto, formulário conforme user_show_password_login" }
+  - { caso: "zona pública com user_show_password_login desligado", esperado: "formulário de senha aparece mesmo assim (lista vazia força o formulário); rodapé de 'login de terceiros' não aparece" }
+  - { caso: "administrador liga provedor com cliente na tela", esperado: "ver limitacao_tempo_real" }
+
+microcopy: "nenhum texto novo. Sem notação elétrica (não se aplica) e sem nome de fabricante (regra OEM conferida: só o nome das marcas LRI, IRD.Net e Mean Well Brasil no logo, já existente)."
+
+so_se_prova_rodando:
+  - "tipo do valor desligado (false booleano) no REST /api/v1/signshow, no applicationConfig e no configUpdates"
+  - "ausência de espaço vazio no Vue desktop e no mobile onde o bloco saiu"
+  - "o redesenho legado ao vivo (limitação), para registrar o screenshot do pior caso"

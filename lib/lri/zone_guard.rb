@@ -72,6 +72,25 @@ class Lri::ZoneGuard
     raise StaffInPublicZone, reason
   end
 
+  # Provedores de login de terceiros, todos recusados na zona pública: a interface de lá não mostra os botões.
+  PUBLIC_HIDDEN_SETTINGS = %w[
+    auth_facebook auth_github auth_gitlab auth_google_oauth2 auth_linkedin auth_microsoft_office365
+    auth_openid_connect auth_saml auth_sso auth_twitter auth_weibo
+  ].freeze
+
+  # Valor de uma configuração entregue à interface. Com a guarda ligada, só a zona interna vê os provedores.
+  def self.frontend_value(zone_name, setting_name, value, config: Lri::Zone::Config.current)
+    return value if !config.enforced? || zone_name == 'internal'
+    return value if PUBLIC_HIDDEN_SETTINGS.exclude?(setting_name)
+
+    false
+  end
+
+  # Zona de uma requisição GraphQL, gravada no contexto pelo GraphqlController e pelo GraphqlChannel.
+  def self.graphql_zone_name(context)
+    context[:lri_zone]
+  end
+
   # Zona de uma conexão de tempo real, para o WebSocket legado gravar na sessão da conexão; nil com a guarda desligada.
   def self.realtime_zone_name(header_lookup, config: Lri::Zone::Config.current)
     return if !config.enforced?

@@ -16,6 +16,18 @@ para cá.
 - O `contrib/lri/qa/wizard.json` cria usuários de teste com senha conhecida e **nunca** vira `auto_wizard.json` em
   homologação ou produção.
 
+Os comandos de leitura das seções 2, 3, 4, 6 e 7 estão em
+[`contrib/lri/vps/checklist-leitura.sh`](../../contrib/lri/vps/checklist-leitura.sh), sempre com fim de linha LF (o CI
+recusa CRLF). Para não reintroduzir CRLF ao copiar de uma máquina Windows, baixar direto na VPS, num arquivo
+temporário novo a cada vez (um download que falha não roda nada, nem uma cópia antiga):
+
+```sh
+script=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/leaberg69/zammad/develop/contrib/lri/vps/checklist-leitura.sh -o "$script" &&
+  bash "$script" > saida.txt 2>&1
+rm -f "$script"
+```
+
 Legenda de estado: `a verificar` = falta rodar; `decisão` = depende de Leandro ou do Cogerente; `registrado` = o
 fato já levantado está no registro privado e precisa ser reconferido.
 
@@ -138,3 +150,4 @@ O resultado de cada execução fica no registro privado da operação. Aqui só 
 | ---- | ------ | ----------- |
 | 31/10 | nenhuma | leitura barrada pelo controle de permissões da sessão |
 | 01/11 | 1, 2, 3, 4 e 6, em parte, só leitura | saída recebida e analisada sem acesso ao servidor. Alguns comandos falharam por fim de linha CRLF no script: repetir esses com LF |
+| 02/11 | 2, 3, 4, 6 e 7, só leitura | comandos que falharam refeitos com LF em `contrib/lri/vps/checklist-leitura.sh`; aguarda execução por Leandro (sessão sem acesso ao servidor) |

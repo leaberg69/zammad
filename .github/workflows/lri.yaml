@@ -50,8 +50,17 @@ jobs:
           fi
       - name: Scripts Python compilam
         run: python -m py_compile contrib/lri/qa/capture.py contrib/lri/branding/gerar_logos.py contrib/lri/deploy/test/*.py
-      - name: Shellcheck dos scripts de deploy
-        run: shellcheck contrib/lri/deploy/nginx-entrypoint.sh contrib/lri/deploy/test/nginx_zones_test.sh
+      - name: Shellcheck dos scripts de deploy e da VPS
+        run: shellcheck -x contrib/lri/deploy/nginx-entrypoint.sh contrib/lri/deploy/test/nginx_zones_test.sh contrib/lri/vps/*.sh contrib/lri/vps/test/*.sh
+      - name: Teste do script de leitura da VPS com falhas simuladas
+        run: bash contrib/lri/vps/test/checklist_leitura_test.sh
+      - name: Scripts que rodam no servidor sem CRLF
+        shell: bash
+        run: |
+          if grep -rlI $'\r' contrib/lri/deploy contrib/lri/vps; then
+            echo "Arquivos acima têm CRLF; no servidor, o bash falha com \$'\\r': command not found."
+            exit 1
+          fi
 
   nginx-zones:
     name: Nginx das zonas (interna x pública)

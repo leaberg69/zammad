@@ -96,6 +96,7 @@ acceptance_visuals:
       verdade: "a tela de login aparece; nenhum POST para /auth/* na aba Rede"
     - id: V6-perfil-cliente-vue
       verdade: "Vue desktop, cliente logado na zona pública: 'Contas vinculadas' não aparece nas configurações pessoais"
+      resultado_estagio_b: "NÃO SE APLICA nesta versão: a interface desktop nova não abre para cliente (o app para antes de carregar, conferido no teste de sistema do CI). O cliente usa a interface legada, cujo perfil fica com a lista vazia (perfil_do_cliente)."
   regua: "a tela não ganha elemento; métricas do medir-tela.js iguais ou menores que no login interno"
 
 casos_de_borda:

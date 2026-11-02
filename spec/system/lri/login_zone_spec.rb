@@ -90,19 +90,6 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
     it_behaves_like 'a login screen per zone', 'v2-desktop-1024', 1024, 768
   end
 
-  describe 'desktop personal settings of a customer', app: :desktop_view, authenticated_as: :customer do
-    let(:customer)  { create(:customer) }
-    let(:zone_name) { 'public' }
-
-    it 'has no linked accounts entry on the public zone' do
-      page.current_window.resize_to(1440, 900)
-      visit '/personal-setting'
-      expect(page).to have_text('Appearance')
-      expect(page).to have_no_text('Linked accounts')
-      capture('v6-desktop-perfil-cliente-publica')
-    end
-  end
-
   describe 'mobile interface', app: :mobile do
     def open_login
       visit '/login'

@@ -29,7 +29,7 @@ class GraphqlChannel < ApplicationCable::Channel
       # :browser_tab_id identifies the subscriber for Gql::ActionCableSubscriptions.
       browser_tab_id:  params[:browserTabId],
       # Grupo LRI: zona da conexão, nil com a guarda desligada (Lri::ZoneGuard.frontend_value).
-      lri_zone:        connection.lri_zone,
+      lri_zone:        connection.try(:lri_zone),
     }
 
     result = UserInfo.with_user_id(current_user&.id) do

@@ -25,28 +25,45 @@ ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o
 tunnel_state="não verificado (nada foi parado ainda)"
 tunnel_started=0
 init_name="lri-zammad-init-$$"
-init_running=0
+reindex_name="lri-zammad-reindex-$$"
+# Container temporário em andamento (init ou reindexação): parar() o encerra e confirma.
+temp_container=""
+temp_effect=""
 init_state=""
 
 passo() { printf '== %s\n' "$*"; }
 
-# Remove o container do init e só afirma o encerramento se uma consulta bem-sucedida confirmar que ele sumiu: um
-#   init vivo segue migrando o banco.
-encerrar_init() {
+# Remove o container temporário e só afirma o encerramento se uma consulta bem-sucedida confirmar que ele sumiu: um
+#   init vivo segue migrando o banco, uma reindexação viva segue apagando e recriando índices.
+encerrar_temporario() {
   local rm_output remaining
-  rm_output=$(docker rm -f "$init_name" 2>&1)
-  if remaining=$(docker ps -a -q --filter "name=^${init_name}\$" 2>&1) && [ -z "$remaining" ]; then
-    init_state="o container $init_name foi encerrado e removido"
+  rm_output=$(docker rm -f "$temp_container" 2>&1)
+  if remaining=$(docker ps -a -q --filter "name=^${temp_container}\$" 2>&1) && [ -z "$remaining" ]; then
+    init_state="o container $temp_container foi encerrado e removido"
   else
-    init_state="NÃO foi possível confirmar o encerramento do container $init_name ($rm_output; consulta:"
-    init_state="$init_state ${remaining:-sem saída}); ele pode continuar migrando o banco: não restaurar nem subir de"
+    init_state="NÃO foi possível confirmar o encerramento do container $temp_container ($rm_output; consulta:"
+    init_state="$init_state ${remaining:-sem saída}); ele pode continuar $temp_effect: não restaurar nem subir de"
     init_state="$init_state novo antes de conferir com docker ps -a"
   fi
-  init_running=0
+  temp_container=""
+}
+
+# Roda um container temporário com prazo, rastreado por nome; qualquer saída diferente de 0 passa por parar().
+temporario() {
+  local name=$1 effect=$2 prazo=$3 descricao=$4; shift 4
+  temp_container=$name
+  temp_effect=$effect
+  timeout --kill-after=30 "$prazo" "${DC[@]}" run --rm --no-deps --name "$name" "$@"
+  local code=$?
+  if [ "$code" = 124 ] || [ "$code" = 137 ]; then
+    parar "$descricao passou do prazo de $prazo s"
+  fi
+  [ "$code" = 0 ] || parar "$descricao falhou (código $code)"
+  temp_container=""
 }
 
 parar() {
-  [ "$init_running" = 1 ] && encerrar_init
+  [ -n "$temp_container" ] && encerrar_temporario
   # Falha depois da liberação: os processos de fundo param de novo.
   if [ "$background_started" = 1 ]; then
     if "${DC[@]}" stop "${BACKGROUND_SERVICES[@]}" > /dev/null 2>&1; then
@@ -64,7 +81,7 @@ parar() {
     fi
   fi
   printf 'PARAR: %s.%s Estado do túnel: %s. Ver "docker compose ... logs" do serviço citado.\n' \
-    "$*" "${init_state:+ Init: $init_state.}" "$tunnel_state" >&2
+    "$*" "${init_state:+ Containers: $init_state.}" "$tunnel_state" >&2
   exit 1
 }
 
@@ -82,8 +99,9 @@ if [ -z "$expected_image" ] || [ "$(printf '%s\n' "$expected_image" | wc -l)" !=
   parar "imagem do zammad-railsserver fora de $IMAGE_REPO ou com mais de uma tag: $(printf '%s' "$images" | tr '\n' ' ')"
 fi
 
-# Interrupção (Ctrl+C, TERM) em qualquer ponto passa por parar(), que fecha o túnel se ele já tiver sido reaberto.
-trap 'parar "execução interrompida"' INT TERM
+# Interrupção (Ctrl+C, TERM, queda da sessão SSH) em qualquer ponto passa por parar(): encerra o container temporário
+#   em andamento, para os processos de fundo e fecha o túnel, conforme o que já tiver sido feito.
+trap 'parar "execução interrompida"' INT TERM HUP
 
 passo "túnel parado"
 "${DC[@]}" stop cloudflared || parar "não foi possível parar o cloudflared (pode continuar aberto)"
@@ -96,12 +114,13 @@ running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
   || parar "não foi possível confirmar a parada da aplicação: $running"
 [ -z "$running" ] || parar "serviços da aplicação ainda em execução depois do stop: $running"
 
-# Um init de antes (execução interrompida à força, ou iniciado pelo compose) não pode migrar junto com o novo.
-#   Na dúvida (outra stack com serviço zammad-init, consulta que falha), para.
-old_inits=$( { docker ps -q --filter status=running --filter label=com.docker.compose.service=zammad-init \
-             && docker ps -q --filter status=running --filter name=lri-zammad-init-; } 2>&1 ) \
-  || parar "não foi possível consultar containers de init em execução: $old_inits"
-[ -z "$old_inits" ] || parar "há zammad-init em execução de antes ($(printf '%s' "$old_inits" | sort -u | tr '\n' ' '));" \
+# Um init ou uma reindexação de antes (execução interrompida à força, ou iniciados pelo compose) não podem rodar junto
+#   com os novos. Na dúvida (outra stack com serviço zammad-init, consulta que falha), para.
+old_temps=$( { docker ps -q --filter status=running --filter label=com.docker.compose.service=zammad-init \
+             && docker ps -q --filter status=running --filter name=lri-zammad-init- \
+             && docker ps -q --filter status=running --filter name=lri-zammad-reindex-; } 2>&1 ) \
+  || parar "não foi possível consultar containers de init ou reindexação em execução: $old_temps"
+[ -z "$old_temps" ] || parar "há init ou reindexação em execução de antes ($(printf '%s' "$old_temps" | sort -u | tr '\n' ' '));" \
   "esperar terminar ou conferir com docker ps antes de subir"
 
 passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
@@ -121,16 +140,9 @@ if ! printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' \
 fi
 
 passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"
-init_running=1
-timeout --kill-after=30 "${INIT_PRAZO:-1800}" "${DC[@]}" run --rm --no-deps --name "$init_name" zammad-init
-init_code=$?
-# Qualquer saída diferente de 0 (prazo, erro do cliente Docker ou do próprio init) passa por encerrar_init(), via
-#   parar(): o cliente pode ter caído com o container ainda migrando.
-if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
-  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s"
-fi
-[ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
-init_running=0
+# Qualquer saída diferente de 0 (prazo, erro do cliente Docker ou do próprio init) passa por parar(), que encerra e
+#   confirma o container: o cliente pode ter caído com ele ainda migrando.
+temporario "$init_name" "migrando o banco" "${INIT_PRAZO:-1800}" "zammad-init" zammad-init
 
 conferir_imagens() {
   local service id image
@@ -170,9 +182,10 @@ ate_responder "Nginx (listener público 127.0.0.1:8081)" "${DC[@]}" exec -T zamm
   sh -c 'curl -sf --max-time 10 -o /dev/null -H "Host: $LRI_FQDN" http://127.0.0.1:8081/'
 
 if [ "${REINDEXAR:-0}" = 1 ]; then
-  passo "reconstrução do índice de busca"
-  "${DC[@]}" exec -T zammad-railsserver bundle exec rake zammad:searchindex:rebuild \
-    || parar "reconstrução do índice falhou"
+  # Em container próprio e rastreado, como o init: se o cliente cair, parar() encerra e confirma.
+  passo "reconstrução do índice de busca, com prazo de ${REINDEX_PRAZO:-3600} s"
+  temporario "$reindex_name" "apagando e recriando os índices de busca" "${REINDEX_PRAZO:-3600}" \
+    "reconstrução do índice" zammad-railsserver bundle exec rake zammad:searchindex:rebuild
 fi
 
 echo "PORTÕES OK ($expected_image)"

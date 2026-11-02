@@ -149,10 +149,10 @@ cenario 'cloudflared nunca conecta' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tun
 confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
   'grep -q "sem conexão ativa" "$work/saida" && grep -q "Starting tunnel" "$work/saida" && fechado_de_novo'
 
-# Roda o script em segundo plano, com o mesmo ambiente de cenario(), e manda TERM só depois de ver $1 no log.
+# Roda o script em segundo plano, com o mesmo ambiente de cenario(), e manda o sinal $1 só depois de ver $2 no log.
 #   Se o passo não for alcançado em 30 s, o cenário falha por si (não vale interromper outra fase).
 interromper_em() {
-  local marca=$1; shift
+  local sinal=$1 marca=$2; shift 2
   : > "$work/log"
   (cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_ESTABILIZAR=0 \
     SUBIR_PRAZO_TENTATIVA=1 "$@" bash "$script" > "$work/saida" 2>&1) &
@@ -161,7 +161,7 @@ interromper_em() {
     if grep -q -- "$marca" "$work/log" 2>/dev/null; then visto=1; break; fi
     sleep 0.1
   done
-  kill -TERM "$pid" 2>/dev/null
+  kill -"$sinal" "$pid" 2>/dev/null
   wait "$pid"
   codigo=$?
   if [ "$visto" != 1 ]; then
@@ -169,9 +169,11 @@ interromper_em() {
   fi
 }
 
-interromper_em '20241/ready' SUBIR_TENTATIVAS=50 PENDURAR_EM='20241/ready' ABRIR_TUNEL=1
-confere 'interrupção com o túnel aberto fecha o túnel e diz por quê' \
-  '[ "$codigo" != 0 ] && fechado_de_novo && grep -q "execução interrompida" "$work/saida"'
+for sinal in TERM HUP; do
+  interromper_em "$sinal" '20241/ready' SUBIR_TENTATIVAS=50 PENDURAR_EM='20241/ready' ABRIR_TUNEL=1
+  confere "$sinal com o túnel aberto fecha túnel e processos de fundo e diz por quê" \
+    '[ "$codigo" != 0 ] && fechado_de_novo && grep -q "processos de fundo parados de novo" "$work/saida" && grep -q "execução interrompida" "$work/saida"'
+done
 
 # Outra execução segurando o lock: a segunda é recusada antes de tocar na stack.
 ( flock 9; sleep 5 ) 9> "$work/.subir-central.lock" &
@@ -196,9 +198,19 @@ confere 'imagem estranha recusada antes de parar algo' '[ "$(wc -l < "$work/log"
 cenario 'duas tags do fork na mesma configuração' 1 ABRIR_TUNEL=1 IMAGEM_CONFIG_2=ghcr.io/leaberg69/zammad-lri:9.9.9
 confere 'tags divergentes recusadas antes de parar algo' '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "mais de uma tag" "$work/saida"'
 
-# Interrupção durante o init: o container do init tem de ser encerrado e a remoção confirmada.
-interromper_em 'name lri-zammad-init' INIT_PRAZO=60 PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1
-confere 'interrupção durante o init encerra o init e confirma' \
-  '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
+# Interrupção durante o init e durante a reindexação: o container temporário é encerrado e a remoção confirmada.
+for sinal in TERM HUP; do
+  interromper_em "$sinal" 'name lri-zammad-init' INIT_PRAZO=60 PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1
+  confere "$sinal durante o init encerra o init e confirma" \
+    '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
+done
+
+interromper_em TERM 'name lri-zammad-reindex' REINDEXAR=1 REINDEX_PRAZO=60 PENDURAR_EM='name lri-zammad-reindex' ABRIR_TUNEL=1
+confere 'interrupção durante a reindexação encerra o container e confirma' \
+  '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-reindex-" "$work/log" && grep -q "foi encerrado e removido" "$work/saida" && ! fundo_iniciado'
+
+cenario 'reindexação falha com o container ainda lá' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='name lri-zammad-reindex' INIT_RESTANTE=abc
+confere 'reindexação remanescente vira aviso explícito' \
+  'grep -q "NÃO foi possível confirmar o encerramento do container lri-zammad-reindex-" "$work/saida" && grep -q "apagando e recriando os índices" "$work/saida"'
 
 exit "$falhas"

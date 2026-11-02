@@ -140,6 +140,17 @@ RSpec.describe Lri::Provisioning do
       expect(ticket.reload.group).to eq(brand_queue)
     end
 
+    it 'keeps a collaborator out of the brand queues even if the internal root group is renamed', :aggregate_failures do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      ticket       = create_ticket_as(collaborator, internal_queue)
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+
+      expect do
+        UserInfo.with_user_id(collaborator.id) { ticket.update!(group: brand_queue, screen: 'edit') }
+      end.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(ticket.reload.group_id).to eq(internal_queue.id)
+    end
+
     it 'lets an existing ticket be edited when its group does not change' do
       outsider = create(:customer)
       ticket   = UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }

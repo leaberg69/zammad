@@ -30,7 +30,6 @@ module Lri::QueueAudience
   # nil = permitido; senão, o motivo da recusa.
   def self.denial(user, group)
     return if group.nil? || !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
-    return if !Group.exists?(name: INTERNAL_ROOT)
 
     internal     = internal_group?(group)
     collaborator = collaborator?(user)

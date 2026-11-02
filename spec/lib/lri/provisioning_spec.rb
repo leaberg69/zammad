@@ -115,11 +115,18 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
     end
 
-    it 'treats an internal queue created after provisioning as internal', :aggregate_failures do
+    it 'treats an internal queue created after provisioning as internal on the server' do
+      new_queue = create(:group, name: 'Interno::RH')
+
+      expect(Lri::QueueAudience.denial(create(:customer), new_queue)).to eq('fila interna para cliente de fora')
+    end
+
+    it 'opens an internal queue created later to collaborators on the next run', :aggregate_failures do
       new_queue    = create(:group, name: 'Interno::RH')
       collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
 
-      expect { create_ticket_as(create(:customer), new_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('+Interno::RH')
+      expect { create_ticket_as(create(:customer), new_queue) }.to raise_error(Exceptions::UnprocessableContent)
       expect { create_ticket_as(collaborator, new_queue) }.to change(Ticket, :count).by(1)
     end
 

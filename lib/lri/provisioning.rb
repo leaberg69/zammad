@@ -106,9 +106,10 @@ class Lri::Provisioning
     [brand] + GROUPS.fetch(brand).map { |queue| "#{brand}::#{queue}" }
   end
 
-  # Todas as filas; as internas ficam escondidas de quem é de fora pelo INTERNAL_QUEUES_WORKFLOW.
+  # Todas as filas, inclusive as internas criadas depois; elas ficam escondidas de quem é de fora pelos workflows.
   def self.customer_group_names
-    GROUPS.keys.flat_map { |brand| group_names(brand).drop(1) }
+    provisioned = GROUPS.keys.flat_map { |brand| group_names(brand).drop(1) }
+    (provisioned + Lri::QueueAudience.internal_groups.where.not(name: Lri::QueueAudience::INTERNAL_ROOT).pluck(:name)).uniq
   end
 
   def self.internal_group_names

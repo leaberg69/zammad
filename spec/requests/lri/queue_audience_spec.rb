@@ -47,13 +47,33 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     expect { rest_create(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
   end
 
-  it 'refuses an outsider in an internal queue over GraphQL', :aggregate_failures do
+  def graphql_error
+    response.parsed_body.dig('errors', 0, 'message').to_s
+  end
+
+  it 'refuses an outsider in an internal queue over GraphQL, because of the group', :aggregate_failures do
     expect { graphql_create_as(outsider, internal_queue) }.not_to change(Ticket, :count)
-    expect(response.parsed_body.dig('data', 'ticketCreate', 'ticket')).to be_nil
+    expect(graphql_error).to eq("Invalid value '#{internal_queue.id}' for field 'group_id'!")
+  end
+
+  it 'refuses a collaborator in a brand queue over GraphQL, because of the group', :aggregate_failures do
+    expect { graphql_create_as(collaborator, brand_queue) }.not_to change(Ticket, :count)
+    expect(graphql_error).to eq("Invalid value '#{brand_queue.id}' for field 'group_id'!")
+  end
+
+  it 'accepts an outsider in a brand queue over GraphQL' do
+    expect { graphql_create_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
   end
 
   it 'accepts a collaborator in an internal queue over GraphQL' do
     expect { graphql_create_as(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
+  end
+
+  it 'gives the server rule message over GraphQL when the workflows are off' do
+    CoreWorkflow.where(name: [Lri::Provisioning::INTERNAL_QUEUES_WORKFLOW]).update_all(active: false)
+
+    graphql_create_as(outsider, internal_queue)
+    expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
   end
 
   it 'tells the customer why when only the server rule refuses' do

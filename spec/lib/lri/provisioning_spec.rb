@@ -266,6 +266,16 @@ RSpec.describe Lri::Provisioning do
       end.to change(Ticket, :count).by(1)
     end
 
+    it 'leaves the parent group options of the group admin screen alone' do
+      admin_customer = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      admin_customer.roles << Role.find_by(name: 'Admin')
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Group',
+                                               'screen' => 'create', 'params' => {} }, user: admin_customer, assets: false)
+
+      expect(Array(result[:restrict_values]['parent_id']).map(&:to_s)).to include(Group.find_by(name: 'LRI').id.to_s, Group.find_by(name: 'Interno').id.to_s)
+    end
+
     it 'leaves agents alone' do
       agent = create(:agent, groups: [internal_queue, brand_queue])
 

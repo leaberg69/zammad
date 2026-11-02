@@ -95,9 +95,10 @@ module Lri::QueueAudience
 
     private
 
+    # Só no formulário de chamado: a mesma classe dá as opções de grupo pai na administração de grupos.
     def lri_audience_only(groups)
       user = @attributes.user
-      return groups if user.nil? || Lri::QueueAudience.exempt?(user)
+      return groups if @attributes.payload_class != Ticket || user.nil? || Lri::QueueAudience.exempt?(user)
 
       groups.where(id: Lri::QueueAudience.allowed_group_ids(user, groups.pluck(:id)))
     end

@@ -85,7 +85,7 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=sha,prefix=develop-,format=short,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=sha,prefix=develop-,format=long,enable=${{ github.ref == 'refs/heads/develop' }}
             type=match,pattern=^lri-v(\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?)$,group=1
           labels: |
             org.opencontainers.image.title=Central de Atendimento Grupo LRI

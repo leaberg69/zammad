@@ -24,7 +24,10 @@ fato já levantado está no registro privado e precisa ser reconferido.
 | Estado | Item |
 | ------ | ---- |
 | registrado | levantamento anterior do servidor (sistema, proxy, projetos vizinhos, rede privada) — reconferir na execução |
-| decisão | **instalação existente do Zammad no servidor**, sem dados e sem configuração inicial: parar até a fase 5, ou substituir pela stack `lri-helpdesk` com a imagem do fork depois do snapshot. Enquanto existir sem configuração inicial, quem alcançar a interface dela pode criar o primeiro administrador; por isso a recomendação é pará-la logo |
+| feito | **instalação existente do Zammad no servidor** parada (conferido na leitura de 01/11). Os volumes dela continuam no disco |
+| decisão | **volumes da instalação parada**: remover libera disco, mas é apagar dados e exige OK de Leandro; manter até a fase 5 não atrapalha |
+| decisão | **capacidade da VPS** abaixo do dimensionamento do plano (seção 2): ampliar a VPS (custo) ou reduzir o dimensionamento da central |
+| recomendação | **firewall do host permissivo** e serviços de outros projetos escutando em todas as interfaces: revisar fora do escopo da central. A central não publica porta no host |
 | decisão | **privilégio administrativo amplo de outro usuário de serviço no host** (detalhe no registro privado): reduzir ao que o serviço usa ou aceitar o risco por escrito. Isolar a central num usuário próprio não protege contra root |
 | decisão | operação dos containers da central: Docker rootless, Podman rootless ou `sudo` restrito aos comandos do Compose |
 
@@ -32,11 +35,11 @@ fato já levantado está no registro privado e precisa ser reconferido.
 
 | Estado | Item | Comando (somente leitura) |
 | ------ | ---- | ------------------------- |
-| a verificar | vCPU, memória e disco totais | `nproc; free -h; df -h` |
+| conferido | vCPU, memória e disco totais: 4 vCPU no servidor inteiro, 16 GB de memória, disco com cerca de 80% ocupado | `nproc; free -h; df -h` |
 | a verificar | consumo atual por projeto, em horário de pico | `docker stats --no-stream`; `ps -eo user,rss,pcpu,cmd --sort=-rss \| head -40` |
-| a verificar | sobra de pelo menos 4 vCPU, 8 GB e 100 GB para a central, mais 20% de margem para os outros projetos (seção 6.4 do plano) | conta a partir das linhas acima |
-| a verificar | tipo de disco e possibilidade de ampliar disco e memória sem reinstalar | painel do provedor; `lsblk -d -o NAME,ROTA,SIZE` |
-| a verificar | swap configurado | `swapon --show` |
+| **não atende** | sobra de pelo menos 4 vCPU, 8 GB e 100 GB para a central, mais 20% de margem para os outros projetos (seção 6.4 do plano): o servidor inteiro tem 4 vCPU, já usa swap e tem menos de 40 GB livres. Decisão na seção 1 | conta a partir das linhas acima |
+| conferido | disco SSD; ampliar disco e memória sem reinstalar ainda a confirmar no painel do provedor | painel do provedor; `lsblk -d -o NAME,ROTA,SIZE` |
+| conferido | swap configurado e em uso, sinal de pressão de memória | `swapon --show` |
 | a verificar | país e região do datacenter, para a LGPD | painel do provedor |
 
 ## 3. Convivência com os outros projetos
@@ -47,7 +50,7 @@ fato já levantado está no registro privado e precisa ser reconferido.
 | a verificar | nome `lri-helpdesk` livre para projeto Compose, rede e volumes | `docker compose ls; docker network ls \| grep -i helpdesk` |
 | a verificar | PostgreSQL, Redis e Elasticsearch exclusivos da central, sem porta publicada no host | `ss -tlnp` |
 | a verificar | limites `mem_limit` e `cpus` em todos os containers da central, somando no máximo a sobra medida | revisão do Compose antes da fase 5 |
-| a verificar | versões de Docker e Compose atendem à stack oficial sem atualização que afete os outros projetos | `docker version; docker compose version` |
+| conferido | versões de Docker e Compose atendem à stack oficial sem atualização que afete os outros projetos | `docker version; docker compose version` |
 | a verificar | política de reinício `unless-stopped` e subida independente dos outros projetos | revisão do Compose |
 
 ## 4. Rede, portas e Cloudflare (seção 2.9 do plano)
@@ -56,10 +59,10 @@ A central não abre porta nova nem altera o Nginx compartilhado: o `cloudflared`
 
 | Estado | Item | Comando ou local |
 | ------ | ---- | ---------------- |
-| a verificar | quem atende 80 e 443 hoje, para registrar que a central **não** entra nele | `ss -tlnp '( sport = :80 or sport = :443 )'` |
-| a verificar | saída liberada para a Cloudflare na porta 7844 (TCP e UDP), usada pelo túnel | `nc -vz -w5 region1.v2.argotunnel.com 7844` |
-| a verificar | saída liberada para Gmail (`imap.gmail.com:993`, `smtp.gmail.com:465/587`), APIs OAuth do Google, Microsoft Graph e Entra ID (`graph.microsoft.com`, `login.microsoftonline.com`) em 443 | `nc -vz -w5 <host> <porta>` |
-| a verificar | firewall: nenhuma regra nova necessária | `sudo ufw status verbose` (leitura) |
+| conferido | 80 e 443 atendidos pelo Nginx compartilhado; a central **não** entra nele | `ss -tlnp '( sport = :80 or sport = :443 )'` |
+| conferido em TCP | saída liberada para a Cloudflare na porta 7844, usada pelo túnel; UDP a conferir | `nc -vz -w5 region1.v2.argotunnel.com 7844` |
+| conferido | saída liberada para `imap.gmail.com:993`, `smtp.gmail.com:587`, `graph.microsoft.com:443` e `login.microsoftonline.com:443`; porta 465 e APIs OAuth do Google a conferir | `nc -vz -w5 <host> <porta>` |
+| conferido | firewall: nenhuma regra nova necessária. O host não usa `ufw`; a política de entrada é permissiva (recomendação na seção 1) | `sudo iptables -S` (leitura) |
 | registrado | registros `suporte` das três zonas criados por Leandro em 31/10 (A com proxy); passam a `CNAME` do túnel quando ele existir | painel da Cloudflare |
 | a verificar | registro `atendimento.lri.com.br` (nome interno decidido na issue #2) criado como `CNAME` do túnel | painel da Cloudflare |
 | a verificar | túnel **gerenciado localmente** (`config.yml` versionado em `contrib/lri/`), não pelo painel | `cloudflared tunnel info` |
@@ -111,7 +114,7 @@ Itens verificados em homologação, antes de produção.
 | ------ | ---- | ------------------------- |
 | a verificar | versão dentro da faixa aceita pelo Zammad: 8.15.0 até antes da 10 (`lib/search_index_backend.rb`); OpenSearch não serve | `docker inspect` do container |
 | a verificar | heap fixado (`ES_JAVA_OPTS`) e teto de memória do container com folga para o consumo nativo da JVM (cerca de 1,5 a 2 vezes o heap) | `docker inspect`; `docker stats` |
-| a verificar | `vm.max_map_count` do host (o Elasticsearch exige `262144`; o parâmetro vale para o host inteiro) | `sysctl vm.max_map_count` |
+| conferido | `vm.max_map_count` do host já acima de `262144`: nenhuma mudança no host | `sysctl vm.max_map_count` |
 | a verificar | nó único, segurança do motor ativa, porta 9200 sem publicação no host | `docker inspect`; `ss -tlnp` |
 | a verificar | `shared_buffers` do PostgreSQL e `maxmemory` do Redis coerentes com o `mem_limit` | revisão do Compose |
 
@@ -133,4 +136,5 @@ O resultado de cada execução fica no registro privado da operação. Aqui só 
 
 | Data | Seções | Autorização |
 | ---- | ------ | ----------- |
-| — | ainda não executado | aguarda OK de Leandro dado diretamente (em 31/10 a leitura na VPS foi barrada pelo controle de permissões da sessão) |
+| 31/10 | nenhuma | leitura barrada pelo controle de permissões da sessão |
+| 01/11 | 1, 2, 3, 4 e 6, em parte, só leitura | saída recebida e analisada sem acesso ao servidor. Alguns comandos falharam por fim de linha CRLF no script: repetir esses com LF |

@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 IMAGE_PREFIX = "ghcr.io/leaberg69/zammad-lri:"
 ZAMMAD_SERVICES = {
@@ -29,13 +30,16 @@ DUMMY_ENV = {
 
 
 def render(official, overlay, env):
-    # Variáveis da central herdadas do ambiente não podem mudar o resultado: só valem as de env.
+    # Só valem as variáveis de env: nem as herdadas do processo nem o .env que o compose carregaria sozinho do
+    #   diretório do projeto (--env-file vazio).
     base = {key: value for key, value in os.environ.items()
             if not key.startswith(("LRI_", "CLOUDFLARED_"))}
-    return subprocess.run(
-        ["docker", "compose", "-f", official, "-f", overlay, "config", "--format", "json"],
-        capture_output=True, text=True, env={**base, **env}, check=False,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".env") as empty_env:
+        return subprocess.run(
+            ["docker", "compose", "--env-file", empty_env.name, "-f", official, "-f", overlay,
+             "config", "--format", "json"],
+            capture_output=True, text=True, env={**base, **env}, check=False,
+        )
 
 
 GUARDED_SERVICES = ("zammad-railsserver", "zammad-websocket", "zammad-scheduler")
@@ -54,6 +58,20 @@ def check_guard_modes(official, overlay):
             guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
             if guard != expected:
                 problems.append(f"LRI_ZONE_GUARD={value!r}: {name} ficou {guard!r}, esperado {expected!r}")
+
+    # Um .env com off ao lado da stack oficial não pode vazar para a verificação do padrão enforce.
+    stray_env = os.path.join(os.path.dirname(os.path.abspath(official)), ".env")
+    if not os.path.exists(stray_env):
+        try:
+            with open(stray_env, "w", encoding="utf-8") as handle:
+                handle.write("LRI_ZONE_GUARD=off\n")
+            result = render(official, overlay, DUMMY_ENV)
+            guard = json.loads(result.stdout)["services"]["zammad-railsserver"]["environment"].get("LRI_ZONE_GUARD") \
+                if result.returncode == 0 else None
+            if guard != "enforce":
+                problems.append(f".env externo com off alterou a renderização (railsserver ficou {guard!r})")
+        finally:
+            os.remove(stray_env)
     return problems
 
 

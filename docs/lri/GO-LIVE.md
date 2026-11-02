@@ -14,7 +14,7 @@ existente (volumes, containers, stacks) é etapa à parte, com OK próprio.
 | Decisão de capacidade da VPS (ampliar ou reduzir a central) tomada; a soma dos `mem_limit` do overlay em operação é de cerca de 8,2 GB | [checklist](VPS-CHECKLIST.md), seção 1 |
 | Snapshot completo da VPS no provedor, com data e responsável | checklist, seção 7 |
 | Leitura do servidor refeita com LF (`contrib/lri/vps/checklist-leitura.sh`) e registrada | checklist, introdução |
-| Imagem escolhida: uma tag `develop-<sha>` publicada pelo workflow `LRI imagem` (resumo da execução no GitHub Actions) ou uma versão `X.Y.Z` (tag `lri-vX.Y.Z`); anotar o digest e o **commit do fork** que gerou a imagem (o `<sha>` da tag `develop-`, ou o commit da tag `lri-v`) | GitHub, aba Actions e pacote `zammad-lri` |
+| Imagem escolhida: uma tag `develop-<sha>` publicada pelo workflow `LRI imagem` (resumo da execução no GitHub Actions) ou uma versão `X.Y.Z` (tag `lri-vX.Y.Z`), de um commit que contenha este runbook (seção 11); anotar o digest e o **commit do fork** que gerou a imagem (o `<sha>` da tag `develop-`, ou o commit da tag `lri-v`) | GitHub, aba Actions e pacote `zammad-lri` |
 | Scan da imagem conferido: artefato `trivy-zammad-lri` da mesma execução, sem CRITICAL com correção disponível | GitHub Actions |
 
 ## 1. Acesso da VPS à imagem
@@ -212,5 +212,6 @@ resultado das conferências e qualquer desvio deste runbook. Aqui, só a data e 
 | ---- | ---- | ----------- |
 | — | ainda não executado | go-live liberado por Leandro em 02/11; aguarda as decisões do passo 0 |
 
-Primeira imagem com o overlay conferido no mesmo build: `ghcr.io/leaberg69/zammad-lri:develop-7cda0a691ca9a0c61bea6fc3b1d690343d45a254`
-(digest `sha256:b1275c0e94dc4f9b4d4cfd1ea574752b34c39082775cc789f36f86b3d00161ab`, commit do fork `7cda0a69`).
+A imagem do go-live tem de vir de um commit que **já contenha este runbook**: só a partir dele o overlay aceita
+`LRI_ZONE_GUARD=off`, necessário para a fase A. As imagens `develop-` anteriores (por exemplo, `develop-7cda0a69…`)
+fixam `enforce` e não servem para a primeira subida.

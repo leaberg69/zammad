@@ -51,9 +51,13 @@ jobs:
       - name: Scripts Python compilam
         run: python -m py_compile contrib/lri/qa/capture.py contrib/lri/branding/gerar_logos.py contrib/lri/deploy/test/*.py
       - name: Shellcheck dos scripts de deploy e da VPS
-        run: shellcheck -x contrib/lri/deploy/nginx-entrypoint.sh contrib/lri/deploy/test/nginx_zones_test.sh contrib/lri/vps/*.sh contrib/lri/vps/test/*.sh
+        run: shellcheck -x contrib/lri/deploy/nginx-entrypoint.sh contrib/lri/deploy/subir-central.sh contrib/lri/deploy/test/nginx_zones_test.sh contrib/lri/deploy/test/subir_central_test.sh contrib/lri/vps/*.sh contrib/lri/vps/test/*.sh
       - name: Teste do script de leitura da VPS com falhas simuladas
         run: bash contrib/lri/vps/test/checklist_leitura_test.sh
+      - name: Teste da subida com portões (docker falso)
+        run: bash contrib/lri/deploy/test/subir_central_test.sh
+      - name: Teste do validador do túnel da fase A
+        run: ruby contrib/lri/deploy/test/validar_tunel_fase_a_test.rb
       - name: Scripts que rodam no servidor sem CRLF
         shell: bash
         run: |

@@ -10,8 +10,10 @@ Cada regra violada é listada com o serviço e o motivo; o código de saída é 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 IMAGE_PREFIX = "ghcr.io/leaberg69/zammad-lri:"
 ZAMMAD_SERVICES = {
@@ -28,11 +30,64 @@ DUMMY_ENV = {
 }
 
 
-def render(official, overlay, env):
-    return subprocess.run(
-        ["docker", "compose", "-f", official, "-f", overlay, "config", "--format", "json"],
-        capture_output=True, text=True, env={**os.environ, **env}, check=False,
-    )
+def render(official, overlay, env, config_args=("--format", "json")):
+    # Só valem as variáveis de env: nem as herdadas do processo nem o .env que o compose carregaria sozinho do
+    #   diretório do projeto (--env-file vazio).
+    base = {key: value for key, value in os.environ.items()
+            if not key.startswith(("LRI_", "CLOUDFLARED_"))}
+    # Arquivo fechado antes do subprocesso, para o compose conseguir abri-lo também no Windows.
+    with tempfile.TemporaryDirectory() as directory:
+        empty_env = os.path.join(directory, "vazio.env")
+        with open(empty_env, "w", encoding="utf-8"):
+            pass
+        return subprocess.run(
+            ["docker", "compose", "--env-file", empty_env, "-f", official, "-f", overlay, "config", *config_args],
+            capture_output=True, text=True, env={**base, **env}, check=False,
+        )
+
+
+def check_images_listing(official, overlay):
+    """A leitura que subir-central.sh faz (config --images, filtrada pelo repositório do fork) dá uma só imagem."""
+    result = render(official, overlay, DUMMY_ENV, ("--images", "zammad-railsserver"))
+    if result.returncode != 0:
+        return [f"config --images zammad-railsserver falhou: {result.stderr.strip()}"]
+    fork_images = sorted({line for line in result.stdout.splitlines() if line.startswith(IMAGE_PREFIX)})
+    expected = IMAGE_PREFIX + DUMMY_ENV["LRI_IMAGE_TAG"]
+    if fork_images != [expected]:
+        return [f"config --images zammad-railsserver, filtrada pelo fork, deu {fork_images}; esperado [{expected!r}]"]
+    return []
+
+
+GUARDED_SERVICES = ("zammad-railsserver", "zammad-websocket", "zammad-scheduler")
+
+
+def check_guard_modes(official, overlay):
+    """Fase A do go-live (LRI_ZONE_GUARD=off) e o padrão enforce com a variável vazia."""
+    problems = []
+    for value, expected in (("off", "off"), ("", "enforce")):
+        result = render(official, overlay, {**DUMMY_ENV, "LRI_ZONE_GUARD": value})
+        if result.returncode != 0:
+            problems.append(f"LRI_ZONE_GUARD={value!r}: compose recusou: {result.stderr.strip()}")
+            continue
+        services = json.loads(result.stdout)["services"]
+        for name in GUARDED_SERVICES:
+            guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
+            if guard != expected:
+                problems.append(f"LRI_ZONE_GUARD={value!r}: {name} ficou {guard!r}, esperado {expected!r}")
+
+    # Um .env com off ao lado da stack não pode vazar para a verificação do padrão enforce. Numa cópia da stack em
+    #   diretório temporário, para nunca deixar um .env no diretório real.
+    with tempfile.TemporaryDirectory() as directory:
+        isolated = os.path.join(directory, "docker-compose.yml")
+        shutil.copyfile(official, isolated)
+        with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+            handle.write("LRI_ZONE_GUARD=off\n")
+        result = render(isolated, overlay, DUMMY_ENV)
+        guard = json.loads(result.stdout)["services"]["zammad-railsserver"]["environment"].get("LRI_ZONE_GUARD") \
+            if result.returncode == 0 else None
+        if guard != "enforce":
+            problems.append(f".env externo com off alterou a renderização (railsserver ficou {guard!r}): {result.stderr.strip()}")
+    return problems
 
 
 def heap_bytes(value):
@@ -103,6 +158,12 @@ def check(config, image=None):
         if condition != "service_completed_successfully":
             problems.append(f"{name}: não espera a checagem da tag (lri-config-check)")
 
+    # Sem LRI_ZONE_GUARD no .env (fase B e qualquer instalação normal), a guarda fica ligada.
+    for name in GUARDED_SERVICES:
+        guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
+        if guard != "enforce":
+            problems.append(f"{name}: LRI_ZONE_GUARD={guard!r}, esperado 'enforce' quando o .env não define")
+
     problems += check_tag_command(services.get("lri-config-check", {}), image)
     if image:
         problems += check_image(services, image)
@@ -127,6 +188,8 @@ def main(official, overlay, image=None):
         print(f"docker compose config falhou:\n{result.stderr}")
         return 1
     problems = check(json.loads(result.stdout), image)
+    problems += check_guard_modes(official, overlay)
+    problems += check_images_listing(official, overlay)
 
     # Sem token, a stack não pode subir: o compose tem de recusar com a mensagem do overlay.
     without_token = {**DUMMY_ENV, "CLOUDFLARED_TUNNEL_TOKEN": ""}

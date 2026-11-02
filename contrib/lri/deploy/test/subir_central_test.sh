@@ -61,8 +61,8 @@ tunel_aberto() { grep -q -- 'up -d --force-recreate --no-deps cloudflared' "$wor
 confere() { if eval "$2"; then echo "ok    $1"; else echo "ERRO  $1"; cat "$work/saida" "$work/log"; falhas=$((falhas + 1)); fi; }
 
 cenario 'caminho feliz com ABRIR_TUNEL=1' 0 ABRIR_TUNEL=1
-confere 'imagem lida do compose e túnel parado antes de tudo' \
-  '[ "$(sed -n 1p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml config --images zammad-railsserver" ] && [ "$(sed -n 2p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
+confere 'imagem e ID lidos antes de tudo, e o túnel parado em seguida' \
+  '[ "$(sed -n 1p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml config --images zammad-railsserver" ] && [ "$(sed -n 2p "$work/log")" = "image inspect -f {{.Id}} ghcr.io/leaberg69/zammad-lri:1.2.3" ] && [ "$(sed -n 3p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
 confere 'túnel reaberto só depois dos portões' '[ "$(linha "zammad-railsserver curl")" -lt "$(linha "no-deps cloudflared")" ]'
 confere 'zammad-init da imagem roda antes da aplicação' '[ "$(linha "name lri-zammad-init")" -lt "$(linha "zammad-railsserver zammad-websocket")" ]'
 confere 'Elasticsearch sobe e é conferido antes do init' \

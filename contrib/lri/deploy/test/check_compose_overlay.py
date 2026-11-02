@@ -103,6 +103,12 @@ def check(config, image=None):
         if condition != "service_completed_successfully":
             problems.append(f"{name}: não espera a checagem da tag (lri-config-check)")
 
+    # Sem LRI_ZONE_GUARD no .env (fase B e qualquer instalação normal), a guarda fica ligada.
+    for name in ("zammad-railsserver", "zammad-websocket", "zammad-scheduler"):
+        guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
+        if guard != "enforce":
+            problems.append(f"{name}: LRI_ZONE_GUARD={guard!r}, esperado 'enforce' quando o .env não define")
+
     problems += check_tag_command(services.get("lri-config-check", {}), image)
     if image:
         problems += check_image(services, image)

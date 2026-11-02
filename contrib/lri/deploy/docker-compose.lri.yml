@@ -8,7 +8,9 @@ x-lri-image: &lri-image
   image: ghcr.io/leaberg69/zammad-lri:${LRI_IMAGE_TAG:?defina LRI_IMAGE_TAG (develop-<sha> ou X.Y.Z) no .env}
 
 x-lri-zone: &lri-zone
-  LRI_ZONE_GUARD: enforce
+  # enforce, salvo LRI_ZONE_GUARD=off no .env só na fase A do go-live (docs/lri/GO-LIVE.md), com o nome interno
+  #   como único caminho até a central; qualquer outro valor impede a partida (Lri::Zone::Config).
+  LRI_ZONE_GUARD: ${LRI_ZONE_GUARD:-enforce}
   LRI_ZONE_KEY: ${LRI_ZONE_KEY:?defina LRI_ZONE_KEY no .env}
   LRI_ACCESS_TEAM_DOMAIN: ${LRI_ACCESS_TEAM_DOMAIN:-lriauto.cloudflareaccess.com}
   LRI_ACCESS_AUD: ${LRI_ACCESS_AUD:?defina LRI_ACCESS_AUD no .env}

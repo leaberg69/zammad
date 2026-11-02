@@ -945,7 +945,7 @@ implantação é autorizada à parte por Leandro.
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
 | **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |
-| **5. Imagem e implantação** | imagem Docker do fork construída pela CI; slice de zonas interna e pública (seção 2.9) com guarda de zona, configuração do proxy, do Cloudflare Tunnel e do Access; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
+| **5. Imagem e implantação** | imagem Docker do fork construída pela CI (`ghcr.io/leaberg69/zammad-lri`, workflow `lri-image.yaml`); runbook em [`GO-LIVE.md`](GO-LIVE.md); slice de zonas interna e pública (seção 2.9) com guarda de zona, configuração do proxy, do Cloudflare Tunnel e do Access; guia de implantação, backup e restauração | homologação validada; produção sob autorização de Leandro |
 | **6. Integrações** | site e formulário; WhatsApp; ERP Plune | cada integração em PR próprio, com testes e documentação |
 
 ## 9. Governança e esteira

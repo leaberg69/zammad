@@ -25,6 +25,7 @@ saida_tcp() {
   local host=$1 porta=$2 erro codigo=0
   # shellcheck disable=SC2016 # $1 e $2 são expandidos pelo bash -c, não aqui
   erro=$(timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$host" "$porta" 2>&1) || codigo=$?
+  erro=$(printf '%s' "$erro" | tr '\n' ' ' | sed 's/ *$//')
   if [ "$codigo" -eq 0 ]; then
     printf 'OK    %s:%s\n' "$host" "$porta"
   elif [ "$codigo" -eq 124 ]; then

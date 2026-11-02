@@ -28,6 +28,8 @@ saude_padrao='{"status":"yellow","timed_out":false}'
 ultimo="${!#}"
 case "$*" in
   "image inspect -f {{.Id}} "*) echo "${IMAGEM_ID:-sha256:aaa}" ;;
+  "inspect -f {{range .Config.Env}}{{println .}}{{end}} "*)
+    printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\n' "${GUARDA:-enforce}" ;;
   "inspect -f {{.Config.Image}} {{.Image}} "*)
     echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3} ${CONTAINER_IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
@@ -87,6 +89,22 @@ confere 'init em reinício ou pausado também conta como ativo, e o serviço zam
 cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='false 2'
 confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \
   '! tunel_aberto && grep -q "instável" "$work/saida" && grep -q "processos de fundo parados de novo" "$work/saida"'
+
+mkdir -p "$work/cloudflared"
+printf 'ingress:\n  - hostname: atendimento.example.com\n    originRequest:\n      access:\n        required: true\n  - hostname: suporte.example.com\n  - service: http_status:404\n' \
+  > "$work/cloudflared/config.yml"
+cenario 'guarda desligada com portal público no túnel' 1 ABRIR_TUNEL=1 GUARDA=off
+confere 'guarda off com nome público não libera nada' \
+  '! tunel_aberto && ! fundo_iniciado && grep -q "nomes além do interno no túnel: suporte.example.com" "$work/saida"'
+
+printf 'ingress:\n  - hostname: atendimento.example.com\n    originRequest:\n      access:\n        required: true\n  - service: http_status:404\n' \
+  > "$work/cloudflared/config.yml"
+cenario 'guarda desligada só com o nome interno (fase A)' 0 ABRIR_TUNEL=1 GUARDA=off
+confere 'fase A libera com o túnel só interno e Access obrigatório' 'tunel_aberto && grep -q "TÚNEL ABERTO" "$work/saida"'
+
+printf 'ingress:\n  - hostname: atendimento.example.com\n  - service: http_status:404\n' > "$work/cloudflared/config.yml"
+cenario 'guarda desligada sem Access obrigatório' 1 ABRIR_TUNEL=1 GUARDA=off
+confere 'guarda off sem Access obrigatório não libera nada' '! tunel_aberto && grep -q "sem Access obrigatório" "$work/saida"'
 
 cenario 'restauração com reindexação falhando' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='searchindex:rebuild'
 confere 'reindexação que falha não libera processos de fundo nem túnel' '! fundo_iniciado && ! tunel_aberto'

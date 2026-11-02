@@ -194,8 +194,19 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
      Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
      existe), então reconstruir junto: `REINDEXAR=1 bash subir-central.sh`. Sem restauração: `bash
      subir-central.sh`.
-  2. Com `PORTÕES OK`, conferir à mão, ainda com túnel e processos de fundo parados, que um chamado alterado depois
-     do backup aparece na busca com os dados restaurados (só quando houve restauração).
+  2. Com `PORTÕES OK` e ainda com túnel e processos de fundo parados, conferir a busca (só quando houve restauração),
+     de dentro da stack: o número de chamados no índice tem de ser igual ao do banco, e o chamado mais recente do banco
+     tem de ser encontrado pelo número.
+
+     ```sh
+     docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver bundle exec rails runner '
+       ultimo = Ticket.order(updated_at: :desc).first
+       achado = SearchIndexBackend.search(ultimo.number.to_s, "Ticket", limit: 1).first
+       indice = SearchIndexBackend.search("*", "Ticket", only_total_count: true)[:total_count]
+       puts "banco=#{Ticket.count} indice=#{indice} ultimo=#{ultimo.number} achado=#{achado&.dig(:id).to_s == ultimo.id.to_s}"'
+     ```
+
+     Aceite: `banco` igual a `indice` e `achado=true`. Outro resultado: não liberar; repetir a reconstrução do índice.
   3. Só então liberar: `ABRIR_TUNEL=1 bash subir-central.sh` (sem `REINDEXAR`, já feito), que sobe scheduler e
      backup e reabre o túnel.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).

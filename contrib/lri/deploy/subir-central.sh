@@ -217,6 +217,23 @@ if [ "${ABRIR_TUNEL:-0}" != 1 ]; then
   exit 0
 fi
 
+# Guarda desligada (fase A) só com o túnel exclusivamente no nome interno e Access obrigatório: um LRI_ZONE_GUARD=off
+#   esquecido, com os portais no config.yml, publicaria a central sem a separação de zonas.
+passo "guarda de zona compatível com os nomes do túnel"
+rails_env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$("${DC[@]}" ps -q zammad-railsserver)" 2>&1) \
+  || parar "não foi possível ler o ambiente do zammad-railsserver: $rails_env"
+guard=$(printf '%s\n' "$rails_env" | sed -n 's/^LRI_ZONE_GUARD=//p')
+internal_host=$(printf '%s\n' "$rails_env" | sed -n 's#^LRI_INTERNAL_URL=https://##p')
+if [ "$guard" != enforce ]; then
+  [ -r cloudflared/config.yml ] || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e cloudflared/config.yml ilegível"
+  outros=$(sed -n 's/^[[:space:]-]*hostname:[[:space:]]*//p' cloudflared/config.yml | tr -d "\"'" \
+           | grep -vxF "$internal_host" | grep -v '^$')
+  [ -z "$outros" ] || parar "guarda de zona desligada (LRI_ZONE_GUARD=$guard) com nomes além do interno no túnel:" \
+    "$(printf '%s' "$outros" | tr '\n' ' '); tirar esses nomes do config.yml ou ligar a guarda (fase B)"
+  grep -Eq '^[[:space:]]*required:[[:space:]]*true' cloudflared/config.yml \
+    || parar "guarda de zona desligada e o nome interno sem Access obrigatório (access.required: true no config.yml)"
+fi
+
 passo "processos de fundo (liberação)"
 background_started=1
 "${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${BACKGROUND_SERVICES[@]}" \

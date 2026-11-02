@@ -47,11 +47,240 @@ RSpec.describe Lri::Provisioning do
     expect(overview.roles.pluck(:name)).to include(*described_class::AGENT_ROLES.keys)
   end
 
-  it 'offers customers only the brand queues, never the internal ones' do
+  it 'lists every queue for the portal, each customer seeing only those of their audience' do
     provisioning
 
     names = Group.where(id: Setting.get('customer_ticket_create_group_ids')).pluck(:name)
-    expect(names).to contain_exactly('LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte', 'IRD::Comercial')
+    expect(names).to contain_exactly('LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte',
+                                     'IRD::Comercial', 'Interno::TI', 'Interno::Administrativo')
+  end
+
+  describe 'internal queues' do
+    let(:internal_queue) { Group.find_by(name: 'Interno::TI') }
+    let(:brand_queue)    { Group.find_by(name: 'LRI::Comercial') }
+
+    before { described_class.apply! }
+
+    def create_ticket_as(customer, group)
+      UserInfo.with_user_id(customer.id) do
+        Ticket.create!(title: 'Chamado', group: group, customer: customer, screen: 'create_middle')
+      end
+    end
+
+    def offered_group_ids(customer)
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: customer, assets: false)
+      result[:restrict_values]['group_id'].map(&:to_s)
+    end
+
+    it 'refuses a ticket in an internal queue from a customer outside the group' do
+      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'refuses it also from a customer of another company' do
+      outsider = create(:customer, organization: create(:organization, name: 'Cliente Externo'))
+
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'accepts a ticket in a brand queue from a customer outside the group' do
+      expect { create_ticket_as(create(:customer), brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'accepts a ticket in an internal queue from a collaborator of an internal organization' do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'IRD Produtos de Informática'))
+
+      expect { create_ticket_as(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'refuses a ticket in a brand queue from a collaborator' do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'shows the brand queues to outsiders and the internal queues to collaborators', :aggregate_failures do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+    end
+
+    it 'keeps both audiences apart when an earlier workflow stops the chain', :aggregate_failures do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket', priority: 0, stop_after_match: true)
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'keeps both audiences apart when the portal queue list is empty', :aggregate_failures do
+      Setting.set('customer_ticket_create_group_ids', [])
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+    end
+
+    it 'refuses on the server, with the message, a queue that an admin workflow adds for the other audience', :aggregate_failures do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => 'add_option', 'add_option' => [internal_queue.id.to_s, brand_queue.id.to_s] } })
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+    end
+
+    it 'keeps a deliberate empty restriction of a workflow', :aggregate_failures do
+      brand_ids = Group.where(name: described_class.customer_group_names).where.not(id: Lri::QueueAudience.internal_groups).pluck(:id).map(&:to_s)
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => 'remove_option', 'remove_option' => brand_ids } })
+      outsider = create(:customer)
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
+
+      expect(Array(result[:restrict_values]['group_id']).compact_blank).to be_empty
+      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'treats an internal queue created after provisioning as internal on the server' do
+      new_queue = create(:group, name: 'Interno::RH')
+
+      expect(Lri::QueueAudience.denial(create(:customer), new_queue)).to eq('fila interna para cliente de fora')
+    end
+
+    it 'opens an internal queue created later to collaborators on the next run', :aggregate_failures do
+      new_queue    = create(:group, name: 'Interno::RH')
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+
+      expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('+Interno::RH')
+      expect { create_ticket_as(create(:customer), new_queue) }.to raise_error(Exceptions::UnprocessableContent)
+      expect { create_ticket_as(collaborator, new_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'refuses moving an outsider ticket into an internal queue and keeps the group', :aggregate_failures do
+      outsider = create(:customer)
+      ticket   = create_ticket_as(outsider, brand_queue)
+
+      expect do
+        UserInfo.with_user_id(outsider.id) { ticket.update!(group: internal_queue, screen: 'edit') }
+      end.to raise_error(Exceptions::UnprocessableContent)
+      expect(ticket.reload.group).to eq(brand_queue)
+    end
+
+    it 'keeps a collaborator out of the brand queues even if the internal root group is renamed', :aggregate_failures do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      ticket       = create_ticket_as(collaborator, internal_queue)
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+
+      expect do
+        UserInfo.with_user_id(collaborator.id) { ticket.update!(group: brand_queue, screen: 'edit') }
+      end.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(ticket.reload.group_id).to eq(internal_queue.id)
+    end
+
+    it 'keeps outsiders out of the internal queues after the root group is renamed', :aggregate_failures do
+      renamed_queue = internal_queue
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      renamed_queue.reload
+      outsider = create(:customer)
+
+      expect(renamed_queue.name).to eq('Apoio::TI')
+      expect(offered_group_ids(outsider)).not_to include(renamed_queue.id.to_s)
+      expect { create_ticket_as(outsider, renamed_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(Lri::QueueAudience.denial(outsider, renamed_queue)).to eq('fila interna para cliente de fora')
+    end
+
+    it 'refuses to recreate the internal root while the old one is renamed', :aggregate_failures do
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+
+      run = described_class.apply!
+      expect(run).to be_conflicts
+      expect(result_for(run, 'Interno')).to have_attributes(action: :conflict, detail: include('renomeada para "Apoio"'))
+      expect(Group.find_by(name: 'Interno')).to be_nil
+    end
+
+    it 'closes every queue to customers on an older provisioning without the stored root, until it runs again', :aggregate_failures do
+      Setting.find_by(name: Lri::QueueAudience::ROOT_SETTING).destroy!
+      Setting.reload
+      outsider = create(:customer)
+
+      expect(offered_group_ids(outsider).compact_blank).to be_empty
+      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::UNAVAILABLE_MESSAGE)
+      expect(Lri::QueueAudience.denial(outsider, internal_queue)).to include('rodar o provisionamento')
+
+      described_class.apply!
+      expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'does not recreate the root on an older provisioning whose root was renamed', :aggregate_failures do
+      Setting.find_by(name: Lri::QueueAudience::ROOT_SETTING).destroy!
+      Setting.reload
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      outsider = create(:customer)
+
+      run = described_class.apply!
+      expect(result_for(run, 'Interno')).to have_attributes(action: :conflict, detail: include('volte o nome'))
+      expect(Group.find_by(name: 'Interno')).to be_nil
+      expect { create_ticket_as(outsider, Group.find_by(name: 'Apoio::TI')) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
+    it 'treats a queue as internal by the stored root, not by its name' do
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      create(:group, name: 'Apoio::RH')
+
+      expect(Lri::QueueAudience.denial(create(:customer), Group.find_by(name: 'Apoio::RH'))).to eq('fila interna para cliente de fora')
+    end
+
+    it 'lets an existing ticket be edited when its group does not change' do
+      outsider = create(:customer)
+      ticket   = UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }
+
+      expect { UserInfo.with_user_id(outsider.id) { ticket.update!(title: 'Novo título', screen: 'edit') } }.not_to raise_error
+    end
+
+    it 'leaves a collaborator who is also an agent free to use the brand queues', :aggregate_failures do
+      both = create(:agent, groups: [brand_queue], organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      both.roles << Role.find_by(name: 'Customer')
+
+      expect(offered_group_ids(both)).to include(brand_queue.id.to_s)
+      expect { create_ticket_as(both, brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'does not touch tickets created without a screen, such as incoming e-mail' do
+      outsider = create(:customer)
+
+      expect do
+        UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }
+      end.to change(Ticket, :count).by(1)
+    end
+
+    it 'leaves the parent group options of the group admin screen alone' do
+      admin_customer = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      admin_customer.roles << Role.find_by(name: 'Admin')
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Group',
+                                               'screen' => 'create', 'params' => {} }, user: admin_customer, assets: false)
+
+      expect(Array(result[:restrict_values]['parent_id']).map(&:to_s)).to include(Group.find_by(name: 'LRI').id.to_s, Group.find_by(name: 'Interno').id.to_s)
+    end
+
+    it 'leaves agents alone' do
+      agent = create(:agent, groups: [internal_queue, brand_queue])
+
+      expect(offered_group_ids(agent)).to include(internal_queue.id.to_s, brand_queue.id.to_s)
+    end
   end
 
   it 'changes nothing on a second run' do
@@ -108,9 +337,10 @@ RSpec.describe Lri::Provisioning do
 
   it 'names the queues it removes from the customer list' do
     described_class.apply!
-    Setting.set('customer_ticket_create_group_ids', Group.where(name: ['Interno::TI', 'MW::Suporte']).pluck(:id).map(&:to_s))
+    create(:group, name: 'Fila solta')
+    Setting.set('customer_ticket_create_group_ids', Group.where(name: ['Fila solta', 'MW::Suporte']).pluck(:id).map(&:to_s))
 
-    expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('-Interno::TI')
+    expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('-Fila solta')
   end
 
   it 'reports a name taken in another letter case and writes nothing', :aggregate_failures do

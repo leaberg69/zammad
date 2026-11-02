@@ -35,7 +35,10 @@ class Lri::Provisioning
     'Agente Interno'          => 'Interno',
   }.freeze
 
-  STEPS = %i[apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews apply_customer_groups].freeze
+  STEPS = %i[
+    apply_settings check_internal_root apply_groups store_internal_root apply_organizations apply_agent_roles
+    apply_overviews apply_customer_groups
+  ].freeze
 
   ACTION_LABELS = { created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
 
@@ -99,8 +102,14 @@ class Lri::Provisioning
     [brand] + GROUPS.fetch(brand).map { |queue| "#{brand}::#{queue}" }
   end
 
+  # Todas as filas, inclusive as internas criadas depois; Lri::QueueAudience mostra a cada cliente só as do seu público.
   def self.customer_group_names
-    (GROUPS.keys - INTERNAL_BRANDS).flat_map { |brand| group_names(brand).drop(1) }
+    provisioned = GROUPS.keys.flat_map { |brand| group_names(brand).drop(1) }
+    (provisioned + Lri::QueueAudience.internal_groups.where.not(name: Lri::QueueAudience::INTERNAL_ROOT).pluck(:name)).uniq
+  end
+
+  def self.internal_group_names
+    INTERNAL_BRANDS.flat_map { |brand| group_names(brand) }
   end
 
   private
@@ -138,6 +147,47 @@ class Lri::Provisioning
       Setting.set(name, value)
       record(:setting, name, :updated, "#{current.inspect} -> #{value.inspect}")
     end
+  end
+
+  # Recriar Interno com a raiz antiga renomeada deixaria as filas antigas fora da regra de público.
+  def check_internal_root
+    root_id = Lri::QueueAudience.root_id
+    return check_unregistered_internal_root if root_id.nil?
+
+    root = Group.find_by(id: root_id)
+    return if root.nil? || root.name == Lri::QueueAudience::INTERNAL_ROOT
+
+    record(:group, Lri::QueueAudience::INTERNAL_ROOT, :conflict,
+           "a raiz das filas internas (id #{root.id}) foi renomeada para #{root.name.inspect}; volte o nome para #{Lri::QueueAudience::INTERNAL_ROOT}")
+  end
+
+  # Instalação provisionada antes do registro da raiz: sem o id, uma raiz renomeada não se reconhece com certeza,
+  #   então só segue se Interno existir com esse nome.
+  def check_unregistered_internal_root
+    return if !Lri::QueueAudience.provisioned? || Group.exists?(name: Lri::QueueAudience::INTERNAL_ROOT)
+
+    record(:group, Lri::QueueAudience::INTERNAL_ROOT, :conflict,
+           "instalação já provisionada sem o grupo #{Lri::QueueAudience::INTERNAL_ROOT}; se a raiz das filas internas foi renomeada, volte o nome")
+  end
+
+  def store_internal_root
+    root = Group.find_by!(name: Lri::QueueAudience::INTERNAL_ROOT)
+    Setting.create_if_not_exists(
+      title:       'Grupo LRI: raiz das filas internas', # rubocop:disable Zammad/DetectTranslatableString
+      name:        Lri::QueueAudience::ROOT_SETTING,
+      area:        'Lri::Provisioning',
+      description: 'Id do grupo raiz das filas internas, gravado pelo provisionamento (Lri::QueueAudience).', # rubocop:disable Zammad/DetectTranslatableString
+      options:     {},
+      state:       '',
+      preferences: { permission: ['admin.group'] },
+      frontend:    false,
+    )
+
+    previous = Lri::QueueAudience.root_id
+    return record(:setting, Lri::QueueAudience::ROOT_SETTING, :unchanged) if previous == root.id
+
+    Setting.set(Lri::QueueAudience::ROOT_SETTING, root.id.to_s)
+    record(:setting, Lri::QueueAudience::ROOT_SETTING, :updated, "#{previous.inspect} -> #{root.id}")
   end
 
   def apply_groups

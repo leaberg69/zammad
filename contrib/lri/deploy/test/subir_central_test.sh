@@ -93,7 +93,7 @@ confere 'processo de fundo instável impede o túnel e para os de fundo de novo'
   '! tunel_aberto && grep -q "instável" "$work/saida" && grep -q "processos de fundo parados de novo" "$work/saida"'
 
 # O YAML do túnel é conferido pelo validar_tunel_fase_a.rb (com teste próprio); aqui, o que o script faz com o veredito.
-cenario 'guarda desligada e o validador recusa o túnel' 1 ABRIR_TUNEL=1 GUARDA=off TUNEL_INVALIDO='nomes além do interno: "suporte.example.com"'
+cenario 'guarda desligada e o validador recusa o túnel' 1 ABRIR_TUNEL=1 GUARDA=off TUNEL_INVALIDO='regras além da do nome interno: "suporte.example.com"'
 confere 'guarda off com túnel recusado não libera nada e diz por quê' \
   '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml atendimento.example.com lriteste aud-um,aud-dois" "$work/log"'
 

@@ -29,12 +29,13 @@ class ValidarTunelFaseA
 
   private
 
+  # Toda regra antes da final tem de ser do nome interno, com hostname em texto e igual a ele: nada é descartado antes
+  #   de comparar (hostname nulo, vazio ou com path pegaria outros nomes, e o cloudflared avalia as regras em ordem).
   def problemas_dos_nomes(named)
-    list   = []
-    others = named.filter_map { |rule| rule['hostname'] }.reject { |host| host == @internal_host }
-    list << "nomes além do interno: #{others.map(&:inspect).join(' ')}" if others.any?
-    list << 'regra antes da final sem hostname (pega qualquer nome)' if named.any? { |rule| !rule.key?('hostname') }
-    list
+    others = named.reject { |rule| rule['hostname'].is_a?(String) && rule['hostname'] == @internal_host }
+    return [] if others.empty?
+
+    ["regras além da do nome interno: #{others.map { |rule| rule['hostname'].inspect }.join(' ')}"]
   end
 
   def problemas_da_final(final)

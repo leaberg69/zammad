@@ -222,7 +222,7 @@ class Lri::Provisioning
 
   def apply_customer_groups
     wanted_names  = self.class.customer_group_names
-    wanted        = Group.where(name: wanted_names).order(:id).pluck(:id).map(&:to_s)
+    wanted        = Group.where(name: wanted_names).reorder(:id).pluck(:id).map(&:to_s)
     current       = Array(Setting.get('customer_ticket_create_group_ids')).map(&:to_s).sort_by(&:to_i)
     return record(:setting, 'customer_ticket_create_group_ids', :unchanged) if current == wanted
 

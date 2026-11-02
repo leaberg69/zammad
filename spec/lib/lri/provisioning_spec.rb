@@ -51,7 +51,7 @@ RSpec.describe Lri::Provisioning do
     provisioning
 
     names = Group.where(id: Setting.get('customer_ticket_create_group_ids')).pluck(:name)
-    expect(names).to match_array(['LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte', 'IRD::Comercial'])
+    expect(names).to contain_exactly('LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte', 'IRD::Comercial')
   end
 
   it 'changes nothing on a second run' do
@@ -62,7 +62,7 @@ RSpec.describe Lri::Provisioning do
 
   it 'turns sharing off again on an existing internal organization', :aggregate_failures do
     organization = create(:organization, name: 'LRI Automação Industrial', domain: 'lri.com.br', domain_assignment: true)
-    organization.update_column(:shared, true) # rubocop:disable Rails/SkipsModelValidations
+    organization.update_column(:shared, true)
 
     expect(result_for(provisioning, 'LRI Automação Industrial')).to have_attributes(action: :updated, detail: 'shared')
     expect(organization.reload.shared).to be(false)

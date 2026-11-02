@@ -45,9 +45,9 @@ module Lri::QueueAudience
     root_id.nil? || !Group.exists?(id: root_id)
   end
 
+  # Pelas raízes das marcas, que só o provisionamento cria; uma organização interna pode existir antes dele.
   def self.provisioned?
-    Organization.exists?(name: Lri::Provisioning::ORGANIZATIONS.pluck(:name)) ||
-      Group.exists?(name: Lri::Provisioning::GROUPS.keys - [INTERNAL_ROOT])
+    Group.exists?(name: Lri::Provisioning::GROUPS.keys - [INTERNAL_ROOT])
   end
 
   def self.collaborator?(user)

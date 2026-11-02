@@ -72,7 +72,7 @@ cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
 confere 'túnel e processos de fundo não liberados sem ABRIR_TUNEL' '! tunel_aberto && ! fundo_iniciado'
 
 cenario 'init anterior ainda rodando' 1 ABRIR_TUNEL=1 INIT_ANTIGO=velho123
-confere 'init anterior impede a migração nova' '! grep -q "name lri-zammad-init" "$work/log" && grep -q "zammad-init em execução de antes" "$work/saida"'
+confere 'init anterior impede a migração nova' '! grep -q "name lri-zammad-init" "$work/log" && grep -q "init ou reindexação em execução de antes" "$work/saida"'
 
 cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='false 2'
 confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \

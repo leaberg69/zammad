@@ -36,12 +36,20 @@ git checkout cee5e1cef02543977de6d13937ba8cc7276b5a5a   # o commit conferido pel
 FORK_COMMIT=<commit do fork anotado no passo 0>         # o mesmo da imagem: overlay e imagem conferidos juntos
 curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/contrib/lri/deploy/docker-compose.lri.yml" \
   -o docker-compose.lri.yml
+curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/contrib/lri/deploy/subir-central.sh" \
+  -o subir-central.sh
 mkdir -p cloudflared
 curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/contrib/lri/deploy/cloudflared/config.yml.example" \
   -o cloudflared/config.yml
 ```
 
-Overlay e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse par que o
+`subir-central.sh` é a subida com portões usada no go-live, nas atualizações e no retorno: para o túnel, confere a
+tag, sobe banco, cache, Redis e Elasticsearch, roda o `zammad-init` da imagem escolhida (migrações) até terminar com
+código 0, sobe a aplicação esperando ficar saudável, confere a imagem de cada container e que Elasticsearch e Rails
+respondem, reconstrói o índice se `REINDEXAR=1` e só reabre o túnel com `ABRIR_TUNEL=1` e tudo aprovado. Qualquer
+falha para com `PARAR:` e o motivo, com o túnel parado. O CI testa essa sequência (`subir_central_test.sh`).
+
+Overlay, script e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse par que o
 workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack oficial é o
 mesmo que o CI usa nessa conferência; outro commit exige refazê-la.
 
@@ -99,11 +107,10 @@ Objetivo: criar a conta de emergência com 2FA e provisionar antes de ligar a gu
 fase só o nome interno, protegido pelo Access, chega à central.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.lri.yml ps -a
+ABRIR_TUNEL=1 bash subir-central.sh
 ```
 
-- `lri-config-check` terminou com código 0, e `zammad-init` também; os demais estão `healthy` ou `running`.
+- A saída termina com `PORTÕES OK` e o túnel reaberto (só com o nome interno no `config.yml`).
 - Log do railsserver: `guarda de zona LRI desligada`.
 
 No nome interno, pelo navegador (passando pelo Access):
@@ -146,21 +153,14 @@ No nome interno, pelo navegador (passando pelo Access):
 A guarda é ligada e conferida **com o túnel ainda só interno**; os portais públicos só entram depois.
 
 1. No `.env`, remover `LRI_ZONE_GUARD` (o overlay usa `enforce`).
-2. Recriar os serviços com a guarda e só seguir se a recriação der certo:
-
-   ```sh
-   docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate \
-     zammad-railsserver zammad-websocket zammad-scheduler && \
-   docker compose -f docker-compose.yml -f docker-compose.lri.yml ps zammad-railsserver zammad-websocket zammad-scheduler
-   ```
-
-3. Conferir, ainda sem portais públicos: os três serviços `healthy` ou `running`; nos logs de railsserver,
-   websocket e scheduler, `guarda de zona LRI LIGADA`; no railsserver, `conta de emergência: (login), com 2FA`; nenhum
-   container da fase A sobrando (`docker compose ... ps -a`). Se qualquer item falhar, parar aqui.
+2. Subir com os portões e **sem** reabrir o túnel: `bash subir-central.sh` (termina com `PORTÕES OK` e o túnel
+   parado).
+3. Conferir, ainda com o túnel parado: nos logs de railsserver, websocket e scheduler, `guarda de zona LRI LIGADA`;
+   no railsserver, `conta de emergência: (login), com 2FA`. Se qualquer item falhar, parar aqui.
 4. Senhas locais da equipe, exceto a de emergência, trocadas por valores aleatórios (checklist, seção 5).
-5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`;
-   `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared`; e, por último,
-   trocar o DNS dos três `suporte` para `CNAME` do túnel.
+5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`; validar
+   (`ingress validate`, seção 10); `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d
+   --force-recreate --no-deps cloudflared`; e, por último, trocar o DNS dos três `suporte` para `CNAME` do túnel.
 6. **Validar o login da equipe** (obrigatório antes de dar o go-live por concluído): pelo nome interno, entrar com
    Google (conta da LRI) e com Microsoft (conta da IRD.Net); o retorno passa pelo `fqdn` e volta ao nome interno
    (PLANO, seção 2.9.2). Se falhar, a equipe continua só com a conta de emergência e o go-live não fecha.
@@ -184,61 +184,38 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
   casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo momento), repor
   o conjunto e só então subir. Restaurar apaga o que entrou depois do backup: decisão do Leandro.
 
-  O atendimento só reabre no fim: o túnel fica parado enquanto a stack sobe e é conferida.
+  O atendimento só reabre no fim:
 
-  1. Parar o túnel primeiro (`docker compose ... stop cloudflared`); com ele parado, ninguém de fora alcança a central.
-  2. Subir a stack sem o túnel e passar pelos portões. Cada linha só roda se a anterior der certo; qualquer falha
-     para tudo com o túnel ainda parado (ler `docker compose ... logs <serviço>` e corrigir antes de seguir):
-
-     ```sh
-     DC="docker compose -f docker-compose.yml -f docker-compose.lri.yml"
-     exit_code() { docker inspect -f '{{.State.ExitCode}}' "$($DC ps -a -q "$1")"; }
-     $DC up -d --force-recreate --wait --wait-timeout 900 \
-         zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup \
-       && [ "$(exit_code lri-config-check)" = 0 ] \
-       && [ "$(exit_code zammad-init)" = 0 ] \
-       && $DC exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000 \
-       && $DC ps -a --format '{{.Service}} {{.Image}} {{.State}} {{.Status}}' \
-       && echo "PORTÕES OK" \
-       || echo "PARAR: um portão falhou; o túnel continua parado"
-     ```
-
-     O `--wait` espera os serviços ficarem saudáveis (e os de execução única terminarem) e falha se algum não ficar.
-     Depois: `lri-config-check` e `zammad-init` com código 0, o Rails respondendo, e todos os serviços Zammad (`init`,
-     `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) com a tag do conjunto reposto, sem reinícios na
-     coluna de status. Só com `PORTÕES OK` o procedimento segue.
-  3. Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
-     existe): reconstruir e conferir que um chamado alterado depois do backup aparece na busca com os dados
-     restaurados.
-
-     ```sh
-     docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
-       bundle exec rake zammad:searchindex:rebuild
-     ```
-
-  4. Só então, com `PORTÕES OK` e o índice conferido, reabrir: `docker compose -f docker-compose.yml -f
-     docker-compose.lri.yml up -d --force-recreate cloudflared`.
+  1. Com o conjunto anterior reposto (e o backup restaurado, se for o caso), subir com os portões e o túnel parado.
+     Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
+     existe), então reconstruir junto: `REINDEXAR=1 bash subir-central.sh`. Sem restauração: `bash
+     subir-central.sh`.
+  2. Com `PORTÕES OK`, conferir à mão, ainda com o túnel parado, que um chamado alterado depois do backup aparece na
+     busca com os dados restaurados (só quando houve restauração).
+  3. Só então reabrir: `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate
+     --no-deps cloudflared`.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Atualização da imagem depois do go-live
 
 Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banco migrado. Toda troca, portanto:
 
-1. **Guardar o conjunto em uso**: `.env` (só a linha `LRI_IMAGE_TAG` muda), `docker-compose.lri.yml` e
-   `cloudflared/config.yml`, com a tag e o commit do fork anotados. É o que a seção 9 repõe.
+1. **Guardar o conjunto em uso**: `.env` (só a linha `LRI_IMAGE_TAG` muda), `docker-compose.lri.yml`,
+   `subir-central.sh` e `cloudflared/config.yml`, com a tag e o commit do fork anotados. É o que a seção 9 repõe.
 2. **Backup consistente**: parar a stack inteira (`docker compose -f docker-compose.yml -f docker-compose.lri.yml
    stop`, os volumes ficam; conferir com `ps -a` que nenhum serviço ficou de pé) e só então copiar os volumes
    `postgresql-data` e `zammad-storage`, do mesmo momento. Não usar o `zammad-backup` para isso: ele copia os arquivos
    antes do banco com a aplicação gravando, e banco e anexos podem sair de momentos diferentes.
-3. **Arquivos do commit novo, sem perder os valores reais**: baixar o overlay e o exemplo do túnel do commit da imagem
-   nova (como no passo 2) para `docker-compose.lri.yml.novo` e `cloudflared/config.yml.novo`. O overlay novo
-   substitui o antigo inteiro (não tem valor local). No túnel, comparar (`diff cloudflared/config.yml
+3. **Arquivos do commit novo, sem perder os valores reais**: baixar o overlay, o `subir-central.sh` e o exemplo do
+   túnel do commit da imagem nova (como no passo 2) para `docker-compose.lri.yml.novo`, `subir-central.sh.novo` e
+   `cloudflared/config.yml.novo`. Overlay e script novos substituem os antigos inteiros (não têm valor local). No túnel, comparar (`diff cloudflared/config.yml
    cloudflared/config.yml.novo`) e levar só as mudanças de estrutura para o `config.yml` em uso, mantendo ID do
    túnel, AUD do Access e os nomes da fase em que se está; depois,
    `docker run --rm -v "$PWD/cloudflared:/etc/cloudflared:ro" cloudflare/cloudflared:<versão do .env> tunnel --config
    /etc/cloudflared/config.yml ingress validate` tem de responder `OK`.
-4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir com a mesma sequência da seção 9 (túnel parado,
-   stack conferida, túnel por último), conferindo a tag de todos os serviços.
+4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir: `ABRIR_TUNEL=1 bash subir-central.sh`. O
+   script roda o `zammad-init` da imagem nova (migrações) antes da aplicação e só reabre o túnel com todos os portões
+   aprovados.
 
 ## 11. Registro
 

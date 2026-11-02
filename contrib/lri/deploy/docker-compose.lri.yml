@@ -23,6 +23,10 @@ services:
     environment: *lri-zone
     networks: [default, lri-app]
 
+  # Mesmas regras nos processos de fundo (importações criam organizações; e-mails de redefinição saem daqui).
+  zammad-scheduler:
+    environment: *lri-zone
+
   zammad-nginx:
     entrypoint: ["/opt/zammad/contrib/lri/deploy/nginx-entrypoint.sh"]
     command: []

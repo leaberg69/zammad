@@ -45,8 +45,7 @@ class Lri::Zone::Config
     env['LRI_INTERNAL_URL'].to_s.strip
   end
 
-  # Login da única conta da equipe que mantém senha (conta de emergência); vazio = nenhuma. Só pelo login, que é único
-  #   (o e-mail pode se repetir com user_email_multiple_use).
+  # Só pelo login, que é único (o e-mail pode se repetir com user_email_multiple_use).
   def emergency_login
     env['LRI_EMERGENCY_LOGIN'].to_s.strip
   end
@@ -57,7 +56,6 @@ class Lri::Zone::Config
     user.login.to_s.casecmp?(emergency_login)
   end
 
-  # Para o log da partida: a conta de emergência configurada existe e tem 2FA?
   def describe_emergency
     return 'conta de emergência: nenhuma (LRI_EMERGENCY_LOGIN vazio)' if emergency_login.blank?
 

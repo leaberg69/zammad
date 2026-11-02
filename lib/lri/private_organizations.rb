@@ -1,8 +1,7 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 # Cada cliente vê só os próprios chamados (docs/lri/PLANO.md, seção 2.3): com LRI_ORGANIZATIONS_PRIVATE=true, toda
-# organização nasce com "Organização compartilhada" desligada, venha do painel, da API, de importação ou da atribuição
-# por domínio. Um administrador ainda pode ligar depois, de propósito, numa organização já criada.
+# organização nasce com "Organização compartilhada" desligada, venha do painel, da API ou de importação. Um administrador ainda pode ligar depois, de propósito, numa organização já criada.
 module Lri::PrivateOrganizations
   extend ActiveSupport::Concern
 

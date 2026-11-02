@@ -78,7 +78,13 @@ RSpec.describe 'Grupo LRI staff password policy', type: :request do
   describe 'emergency account' do
     let(:admin) { create(:admin, password: password) }
 
-    before { enforce_lri_zone_guard('LRI_EMERGENCY_LOGIN' => admin.email.upcase) }
+    before { enforce_lri_zone_guard('LRI_EMERGENCY_LOGIN' => admin.login.upcase) }
+
+    it 'cannot use basic authentication on the internal zone without a second factor' do
+      get '/ical/tickets', headers: lri_internal_headers.merge('Authorization' => ActionController::HttpAuthentication::Basic.encode_credentials(admin.login, password))
+
+      expect(response).to have_http_status(:unauthorized)
+    end
 
     it 'is refused on the public zone' do
       create(:user_two_factor_preference, :authenticator_app, user: admin)

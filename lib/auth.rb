@@ -55,7 +55,7 @@ class Auth
     auth_user&.user&.with_lock do
       next false if !auth_user.can_login?
       # Grupo LRI: senha da equipe (docs/lri/PLANO.md, seção 2.9.3).
-      next false if Lri::ZonePolicy.password_denied?(auth_user.user, confirming: only_verify_password)
+      next false if Lri::ZonePolicy.password_denied?(auth_user.user, confirming: only_verify_password && skip_login_failed_tracking)
 
       if !backends.valid?
         # Failed log-in attempts are only recorded if the password backend requests so.

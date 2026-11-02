@@ -26,7 +26,9 @@ module Lri::ZonePolicy
   #   ou Microsoft; senha, 2FA por senha e redefinição de senha são recusados em qualquer zona, antes de qualquer
   #   verificação, com a mesma resposta de usuário desconhecido (sem oráculo e sem contar tentativa para bloqueio).
   #   A exceção é a conta de emergência (LRI_EMERGENCY_LOGIN): só na zona interna e, para entrar, com 2FA do Zammad
-  #   já cadastrado. `confirming:` = confirmação de senha de quem já está logado (ex.: cadastrar o 2FA).
+  #   já cadastrado. `confirming:` = confirmação de senha de quem já está logado (Service::User::PasswordCheck, o
+  #   único fluxo com skip_login_failed_tracking), para poder cadastrar o 2FA; autenticação básica e início de 2FA
+  #   sem sessão não contam como confirmação.
   #   Devolve o motivo da recusa (só para o log) ou nil.
   def password_denial(user, confirming: false, config: Lri::Zone::Config.current, zone: Lri::Current.zone)
     return if !config.enforced?

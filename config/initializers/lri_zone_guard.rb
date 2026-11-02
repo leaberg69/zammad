@@ -27,4 +27,11 @@ Rails.application.config.after_initialize do
   config = Lri::Zone::Config.current
   config.validate!
   Rails.logger.info config.describe
+  if config.enforced?
+    begin
+      Rails.logger.info config.describe_emergency
+    rescue ActiveRecord::ActiveRecordError => e # banco ainda não criado (ex.: primeira partida, db:create)
+      Rails.logger.warn "Lri::Zone::Config: conta de emergência não conferida na partida (#{e.class})"
+    end
+  end
 end

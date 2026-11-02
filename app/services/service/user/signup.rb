@@ -86,6 +86,10 @@ class Service::User::Signup < Service::Base
     return false if existing_user.blank?
 
     result = User.password_reset_new_token(existing_user.email)
+    if result.blank?
+      Rails.logger.info "Signup with the email of user #{existing_user.id}: no password reset token could be issued, so no email is sent."
+      return true
+    end
 
     NotificationMailerJob.perform_later(
       template: 'signup_taken_reset',

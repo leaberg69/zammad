@@ -57,7 +57,13 @@ mesmo que o CI usa nessa conferência; outro commit exige refazê-la.
 
 ## 4. Arquivo `.env`
 
-No diretório da central, `chmod 600 .env`. Valores gerados só para a central, guardados no cofre do grupo:
+No diretório da central, criar o arquivo já restrito, **antes** de pôr qualquer segredo nele, e conferir:
+
+```sh
+(umask 077 && touch .env) && chmod 600 .env && stat -c '%a %U' .env   # 600 e o usuário da central
+```
+
+Valores gerados só para a central, guardados no cofre do grupo:
 
 | Variável | Valor |
 | -------- | ----- |
@@ -186,7 +192,14 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
   ```
 
   Todos os serviços Zammad (`init`, `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) têm de aparecer com
-  a tag do conjunto reposto; nenhum com a tag defeituosa.
+  a tag do conjunto reposto; nenhum com a tag defeituosa. Se o banco foi restaurado, o índice de busca ficou mais novo
+  que ele (a partida não o refaz quando o índice já existe): reconstruir antes de reabrir o atendimento, e conferir
+  que um chamado alterado depois do backup aparece na busca com os dados restaurados:
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
+    bundle exec rake zammad:searchindex:rebuild
+  ```
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Atualização da imagem depois do go-live

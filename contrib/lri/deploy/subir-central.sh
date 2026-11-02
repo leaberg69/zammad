@@ -15,9 +15,12 @@ IMAGE_REPO=ghcr.io/leaberg69/zammad-lri
 ZAMMAD_SERVICES=(zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup)
 DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch)
 
+ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
+tunnel_state="não verificado (nada foi parado ainda)"
+
 passo() { printf '== %s\n' "$*"; }
 parar() {
-  printf 'PARAR: %s. O túnel continua parado; ver "docker compose ... logs" do serviço citado.\n' "$*" >&2
+  printf 'PARAR: %s. Estado do túnel: %s. Ver "docker compose ... logs" do serviço citado.\n' "$*" "$tunnel_state" >&2
   exit 1
 }
 
@@ -26,7 +29,8 @@ tag=$(sed -n 's/^LRI_IMAGE_TAG=//p' .env 2>/dev/null | tail -n 1)
 expected_image="$IMAGE_REPO:$tag"
 
 passo "túnel parado"
-"${DC[@]}" stop cloudflared || parar "não foi possível parar o cloudflared"
+"${DC[@]}" stop cloudflared || parar "não foi possível parar o cloudflared (pode continuar aberto)"
+tunnel_state="parado"
 
 passo "checagem da tag $tag"
 "${DC[@]}" run --rm --no-deps lri-config-check || parar "tag recusada pelo lri-config-check"
@@ -49,9 +53,13 @@ for service in "${ZAMMAD_SERVICES[@]}"; do
   [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
 done
 
-passo "Elasticsearch e Rails respondendo"
-"${DC[@]}" exec -T zammad-elasticsearch curl -sf -o /dev/null http://127.0.0.1:9200/_cluster/health \
+passo "Elasticsearch (yellow ou green) e Rails respondendo"
+# Nó único: yellow é o normal. Espera até 120 s; red ou tempo esgotado param, com o estado lido.
+health=$("${DC[@]}" exec -T zammad-elasticsearch \
+  curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
   || parar "Elasticsearch não responde"
+printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' && printf '%s' "$health" | grep -Eq '"timed_out" *: *false' \
+  || parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
 "${DC[@]}" exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000 || parar "Rails não responde"
 
 if [ "${REINDEXAR:-0}" = 1 ]; then
@@ -62,9 +70,25 @@ fi
 
 echo "PORTÕES OK ($expected_image)"
 
-if [ "${ABRIR_TUNEL:-0}" = 1 ]; then
-  passo "reabrindo o túnel"
-  "${DC[@]}" up -d --force-recreate --no-deps cloudflared || parar "cloudflared não subiu"
-else
+if [ "${ABRIR_TUNEL:-0}" != 1 ]; then
   echo "Túnel mantido parado (ABRIR_TUNEL=1 para reabrir)."
+  exit 0
 fi
+
+passo "reabrindo o túnel"
+"${DC[@]}" up -d --force-recreate --no-deps cloudflared || parar "cloudflared não subiu"
+tunnel_state="iniciado, sem conexão confirmada"
+
+# Sucesso só com a conexão registrada na Cloudflare; o container cair (token ou config recusados) para na hora.
+tunnel_id=$("${DC[@]}" ps -a -q cloudflared)
+for _ in $(seq 1 30); do
+  if "${DC[@]}" logs cloudflared 2>&1 | grep -q 'Registered tunnel connection'; then
+    tunnel_state="aberto"
+    echo "TÚNEL ABERTO: conexão registrada na Cloudflare."
+    exit 0
+  fi
+  [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
+    || parar "cloudflared encerrou logo depois de iniciar: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
+  sleep "$ESPERA"
+done
+parar "cloudflared sem conexão registrada depois de 30 tentativas"

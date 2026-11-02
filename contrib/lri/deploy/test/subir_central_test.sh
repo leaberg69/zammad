@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-# subir-central.sh com um docker falso: ordem dos passos e túnel fechado em qualquer falha.
+# subir-central.sh com um docker falso: ordem dos passos, portões e túnel fechado em qualquer falha.
 # shellcheck disable=SC2016 # as conferências são avaliadas depois, por confere (eval)
 set -u
 
@@ -9,15 +9,20 @@ script="$(cd "$(dirname "$0")/.." && pwd)/subir-central.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# O docker falso registra cada chamada e falha no passo cujo texto contém $FALHAR_EM.
+# O docker falso registra cada chamada e falha no passo cujo texto contém $FALHAR_EM. As respostas do
+# Elasticsearch, dos logs do cloudflared e do estado do container vêm de variáveis do cenário.
 mkdir -p "$work/bin"
 cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then exit 1; fi
+saude_padrao='{"status":"yellow","timed_out":false}'
 case "$*" in
-  *" ps -q "*) echo "id-${*##* }" ;;
+  *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
+  *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
+  *" ps -q "* | *" ps -a -q "*) echo "id-${*##* }" ;;
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
+  "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
 esac
 exit 0
 FAKE
@@ -27,43 +32,55 @@ falhas=0
 cenario() {
   local nome=$1 esperado_codigo=$2; shift 2
   : > "$work/log"
-  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" "$@" bash "$script" > "$work/saida" 2>&1)
+  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 "$@" bash "$script" > "$work/saida" 2>&1)
   local codigo=$?
   if [ "$codigo" != "$esperado_codigo" ]; then
     echo "ERRO  $nome: código $codigo, esperado $esperado_codigo"; cat "$work/saida"; falhas=$((falhas + 1))
   fi
 }
-tunel_aberto() { grep -q 'up -d --force-recreate --no-deps cloudflared' "$work/log"; }
-confere() { if eval "$2"; then echo "ok    $1"; else echo "ERRO  $1"; cat "$work/log"; falhas=$((falhas + 1)); fi; }
+linha() { grep -n -- "$1" "$work/log" | tail -n1 | cut -d: -f1; }
+tunel_aberto() { grep -q -- 'up -d --force-recreate --no-deps cloudflared' "$work/log"; }
+confere() { if eval "$2"; then echo "ok    $1"; else echo "ERRO  $1"; cat "$work/saida" "$work/log"; falhas=$((falhas + 1)); fi; }
 
 printf 'LRI_IMAGE_TAG=1.2.3\n' > "$work/.env"
 
 cenario 'caminho feliz com ABRIR_TUNEL=1' 0 ABRIR_TUNEL=1
-confere 'túnel parado primeiro e reaberto por último' \
-  '[ "$(head -n1 "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ] && tail -n1 "$work/log" | grep -q "cloudflared$"'
-confere 'zammad-init da imagem roda antes da aplicação' \
-  '[ "$(grep -n "run --rm --no-deps zammad-init" "$work/log" | cut -d: -f1)" -lt "$(grep -n "zammad-railsserver zammad-websocket" "$work/log" | cut -d: -f1)" ]'
-confere 'Elasticsearch sobe e é conferido' 'grep -q "zammad-elasticsearch$" "$work/log" && grep -q "exec -T zammad-elasticsearch curl" "$work/log"'
-confere 'PORTÕES OK na saída' 'grep -q "PORTÕES OK" "$work/saida"'
+confere 'túnel parado primeiro' '[ "$(head -n1 "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
+confere 'túnel reaberto só depois dos portões' '[ "$(linha "zammad-railsserver curl")" -lt "$(linha "no-deps cloudflared")" ]'
+confere 'zammad-init da imagem roda antes da aplicação' '[ "$(linha "run --rm --no-deps zammad-init")" -lt "$(linha "zammad-railsserver zammad-websocket")" ]'
+confere 'Elasticsearch sobe e o estado é conferido' 'grep -q "zammad-elasticsearch$" "$work/log" && grep -q "wait_for_status=yellow" "$work/log"'
+confere 'sucesso só com a conexão do túnel registrada' 'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida"'
 
 cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
 confere 'túnel não reaberto sem ABRIR_TUNEL' '! tunel_aberto'
 
-for passo in 'run --rm --no-deps lri-config-check' 'run --rm --no-deps zammad-init' 'zammad-elasticsearch curl' \
+for passo in 'run --rm --no-deps lri-config-check' 'run --rm --no-deps zammad-init' '_cluster/health' \
              'zammad-railsserver curl' '--wait --wait-timeout 900'; do
   cenario "falha em '$passo'" 1 ABRIR_TUNEL=1 FALHAR_EM="$passo"
-  confere "falha em '$passo' mantém o túnel fechado e diz por quê" '! tunel_aberto && grep -q "PARAR:" "$work/saida"'
+  confere "falha em '$passo' mantém o túnel fechado e diz por quê" \
+    '! tunel_aberto && grep -q "PARAR:" "$work/saida" && grep -q "Estado do túnel: parado" "$work/saida"'
 done
+
+cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"status":"red","timed_out":true}'
+confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'
 
 cenario 'imagem diferente da tag do .env' 1 ABRIR_TUNEL=1 IMAGEM_FALSA=ghcr.io/leaberg69/zammad-lri:0.9.0
 confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'
 
 cenario 'REINDEXAR=1 reconstrói o índice antes do túnel' 0 ABRIR_TUNEL=1 REINDEXAR=1
-confere 'reindexação antes de reabrir' \
-  '[ "$(grep -n "searchindex:rebuild" "$work/log" | cut -d: -f1)" -lt "$(grep -n "cloudflared$" "$work/log" | tail -n1 | cut -d: -f1)" ]'
+confere 'reindexação antes de reabrir' '[ "$(linha "searchindex:rebuild")" -lt "$(linha "no-deps cloudflared")" ]'
+
+cenario 'cloudflared cai logo depois de iniciar' 1 ABRIR_TUNEL=1 TUNNEL_LOG='ERR token inválido' TUNNEL_RUNNING=false
+confere 'queda do túnel vira falha com o motivo dos logs' 'grep -q "encerrou logo depois de iniciar" "$work/saida" && grep -q "token inválido" "$work/saida"'
+
+cenario 'cloudflared nunca registra conexão' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel'
+confere 'sem conexão registrada não há sucesso' 'grep -q "sem conexão registrada" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida"'
+
+cenario 'falha ao parar o túnel' 1 ABRIR_TUNEL=1 FALHAR_EM='stop cloudflared'
+confere 'não afirma túnel parado sem ter parado' 'grep -q "pode continuar aberto" "$work/saida" && grep -q "não verificado" "$work/saida"'
 
 printf 'OUTRA=1\n' > "$work/.env"
 cenario 'sem LRI_IMAGE_TAG no .env' 1 ABRIR_TUNEL=1
-confere 'sem tag nada é chamado' '[ ! -s "$work/log" ]'
+confere 'sem tag nada é chamado e o túnel fica como não verificado' '[ ! -s "$work/log" ] && grep -q "não verificado" "$work/saida"'
 
 exit "$falhas"

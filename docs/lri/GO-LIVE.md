@@ -131,8 +131,9 @@ No nome interno, pelo navegador (passando pelo Access):
    Nenhuma linha `CONFLITO` em nenhuma das três; a terceira, que confere a idempotência, termina com `Nada a mudar`.
 5. Branding, no mesmo container: `docker compose -f docker-compose.yml -f docker-compose.lri.yml exec
    zammad-railsserver bundle exec rails runner contrib/lri/branding/aplicar_branding.rb`.
-6. Login por Google e Microsoft configurados (com `auth_third_party_no_create_user` ligado) e agentes cadastrados com
-   o perfil da marca.
+6. Login por Google e Microsoft **cadastrados**, com `auth_third_party_no_create_user` ligado, e agentes cadastrados
+   com o perfil da marca. Só cadastrados: o retorno do OAuth vai para o `fqdn` público, que ainda não está no túnel,
+   então o teste fica para a fase B (passo 6); até lá a equipe entra só pela conta de emergência.
 
 ## 7. Fase B — guarda ligada e portais públicos
 
@@ -154,6 +155,9 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`;
    `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared`; e, por último,
    trocar o DNS dos três `suporte` para `CNAME` do túnel.
+6. **Validar o login da equipe** (obrigatório antes de dar o go-live por concluído): pelo nome interno, entrar com
+   Google (conta da LRI) e com Microsoft (conta da IRD.Net); o retorno passa pelo `fqdn` e volta ao nome interno
+   (PLANO, seção 2.9.2). Se falhar, a equipe continua só com a conta de emergência e o go-live não fecha.
 
 ## 8. Conferências
 

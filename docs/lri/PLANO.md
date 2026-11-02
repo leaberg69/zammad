@@ -90,9 +90,12 @@ O setting `customer_ticket_create_group_ids` limita os grupos que clientes podem
   `Cliente`. Colaboradores que abrem chamados internos usam o perfil `Cliente` e veem apenas os grupos `Interno::*`.
 - **Provisionamento (fase 1)**: `Lri::Provisioning` cria grupos, organizações internas e perfis de agente. Os perfis de
   marca têm as permissões do `Agent` nativo, sem relatórios nem edição da base de conhecimento, e entram nas visões
-  padrão de chamados. `Admin` e `Customer` continuam os perfis nativos. Enquanto o Core Workflow que mostra
-  `Interno::*` só a colaboradores não existir, essas filas ficam fora da lista do portal: colaborador abre chamado
-  interno por e-mail ou pela equipe de TI.
+  padrão de chamados. `Admin` e `Customer` continuam os perfis nativos.
+- **Filas por público**: dois Core Workflows do provisionamento separam o portal. Cliente de fora só vê e só cria
+  chamado nas filas das marcas; cliente de uma organização interna (colaborador), só nas `Interno::*`. A regra vale
+  para quem tem a permissão `ticket.customer`, não para agentes, e o Zammad a confere também no servidor ao criar o
+  chamado, pela API ou pelo GraphQL. Os nomes dos grupos internos continuam legíveis a um cliente de fora pela API
+  (regra de grupos do Zammad), mas sem chamado nem conteúdo.
 
 ### 2.4 Canais de e-mail
 

@@ -47,11 +47,79 @@ RSpec.describe Lri::Provisioning do
     expect(overview.roles.pluck(:name)).to include(*described_class::AGENT_ROLES.keys)
   end
 
-  it 'offers customers only the brand queues, never the internal ones' do
+  it 'offers every queue in the portal, the internal ones guarded by the workflow' do
     provisioning
 
     names = Group.where(id: Setting.get('customer_ticket_create_group_ids')).pluck(:name)
-    expect(names).to contain_exactly('LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte', 'IRD::Comercial')
+    expect(names).to contain_exactly('LRI::Suporte Técnico', 'LRI::Comercial', 'LRI::Financeiro', 'MW::Suporte', 'IRD::Suporte',
+                                     'IRD::Comercial', 'Interno::TI', 'Interno::Administrativo')
+  end
+
+  describe 'internal queues' do
+    let(:internal_queue) { Group.find_by(name: 'Interno::TI') }
+    let(:brand_queue)    { Group.find_by(name: 'LRI::Comercial') }
+
+    before { described_class.apply! }
+
+    def create_ticket_as(customer, group)
+      UserInfo.with_user_id(customer.id) do
+        Ticket.create!(title: 'Chamado', group: group, customer: customer, screen: 'create_middle')
+      end
+    end
+
+    def offered_group_ids(customer)
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: customer, assets: false)
+      result[:restrict_values]['group_id'].map(&:to_s)
+    end
+
+    it 'refuses a ticket in an internal queue from a customer outside the group' do
+      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+    end
+
+    it 'refuses it also from a customer of another company' do
+      outsider = create(:customer, organization: create(:organization, name: 'Cliente Externo'))
+
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+    end
+
+    it 'accepts a ticket in a brand queue from a customer outside the group' do
+      expect { create_ticket_as(create(:customer), brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'accepts a ticket in an internal queue from a collaborator of an internal organization' do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'IRD Produtos de Informática'))
+
+      expect { create_ticket_as(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'refuses a ticket in a brand queue from a collaborator' do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+    end
+
+    it 'shows the brand queues to outsiders and the internal queues to collaborators', :aggregate_failures do
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+    end
+
+    it 'leaves agents alone' do
+      agent = create(:agent, groups: [internal_queue, brand_queue])
+
+      expect(offered_group_ids(agent)).to include(internal_queue.id.to_s, brand_queue.id.to_s)
+    end
+
+    it 'puts the workflow back when someone loosens it' do
+      CoreWorkflow.find_by(name: described_class::INTERNAL_QUEUES_WORKFLOW).update!(active: false)
+
+      expect(result_for(described_class.apply!, described_class::INTERNAL_QUEUES_WORKFLOW)).to have_attributes(action: :updated, detail: 'active')
+    end
   end
 
   it 'changes nothing on a second run' do
@@ -108,9 +176,10 @@ RSpec.describe Lri::Provisioning do
 
   it 'names the queues it removes from the customer list' do
     described_class.apply!
-    Setting.set('customer_ticket_create_group_ids', Group.where(name: ['Interno::TI', 'MW::Suporte']).pluck(:id).map(&:to_s))
+    create(:group, name: 'Fila solta')
+    Setting.set('customer_ticket_create_group_ids', Group.where(name: ['Fila solta', 'MW::Suporte']).pluck(:id).map(&:to_s))
 
-    expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('-Interno::TI')
+    expect(result_for(described_class.apply!, 'customer_ticket_create_group_ids').detail).to include('-Fila solta')
   end
 
   it 'reports a name taken in another letter case and writes nothing', :aggregate_failures do

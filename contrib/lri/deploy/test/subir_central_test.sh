@@ -15,7 +15,8 @@ mkdir -p "$work/bin"
 cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$LOG"
-if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then exit 1; fi
+if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
+if [[ "$*" == *"validar-tunel-fase-a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
   # CRIACAO_TARDIA: ao receber TERM, o "daemon" ainda conclui a criação do container antes de o cliente sair.
   if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
@@ -90,21 +91,16 @@ cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='
 confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \
   '! tunel_aberto && grep -q "instável" "$work/saida" && grep -q "processos de fundo parados de novo" "$work/saida"'
 
-mkdir -p "$work/cloudflared"
-printf 'ingress:\n  - hostname: atendimento.example.com\n    originRequest:\n      access:\n        required: true\n  - hostname: suporte.example.com\n  - service: http_status:404\n' \
-  > "$work/cloudflared/config.yml"
-cenario 'guarda desligada com portal público no túnel' 1 ABRIR_TUNEL=1 GUARDA=off
-confere 'guarda off com nome público não libera nada' \
-  '! tunel_aberto && ! fundo_iniciado && grep -q "nomes além do interno no túnel: suporte.example.com" "$work/saida"'
+# O YAML do túnel é conferido pelo validar-tunel-fase-a.rb (com teste próprio); aqui, o que o script faz com o veredito.
+cenario 'guarda desligada e o validador recusa o túnel' 1 ABRIR_TUNEL=1 GUARDA=off TUNEL_INVALIDO='nomes além do interno: "suporte.example.com"'
+confere 'guarda off com túnel recusado não libera nada e diz por quê' \
+  '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar-tunel-fase-a.rb /etc/lri-cloudflared/config.yml atendimento.example.com" "$work/log"'
 
-printf 'ingress:\n  - hostname: atendimento.example.com\n    originRequest:\n      access:\n        required: true\n  - service: http_status:404\n' \
-  > "$work/cloudflared/config.yml"
-cenario 'guarda desligada só com o nome interno (fase A)' 0 ABRIR_TUNEL=1 GUARDA=off
-confere 'fase A libera com o túnel só interno e Access obrigatório' 'tunel_aberto && grep -q "TÚNEL ABERTO" "$work/saida"'
+cenario 'guarda desligada e o validador aceita (fase A)' 0 ABRIR_TUNEL=1 GUARDA=off
+confere 'fase A libera com o túnel aprovado pelo validador' 'tunel_aberto && grep -q "TÚNEL ABERTO" "$work/saida"'
 
-printf 'ingress:\n  - hostname: atendimento.example.com\n  - service: http_status:404\n' > "$work/cloudflared/config.yml"
-cenario 'guarda desligada sem Access obrigatório' 1 ABRIR_TUNEL=1 GUARDA=off
-confere 'guarda off sem Access obrigatório não libera nada' '! tunel_aberto && grep -q "sem Access obrigatório" "$work/saida"'
+cenario 'guarda ligada não consulta o validador' 0 ABRIR_TUNEL=1 TUNEL_INVALIDO='não deveria ser chamado'
+confere 'com a guarda ligada o túnel segue sem o validador' '! grep -q "validar-tunel-fase-a.rb" "$work/log" && tunel_aberto'
 
 cenario 'restauração com reindexação falhando' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='searchindex:rebuild'
 confere 'reindexação que falha não libera processos de fundo nem túnel' '! fundo_iniciado && ! tunel_aberto'
@@ -147,7 +143,11 @@ confere 'sem parada confirmada não há migração nem túnel' \
   '! grep -q "name lri-zammad-init" "$work/log" && ! tunel_aberto && grep -q "ainda em execução" "$work/saida"'
 
 cenario 'Nginx aceita a conexão e não responde' 1 ABRIR_TUNEL=1 PENDURAR_EM='127.0.0.1:8081' SUBIR_PRAZO_TENTATIVA=1 SUBIR_TENTATIVAS=2
-confere 'verificação pendurada para por prazo, com o túnel fechado' '! tunel_aberto && grep -q "Nginx .* não respondeu depois de 2 tentativas" "$work/saida"'
+confere 'verificação pendurada para por prazo, com o túnel fechado e o motivo' \
+  '! tunel_aberto && grep -q "Nginx .* não respondeu depois de 2 tentativas" "$work/saida" && grep -q "última: sem resposta em 1 s" "$work/saida"'
+
+cenario 'WebSocket recusa a conexão' 1 ABRIR_TUNEL=1 FALHAR_EM='127.0.0.1/6042'
+confere 'erro da verificação traz código e mensagem' 'grep -q "última: código 1: falha simulada em: 127.0.0.1/6042" "$work/saida"'
 
 cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"status":"red","timed_out":true}'
 confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'

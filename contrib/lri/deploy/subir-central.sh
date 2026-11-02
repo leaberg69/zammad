@@ -187,12 +187,19 @@ conferir_imagens "${WEB_SERVICES[@]}"
 TENTATIVAS=${SUBIR_TENTATIVAS:-30}
 PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}
 ate_responder() {
-  local descricao=$1; shift
+  local descricao=$1 saida codigo motivo=""; shift
   for _ in $(seq 1 "$TENTATIVAS"); do
-    timeout "$PRAZO_TENTATIVA" "$@" > /dev/null 2>&1 && return 0
+    saida=$(timeout "$PRAZO_TENTATIVA" "$@" 2>&1) && return 0
+    codigo=$?
+    # Motivo da última tentativa: tempo esgotado ou o código e o fim da mensagem de erro.
+    if [ "$codigo" = 124 ]; then
+      motivo="sem resposta em $PRAZO_TENTATIVA s"
+    else
+      motivo="código $codigo: $(printf '%s' "$saida" | tr '\n' ' ' | tail -c 300)"
+    fi
     sleep "$ESPERA"
   done
-  parar "$descricao não respondeu depois de $TENTATIVAS tentativas de até $PRAZO_TENTATIVA s"
+  parar "$descricao não respondeu depois de $TENTATIVAS tentativas de até $PRAZO_TENTATIVA s (última: $motivo)"
 }
 
 passo "Rails, WebSocket e Nginx respondendo"
@@ -225,13 +232,12 @@ rails_env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$("${
 guard=$(printf '%s\n' "$rails_env" | sed -n 's/^LRI_ZONE_GUARD=//p')
 internal_host=$(printf '%s\n' "$rails_env" | sed -n 's#^LRI_INTERNAL_URL=https://##p')
 if [ "$guard" != enforce ]; then
-  [ -r cloudflared/config.yml ] || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e cloudflared/config.yml ilegível"
-  outros=$(sed -n 's/^[[:space:]-]*hostname:[[:space:]]*//p' cloudflared/config.yml | tr -d "\"'" \
-           | grep -vxF "$internal_host" | grep -v '^$')
-  [ -z "$outros" ] || parar "guarda de zona desligada (LRI_ZONE_GUARD=$guard) com nomes além do interno no túnel:" \
-    "$(printf '%s' "$outros" | tr '\n' ' '); tirar esses nomes do config.yml ou ligar a guarda (fase B)"
-  grep -Eq '^[[:space:]]*required:[[:space:]]*true' cloudflared/config.yml \
-    || parar "guarda de zona desligada e o nome interno sem Access obrigatório (access.required: true no config.yml)"
+  [ -n "$internal_host" ] || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e LRI_INTERNAL_URL sem https:// no railsserver"
+  # O YAML é lido de verdade pelo validador que vem na própria imagem (mesmo commit), sem rede.
+  validacao=$(docker run --rm --network none --entrypoint ruby -v "$PWD/cloudflared:/etc/lri-cloudflared:ro" \
+    "$expected_image" contrib/lri/deploy/validar-tunel-fase-a.rb /etc/lri-cloudflared/config.yml "$internal_host" 2>&1) \
+    || parar "guarda de zona desligada (LRI_ZONE_GUARD=$guard) e o túnel não está só no nome interno: $validacao;" \
+      "corrigir o config.yml ou ligar a guarda (fase B)"
 fi
 
 passo "processos de fundo (liberação)"

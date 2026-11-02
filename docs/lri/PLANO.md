@@ -95,8 +95,10 @@ O setting `customer_ticket_create_group_ids` limita os grupos que clientes podem
   cliente de uma organização interna (colaborador), só nas `Interno::*`, inclusive as criadas depois do
   provisionamento. Vale para quem tem a permissão `ticket.customer` e não é agente. A lista de filas oferecida ao
   cliente é filtrada na origem, antes de qualquer Core Workflow, e a criação ou mudança de fila é recusada no
-  servidor (tela, API e GraphQL). Chamado aberto por e-mail não passa por essa regra. Em vez de Core Workflow
-  configurável, a regra fica no código, porque um workflow anterior que interrompa a cadeia anularia a separação. Os
+  servidor (tela, API e GraphQL), com mensagem clara ao cliente. Chamado aberto por e-mail não passa por essa regra.
+  Em vez de Core Workflow configurável, a regra fica no código, porque um workflow anterior que interrompa a cadeia
+  anularia a separação. **Não suportado**: Core Workflow de chamado criado por administrador que acrescente,
+  selecione ou fixe fila do outro público. A tela pode mostrar essa fila, mas o servidor recusa o chamado. Os
   nomes dos grupos internos continuam legíveis a um cliente de fora pela API (regra de grupos do Zammad), sem
   chamado nem conteúdo.
 

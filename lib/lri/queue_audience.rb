@@ -59,48 +59,13 @@ module Lri::QueueAudience
     collaborator?(user) ? internal_ids : ids - internal_ids
   end
 
-  # Um filtro só, no fim: filtrar antes dos workflows esvaziaria um set_fixed_to sem dizer por quê.
-  # Filtro no resultado final, depois de qualquer workflow (add_option, select, cadeia interrompida): opções,
-  #   seleção e preenchimento do campo de fila só com filas do público do cliente.
-  module ResultFilter
-    def run
-      super.tap { lri_filter_group_options }
-    end
-
-    private
-
-    def lri_filter_group_options
-      return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
-
-      options_dropped, *selection_dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
-      options_left = Array(@result.dig(:restrict_values, 'group_id')).any?(&:present?)
-      return if selection_dropped.none? && (options_left || !options_dropped)
-
-      # Nunca repõe filas que um workflow retirou: só tira as do outro público. Se um workflow escolheu ou fixou uma
-      #   delas, o campo volta a aparecer e a ser editável, e o log aponta o workflow como causa.
-      Rails.logger.warn "Lri::QueueAudience: workflow escolheu ou fixou fila de outro público para o usuário #{user.id}" \
-                        "#{'; nenhuma fila do seu público sobrou: revisar os Core Workflows de chamado' if !options_left}"
-      @result[:visibility]['group_id'] = 'show'
-      @result[:readonly]['group_id']   = false
-    end
-
-    # true se algo foi retirado.
-    def lri_drop_forbidden(group)
-      value = @result.dig(group, 'group_id')
-      return false if value.blank?
-
-      allowed = Lri::QueueAudience.allowed_group_ids(user, value).map(&:to_s)
-      kept    = Array(value).select { |entry| entry.blank? || allowed.include?(entry.to_s) }
-      return false if kept.size == Array(value).size
-
-      if value.is_a?(Array)
-        # [] vale como "sem restrição" no ChecksCoreWorkflow; [''] é o "nenhuma opção" do próprio Zammad.
-        kept = [''] if kept.empty? && group == :restrict_values
-        @result[group]['group_id'] = kept
-      else
-        @result[group].delete('group_id')
-      end
-      true
+  # Lista base de filas do cliente (CoreWorkflow::Attributes::Group), antes de qualquer Core Workflow: o cliente
+  #   só recebe filas do seu público. Workflow de administrador que acrescente, selecione ou fixe fila do outro
+  #   público não é suportado; nesse caso o servidor recusa o chamado com MESSAGE (docs/lri/PLANO.md, seção 2.3).
+  module GroupOptions
+    def groups_customer
+      groups = super
+      groups.where(id: Lri::QueueAudience.allowed_group_ids(@attributes.user, groups.pluck(:id)))
     end
   end
 

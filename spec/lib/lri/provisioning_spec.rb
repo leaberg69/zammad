@@ -120,56 +120,14 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
-    it 'does not let a workflow add a queue of the other audience back', :aggregate_failures do
+    it 'refuses on the server, with the message, a queue that an admin workflow adds for the other audience', :aggregate_failures do
       create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
              perform: { 'ticket.group_id' => { 'operator' => 'add_option', 'add_option' => [internal_queue.id.to_s, brand_queue.id.to_s] } })
       collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
       outsider     = create(:customer)
 
-      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
-      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
-      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
-      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
-    end
-
-    it 'drops a forbidden queue that a workflow adds, selects and hides, and gives the field back', :aggregate_failures do
-      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
-             perform: { 'ticket.group_id' => { 'operator' => %w[add_option select hide set_readonly], 'add_option' => [internal_queue.id.to_s],
-                                               'select' => [internal_queue.id.to_s], 'hide' => true, 'set_readonly' => true } })
-      outsider = create(:customer)
-
-      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
-                                               'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
-
-      expect(Array(result.dig(:select, 'group_id')).map(&:to_s)).not_to include(internal_queue.id.to_s)
-      expect(result[:restrict_values]['group_id'].map(&:to_s)).not_to include(internal_queue.id.to_s)
-      expect(result[:restrict_values]['group_id'].map(&:to_s)).to include(brand_queue.id.to_s)
-      expect(result[:visibility]['group_id']).to eq('show')
-      expect(result[:readonly]['group_id']).to be(false)
-      expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
-    end
-
-    it 'removes a queue of the other audience fixed by a workflow, frees the field and says why', :aggregate_failures do
-      allow(Rails.logger).to receive(:warn)
-      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
-             perform: { 'ticket.group_id' => { 'operator' => %w[set_fixed_to hide set_readonly], 'set_fixed_to' => [internal_queue.id.to_s],
-                                               'hide' => true, 'set_readonly' => true } })
-      outsider = create(:customer)
-
-      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
-                                               'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
-
-      expect(result[:restrict_values]['group_id'].map(&:to_s)).not_to include(internal_queue.id.to_s)
-      expect(result[:visibility]['group_id']).to eq('show')
-      expect(result[:readonly]['group_id']).to be(false)
-      expect(Rails.logger).to have_received(:warn).with(%r{nenhuma fila do seu público sobrou: revisar os Core Workflows})
-    end
-
-    it 'does not log anything on an ordinary customer form' do
-      allow(Rails.logger).to receive(:warn)
-      offered_group_ids(create(:customer))
-
-      expect(Rails.logger).not_to have_received(:warn).with(%r{Lri::QueueAudience})
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
     end
 
     it 'keeps a deliberate empty restriction of a workflow', :aggregate_failures do

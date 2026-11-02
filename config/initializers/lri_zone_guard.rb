@@ -21,7 +21,7 @@ Rails.application.config.middleware.insert_after ActionDispatch::Session::Active
 Rails.application.config.to_prepare do
   Organization.include(Lri::PrivateOrganizations) if !(Organization < Lri::PrivateOrganizations)
   Ticket.include(Lri::QueueAudience) if !(Ticket < Lri::QueueAudience)
-  CoreWorkflow::Result.prepend(Lri::QueueAudience::ResultFilter) if CoreWorkflow::Result.ancestors.exclude?(Lri::QueueAudience::ResultFilter)
+  CoreWorkflow::Attributes::Group.prepend(Lri::QueueAudience::GroupOptions) if CoreWorkflow::Attributes::Group.ancestors.exclude?(Lri::QueueAudience::GroupOptions)
 end
 
 # Guarda ligada com configuração incompleta não sobe: melhor parar na partida do que proteger pela metade.

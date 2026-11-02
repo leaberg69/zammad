@@ -7,62 +7,51 @@ require 'open3'
 require 'tmpdir'
 
 SCRIPT = File.expand_path('../validar_tunel_fase_a.rb', __dir__)
-HOST   = 'atendimento.example.com'.freeze
+ARGS   = %w[atendimento.example.com lriteste aud-um,aud-dois].freeze
+
+# A regra interna correta, em bloco; os casos negativos mudam um pedaço dela.
+INTERNAL = <<~YAML.freeze
+  - hostname: atendimento.example.com
+    service: http://127.0.0.1:8082
+    originRequest:
+      access:
+        required: true
+        teamName: lriteste
+        audTag: [aud-um]
+YAML
+
+def ingress(*rules)
+  "ingress:\n#{rules.join.gsub(%r{^}, '  ')}"
+end
+
+FINAL = "- service: http_status:404\n".freeze
 
 # [nome, aceito?, YAML, trecho esperado no motivo da recusa]
 CASES = [
-  ['bloco, só o interno com Access e 404 final', true, <<~YAML, nil],
-    ingress:
-      - hostname: atendimento.example.com
-        service: http://127.0.0.1:8082
-        originRequest:
-          access:
-            required: true
-      - service: http_status:404
-  YAML
-  ['fluxo (sintaxe JSON), só o interno com Access e 404 final', true, <<~YAML, nil],
+  ['bloco, só o interno com o Access da central e 404 final', true, ingress(INTERNAL, FINAL), nil],
+  ['fluxo (sintaxe JSON), mesma configuração', true, <<~YAML, nil],
     {"ingress": [{"hostname": "atendimento.example.com", "service": "http://127.0.0.1:8082",
-      "originRequest": {"access": {"required": true}}}, {"service": "http_status:404"}]}
+      "originRequest": {"access": {"required": true, "teamName": "lriteste", "audTag": ["aud-dois"]}}},
+     {"service": "http_status:404"}]}
   YAML
-  ['portal público junto', false, <<~YAML, 'nomes além do interno'],
-    ingress:
-      - hostname: atendimento.example.com
-        originRequest: {access: {required: true}}
-      - hostname: suporte.example.com
-        service: http://127.0.0.1:8081
-      - service: http_status:404
-  YAML
-  ['regra final encaminhando para a aplicação', false, <<~YAML, 'exclusivamente http_status:404'],
-    ingress:
-      - hostname: atendimento.example.com
-        originRequest: {access: {required: true}}
-      - service: http://127.0.0.1:8081
-  YAML
-  ['Access na regra errada', false, <<~YAML, 'sem Access obrigatório'],
-    ingress:
-      - hostname: atendimento.example.com
-        service: http://127.0.0.1:8082
-      - service: http_status:404
-        originRequest: {access: {required: true}}
-  YAML
-  ['Access como texto, não booleano', false, <<~YAML, 'sem Access obrigatório'],
-    ingress:
-      - hostname: atendimento.example.com
-        originRequest: {access: {required: "true"}}
-      - service: http_status:404
-  YAML
-  ['regra sem hostname antes da final', false, <<~YAML, 'sem hostname'],
-    ingress:
-      - service: http://127.0.0.1:8081
-      - hostname: atendimento.example.com
-        originRequest: {access: {required: true}}
-      - service: http_status:404
-  YAML
-  ['nome entre aspas simples, sem Access', false, <<~YAML, 'sem Access obrigatório'],
-    ingress:
-      - hostname: 'atendimento.example.com'
-      - service: http_status:404
-  YAML
+  ['portal público junto', false,
+   ingress(INTERNAL, "- hostname: suporte.example.com\n  service: http://127.0.0.1:8081\n", FINAL), 'nomes além do interno'],
+  ['regra final encaminhando para a aplicação', false, ingress(INTERNAL, "- service: http://127.0.0.1:8081\n"),
+   'exclusivamente http_status:404'],
+  ['regra sem hostname antes da final', false, ingress("- service: http://127.0.0.1:8081\n", INTERNAL, FINAL), 'sem hostname'],
+  ['nome interno para a porta errada', false, ingress(INTERNAL.sub('8082', '8081'), FINAL), 'esperado http://127.0.0.1:8082'],
+  ['nome interno para 404', false, ingress(INTERNAL.sub('http://127.0.0.1:8082', 'http_status:404'), FINAL),
+   'esperado http://127.0.0.1:8082'],
+  ['Access sem required', false, ingress(INTERNAL.sub("required: true\n", ''), FINAL), 'sem Access obrigatório'],
+  ['Access com required em texto', false, ingress(INTERNAL.sub('required: true', 'required: "true"'), FINAL),
+   'sem Access obrigatório'],
+  ['equipe do Access ausente', false, ingress(INTERNAL.sub("teamName: lriteste\n", ''), FINAL), 'equipe do Access'],
+  ['equipe do Access de outra conta', false, ingress(INTERNAL.sub('lriteste', 'outra'), FINAL), 'equipe do Access'],
+  ['audTag de outro aplicativo', false, ingress(INTERNAL.sub('aud-um', 'aud-estranho'), FINAL), 'fora das audiences'],
+  ['audTag ausente', false, ingress(INTERNAL.sub("audTag: [aud-um]\n", ''), FINAL), 'fora das audiences'],
+  ['Access na regra errada', false,
+   ingress(INTERNAL.sub(%r{    originRequest:.*}m, ''), "- service: http_status:404\n  originRequest: {access: {required: true}}\n"),
+   'sem Access obrigatório'],
   ['YAML inválido', false, "ingress: [\n", 'YAML inválido'],
 ].freeze
 
@@ -71,7 +60,7 @@ Dir.mktmpdir do |dir|
   CASES.each do |name, accepted, yaml, reason|
     path = File.join(dir, 'config.yml')
     File.write(path, yaml)
-    _out, err, status = Open3.capture3('ruby', SCRIPT, path, HOST)
+    _out, err, status = Open3.capture3('ruby', SCRIPT, path, *ARGS)
     ok = status.success? == accepted && (accepted || err.include?(reason))
     puts "#{ok ? 'ok   ' : 'ERRO '} #{name}#{" (#{err.strip})" if !ok}"
     failures += 1 if !ok

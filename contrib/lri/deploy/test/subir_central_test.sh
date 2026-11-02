@@ -30,7 +30,8 @@ ultimo="${!#}"
 case "$*" in
   "image inspect -f {{.Id}} "*) echo "${IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{range .Config.Env}}{{println .}}{{end}} "*)
-    printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\n' "${GUARDA:-enforce}" ;;
+    printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\nLRI_ACCESS_TEAM_DOMAIN=lriteste.cloudflareaccess.com\nLRI_ACCESS_AUD=aud-um,aud-dois\n' \
+      "${GUARDA:-enforce}" ;;
   "inspect -f {{.Config.Image}} {{.Image}} "*)
     echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3} ${CONTAINER_IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
@@ -94,7 +95,7 @@ confere 'processo de fundo instável impede o túnel e para os de fundo de novo'
 # O YAML do túnel é conferido pelo validar_tunel_fase_a.rb (com teste próprio); aqui, o que o script faz com o veredito.
 cenario 'guarda desligada e o validador recusa o túnel' 1 ABRIR_TUNEL=1 GUARDA=off TUNEL_INVALIDO='nomes além do interno: "suporte.example.com"'
 confere 'guarda off com túnel recusado não libera nada e diz por quê' \
-  '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml atendimento.example.com" "$work/log"'
+  '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml atendimento.example.com lriteste aud-um,aud-dois" "$work/log"'
 
 cenario 'guarda desligada e o validador aceita (fase A)' 0 ABRIR_TUNEL=1 GUARDA=off
 confere 'fase A libera com o túnel aprovado pelo validador' 'tunel_aberto && grep -q "TÚNEL ABERTO" "$work/saida"'

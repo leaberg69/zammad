@@ -231,11 +231,15 @@ rails_env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$("${
   || parar "não foi possível ler o ambiente do zammad-railsserver: $rails_env"
 guard=$(printf '%s\n' "$rails_env" | sed -n 's/^LRI_ZONE_GUARD=//p')
 internal_host=$(printf '%s\n' "$rails_env" | sed -n 's#^LRI_INTERNAL_URL=https://##p')
+access_team=$(printf '%s\n' "$rails_env" | sed -n 's/^LRI_ACCESS_TEAM_DOMAIN=\(.*\)\.cloudflareaccess\.com$/\1/p')
+access_aud=$(printf '%s\n' "$rails_env" | sed -n 's/^LRI_ACCESS_AUD=//p')
 if [ "$guard" != enforce ]; then
-  [ -n "$internal_host" ] || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e LRI_INTERNAL_URL sem https:// no railsserver"
+  [ -n "$internal_host" ] && [ -n "$access_team" ] && [ -n "$access_aud" ] \
+    || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e o railsserver sem LRI_INTERNAL_URL, LRI_ACCESS_TEAM_DOMAIN ou LRI_ACCESS_AUD"
   # O YAML é lido de verdade pelo validador que vem na própria imagem (mesmo commit), sem rede.
   validacao=$(docker run --rm --network none --entrypoint ruby -v "$PWD/cloudflared:/etc/lri-cloudflared:ro" \
-    "$expected_image" contrib/lri/deploy/validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml "$internal_host" 2>&1) \
+    "$expected_image" contrib/lri/deploy/validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml \
+    "$internal_host" "$access_team" "$access_aud" 2>&1) \
     || parar "guarda de zona desligada (LRI_ZONE_GUARD=$guard) e o túnel não está só no nome interno: $validacao;" \
       "corrigir o config.yml ou ligar a guarda (fase B)"
 fi

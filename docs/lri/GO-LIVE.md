@@ -200,13 +200,19 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 
      ```sh
      docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver bundle exec rails runner '
-       ultimo = Ticket.order(updated_at: :desc).first
-       achado = SearchIndexBackend.search(ultimo.number.to_s, "Ticket", limit: 1).first
        indice = SearchIndexBackend.search("*", "Ticket", only_total_count: true)[:total_count]
-       puts "banco=#{Ticket.count} indice=#{indice} ultimo=#{ultimo.number} achado=#{achado&.dig(:id).to_s == ultimo.id.to_s}"'
+       ultimo = Ticket.order(updated_at: :desc).first
+       if ultimo.nil?
+         puts "banco=0 indice=#{indice} achado=sem_chamados"
+       else
+         ids = SearchIndexBackend.search("number:#{ultimo.number}", "Ticket", limit: 5).map { |hit| hit[:id].to_s }
+         puts "banco=#{Ticket.count} indice=#{indice} ultimo=#{ultimo.number} achado=#{ids.include?(ultimo.id.to_s)}"
+       end'
      ```
 
-     Aceite: `banco` igual a `indice` e `achado=true`. Outro resultado: não liberar; repetir a reconstrução do índice.
+     Aceite: `banco` igual a `indice` e `achado=true` (ou `achado=sem_chamados` com os dois em 0). A busca é pelo campo
+     `number`, não por texto livre, para outro chamado que cite o número não atrapalhar. Outro resultado: não liberar;
+     repetir a reconstrução do índice e, se persistir, levar ao Leandro com a saída.
   3. Só então liberar: `ABRIR_TUNEL=1 bash subir-central.sh` (sem `REINDEXAR`, já feito), que sobe scheduler e
      backup e reabre o túnel.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).

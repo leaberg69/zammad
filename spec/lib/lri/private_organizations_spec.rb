@@ -9,11 +9,11 @@ RSpec.describe Lri::PrivateOrganizations do
     end
 
     it 'creates organizations without sharing, even when sharing is requested' do
-      expect(Organization.create!(name: 'Cliente Novo', shared: true)).to have_attributes(shared: false)
+      expect(create(:organization, shared: true)).to have_attributes(shared: false)
     end
 
     it 'lets an administrator turn sharing on afterwards' do
-      organization = Organization.create!(name: 'Cliente Compartilhado')
+      organization = create(:organization)
       organization.update!(shared: true)
 
       expect(organization.reload.shared).to be(true)
@@ -24,7 +24,7 @@ RSpec.describe Lri::PrivateOrganizations do
     before { allow(Lri::Zone::Config).to receive(:current).and_return(Lri::Zone::Config.new({})) }
 
     it 'keeps the upstream default' do
-      expect(Organization.create!(name: 'Cliente Padrão')).to have_attributes(shared: true)
+      expect(create(:organization)).to have_attributes(shared: true)
     end
   end
 end

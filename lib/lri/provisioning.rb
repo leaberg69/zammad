@@ -35,14 +35,7 @@ class Lri::Provisioning
     'Agente Interno'          => 'Interno',
   }.freeze
 
-  INTERNAL_QUEUES_WORKFLOW     = 'Grupo LRI: filas internas só para colaboradores'.freeze
-  COLLABORATOR_QUEUES_WORKFLOW = 'Grupo LRI: colaboradores só nas filas internas'.freeze
-
-  # O workflow vem antes da lista do portal: as filas internas só entram nela já escondidas de quem é de fora.
-  STEPS = %i[
-    apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews
-    apply_internal_queues_workflow apply_customer_groups
-  ].freeze
+  STEPS = %i[apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews apply_customer_groups].freeze
 
   ACTION_LABELS = { created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
 
@@ -106,7 +99,7 @@ class Lri::Provisioning
     [brand] + GROUPS.fetch(brand).map { |queue| "#{brand}::#{queue}" }
   end
 
-  # Todas as filas, inclusive as internas criadas depois; elas ficam escondidas de quem é de fora pelos workflows.
+  # Todas as filas, inclusive as internas criadas depois; Lri::QueueAudience mostra a cada cliente só as do seu público.
   def self.customer_group_names
     provisioned = GROUPS.keys.flat_map { |brand| group_names(brand).drop(1) }
     (provisioned + Lri::QueueAudience.internal_groups.where.not(name: Lri::QueueAudience::INTERNAL_ROOT).pluck(:name)).uniq
@@ -259,58 +252,6 @@ class Lri::Provisioning
       overview.save!
       record(:overview, overview.name, :updated, "perfis #{missing.map(&:name).join(', ')}")
     end
-  end
-
-  # Cliente de fora só vê as filas das marcas; colaborador, só as Interno::* (PLANO, seção 2.3). A mesma regra é
-  #   imposta no servidor por Lri::QueueAudience.
-  def apply_internal_queues_workflow
-    internal_groups = Lri::QueueAudience.internal_groups
-    ensure_workflow(INTERNAL_QUEUES_WORKFLOW, organization_operator: 'is not', removed_groups: internal_groups)
-    ensure_workflow(COLLABORATOR_QUEUES_WORKFLOW, organization_operator: 'is', removed_groups: Group.where.not(id: internal_groups))
-  end
-
-  def ensure_workflow(name, organization_operator:, removed_groups:)
-    wanted   = queue_workflow_attributes(organization_operator, removed_groups)
-    workflow = find_exact(CoreWorkflow, :core_workflow, name)
-    return if workflow == :conflict
-
-    if workflow.nil?
-      CoreWorkflow.create!(name: name, **wanted)
-      return record(:core_workflow, name, :created)
-    end
-
-    diff = wanted.reject { |key, value| as_json_value(workflow.public_send(key)) == as_json_value(value) }
-    return record(:core_workflow, name, :unchanged) if diff.empty?
-
-    workflow.update!(diff)
-    record(:core_workflow, name, :updated, diff.keys.join(', '))
-  end
-
-  def queue_workflow_attributes(organization_operator, removed_groups)
-    customer_role_ids = Role.with_permissions('ticket.customer').pluck(:id).sort.map(&:to_s)
-    internal_org_ids  = Organization.where(name: ORGANIZATIONS.pluck(:name)).pluck(:id).sort.map(&:to_s)
-
-    {
-      object:             'Ticket',
-      preferences:        { 'screen' => ['create_middle'] },
-      condition_saved:    {},
-      # Sem acesso de criação a grupo = não é agente, mesmo que também tenha um perfil de cliente.
-      condition_selected: {
-        'session.role_ids'         => { 'operator' => 'is', 'value' => customer_role_ids },
-        'session.group_ids_create' => { 'operator' => 'not set' },
-        'session.organization_id'  => { 'operator' => organization_operator, 'value' => internal_org_ids },
-      },
-      # Roda cedo para a tela; a regra no servidor é Lri::QueueAudience, que não depende desta ordem.
-      priority:           1,
-      perform:            { 'ticket.group_id' => { 'operator' => 'remove_option', 'remove_option' => removed_groups.pluck(:id).sort.map(&:to_s) } },
-      active:             true,
-      stop_after_match:   false,
-      changeable:         false,
-    }
-  end
-
-  def as_json_value(value)
-    JSON.parse(value.to_json)
   end
 
   def apply_customer_groups

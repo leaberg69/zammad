@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-# Filas por público pela API (Lri::QueueAudience e os workflows do provisionamento).
+# Filas por público pela API (Lri::QueueAudience).
 RSpec.describe 'Grupo LRI queue audience', type: :request do
   let(:internal_queue) { Group.find_by(name: 'Interno::TI') }
   let(:brand_queue)    { Group.find_by(name: 'LRI::Comercial') }
@@ -69,13 +69,6 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     expect { graphql_create_as(collaborator, internal_queue) }.to change(Ticket, :count).by(1)
   end
 
-  it 'gives the server rule message over GraphQL when the workflows are off' do
-    CoreWorkflow.where(name: [Lri::Provisioning::INTERNAL_QUEUES_WORKFLOW]).update_all(active: false)
-
-    graphql_create_as(outsider, internal_queue)
-    expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
-  end
-
   it 'refuses moving a collaborator ticket into a brand queue over REST and keeps the queue', :aggregate_failures do
     rest_create(collaborator, internal_queue)
     ticket = Ticket.last
@@ -85,12 +78,5 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     expect(response).to have_http_status(:unprocessable_content)
     expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
     expect(ticket.reload.group).to eq(internal_queue)
-  end
-
-  it 'tells the customer why when only the server rule refuses' do
-    CoreWorkflow.where(name: [Lri::Provisioning::INTERNAL_QUEUES_WORKFLOW]).update_all(active: false)
-
-    rest_create(outsider, internal_queue)
-    expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
   end
 end

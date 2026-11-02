@@ -47,7 +47,7 @@ RSpec.describe Lri::Provisioning do
     expect(overview.roles.pluck(:name)).to include(*described_class::AGENT_ROLES.keys)
   end
 
-  it 'offers every queue in the portal, the internal ones guarded by the workflow' do
+  it 'lists every queue for the portal, each customer seeing only those of their audience' do
     provisioning
 
     names = Group.where(id: Setting.get('customer_ticket_create_group_ids')).pluck(:name)
@@ -109,10 +109,15 @@ RSpec.describe Lri::Provisioning do
       expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
     end
 
-    it 'still refuses an outsider when an earlier workflow stops the chain' do
+    it 'keeps both audiences apart when an earlier workflow stops the chain', :aggregate_failures do
       create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket', priority: 0, stop_after_match: true)
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
 
-      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
     it 'treats an internal queue created after provisioning as internal on the server' do
@@ -178,12 +183,6 @@ RSpec.describe Lri::Provisioning do
       agent = create(:agent, groups: [internal_queue, brand_queue])
 
       expect(offered_group_ids(agent)).to include(internal_queue.id.to_s, brand_queue.id.to_s)
-    end
-
-    it 'puts the workflow back when someone loosens it' do
-      CoreWorkflow.find_by(name: described_class::INTERNAL_QUEUES_WORKFLOW).update!(active: false)
-
-      expect(result_for(described_class.apply!, described_class::INTERNAL_QUEUES_WORKFLOW)).to have_attributes(action: :updated, detail: 'active')
     end
   end
 

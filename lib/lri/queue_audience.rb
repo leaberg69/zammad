@@ -38,6 +38,16 @@ module Lri::QueueAudience
     internal ? 'fila interna para cliente de fora' : 'fila de marca para colaborador'
   end
 
+  # Lista de filas oferecida ao cliente (CoreWorkflow::Attributes::Group), antes de qualquer Core Workflow: a ordem
+  #   ou a interrupção da cadeia de workflows não reabre filas de outro público.
+  module GroupOptions
+    def groups_customer
+      groups = super
+      user   = @attributes.user
+      groups.where(id: groups.select { |group| Lri::QueueAudience.denial(user, group).nil? }.map(&:id))
+    end
+  end
+
   private
 
   def lri_check_queue_audience

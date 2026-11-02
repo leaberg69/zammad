@@ -928,7 +928,7 @@ implantação é autorizada à parte por Leandro.
 | Fase | Entregas | Critério de conclusão |
 | ---- | -------- | --------------------- |
 | **0. Plano** | este documento | PLANO.md aprovado por Leandro |
-| **1. Fundação** | CI do fork estável; remoto upstream; inventário de diferenças; provisionamento em `contrib/lri/` com pt-BR, fuso, grupos, perfis e organizações | ambiente de desenvolvimento recriado do zero pelo script |
+| **1. Fundação** | CI do fork estável; remoto upstream; inventário de diferenças; provisionamento em `contrib/lri/` com pt-BR, fuso, grupos, perfis e organizações (`contrib/lri/provisionamento/provisionar.rb`, regra em `Lri::Provisioning`) | ambiente de desenvolvimento recriado do zero pelo script |
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
 | **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |

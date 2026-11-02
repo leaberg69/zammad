@@ -187,17 +187,26 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
   O atendimento só reabre no fim: o túnel fica parado enquanto a stack sobe e é conferida.
 
   1. Parar o túnel primeiro (`docker compose ... stop cloudflared`); com ele parado, ninguém de fora alcança a central.
-  2. Subir a stack sem o túnel e conferir as imagens:
+  2. Subir a stack sem o túnel e passar pelos portões. Cada linha só roda se a anterior der certo; qualquer falha
+     para tudo com o túnel ainda parado (ler `docker compose ... logs <serviço>` e corrigir antes de seguir):
 
      ```sh
-     docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate --no-deps \
-       lri-config-check zammad-init zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup \
-       zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch && \
-     docker compose -f docker-compose.yml -f docker-compose.lri.yml ps -a --format '{{.Service}} {{.Image}} {{.State}}'
+     DC="docker compose -f docker-compose.yml -f docker-compose.lri.yml"
+     exit_code() { docker inspect -f '{{.State.ExitCode}}' "$($DC ps -a -q "$1")"; }
+     $DC up -d --force-recreate --wait --wait-timeout 900 \
+         zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup \
+       && [ "$(exit_code lri-config-check)" = 0 ] \
+       && [ "$(exit_code zammad-init)" = 0 ] \
+       && $DC exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000 \
+       && $DC ps -a --format '{{.Service}} {{.Image}} {{.State}} {{.Status}}' \
+       && echo "PORTÕES OK" \
+       || echo "PARAR: um portão falhou; o túnel continua parado"
      ```
 
-     Todos os serviços Zammad (`init`, `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) com a tag do
-     conjunto reposto; nenhum com a tag defeituosa.
+     O `--wait` espera os serviços ficarem saudáveis (e os de execução única terminarem) e falha se algum não ficar.
+     Depois: `lri-config-check` e `zammad-init` com código 0, o Rails respondendo, e todos os serviços Zammad (`init`,
+     `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) com a tag do conjunto reposto, sem reinícios na
+     coluna de status. Só com `PORTÕES OK` o procedimento segue.
   3. Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
      existe): reconstruir e conferir que um chamado alterado depois do backup aparece na busca com os dados
      restaurados.
@@ -207,8 +216,8 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
        bundle exec rake zammad:searchindex:rebuild
      ```
 
-  4. Só então reabrir: `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate
-     cloudflared`.
+  4. Só então, com `PORTÕES OK` e o índice conferido, reabrir: `docker compose -f docker-compose.yml -f
+     docker-compose.lri.yml up -d --force-recreate cloudflared`.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Atualização da imagem depois do go-live

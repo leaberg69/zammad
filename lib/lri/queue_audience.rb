@@ -59,8 +59,16 @@ module Lri::QueueAudience
     collaborator?(user) ? internal_ids : ids - internal_ids
   end
 
-  # Filtra as filas oferecidas no resultado final do Core Workflow, depois de qualquer workflow (inclusive
-  #   add_option ou uma cadeia interrompida): o cliente só vê filas do seu público.
+  # Filtro na origem: a lista base de filas do cliente, antes de qualquer Core Workflow.
+  module GroupOptions
+    def groups_customer
+      groups = super
+      groups.where(id: Lri::QueueAudience.allowed_group_ids(@attributes.user, groups.pluck(:id)))
+    end
+  end
+
+  # Filtro no resultado final, depois de qualquer workflow (add_option, select, cadeia interrompida): opções,
+  #   seleção e preenchimento do campo de fila só com filas do público do cliente.
   module ResultFilter
     def run
       super.tap { lri_filter_group_options }
@@ -69,13 +77,18 @@ module Lri::QueueAudience
     private
 
     def lri_filter_group_options
-      return if payload['class_name'] != 'Ticket' || user.nil?
+      return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
 
-      values = @result.dig(:restrict_values, 'group_id')
-      return if values.blank?
+      %i[restrict_values select fill_in].each do |group|
+        value = @result.dig(group, 'group_id')
+        next if value.blank?
 
-      allowed = Lri::QueueAudience.allowed_group_ids(user, values).map(&:to_s)
-      @result[:restrict_values]['group_id'] = values.select { |value| value.blank? || allowed.include?(value.to_s) }
+        allowed = Lri::QueueAudience.allowed_group_ids(user, value).map(&:to_s)
+        kept    = Array(value).select { |entry| entry.blank? || allowed.include?(entry.to_s) }
+        next @result[group]['group_id'] = kept if value.is_a?(Array)
+
+        @result[group].delete('group_id') if kept.empty?
+      end
     end
   end
 

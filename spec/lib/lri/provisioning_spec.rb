@@ -132,6 +132,18 @@ RSpec.describe Lri::Provisioning do
       expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
     end
 
+    it 'drops a forbidden queue that a workflow selects or fills in', :aggregate_failures do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => %w[select hide], 'select' => [internal_queue.id.to_s], 'hide' => true } })
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: create(:customer), assets: false)
+
+      expect(Array(result.dig(:select, 'group_id')).map(&:to_s)).not_to include(internal_queue.id.to_s)
+      expect(Array(result.dig(:fill_in, 'group_id')).map(&:to_s)).not_to include(internal_queue.id.to_s)
+      expect(result[:restrict_values]['group_id'].map(&:to_s)).not_to include(internal_queue.id.to_s)
+    end
+
     it 'treats an internal queue created after provisioning as internal on the server' do
       new_queue = create(:group, name: 'Interno::RH')
 

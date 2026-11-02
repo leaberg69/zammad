@@ -18,11 +18,14 @@ para cá.
 
 Os comandos de leitura das seções 2, 3, 4, 6 e 7 estão em
 [`contrib/lri/vps/checklist-leitura.sh`](../../contrib/lri/vps/checklist-leitura.sh), sempre com fim de linha LF (o CI
-recusa CRLF). Para não reintroduzir CRLF ao copiar de uma máquina Windows, baixar direto na VPS:
+recusa CRLF). Para não reintroduzir CRLF ao copiar de uma máquina Windows, baixar direto na VPS, num arquivo
+temporário novo a cada vez (um download que falha não roda nada, nem uma cópia antiga):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/leaberg69/zammad/develop/contrib/lri/vps/checklist-leitura.sh -o checklist-leitura.sh
-bash checklist-leitura.sh > saida.txt 2>&1
+script=$(mktemp) &&
+  curl -fsSL https://raw.githubusercontent.com/leaberg69/zammad/develop/contrib/lri/vps/checklist-leitura.sh -o "$script" &&
+  bash "$script" > saida.txt 2>&1
+rm -f "$script"
 ```
 
 Legenda de estado: `a verificar` = falta rodar; `decisão` = depende de Leandro ou do Cogerente; `registrado` = o

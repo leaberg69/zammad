@@ -72,26 +72,16 @@ module Lri::QueueAudience
     def lri_filter_group_options
       return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
 
-      dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
-      emptied = dropped.first && lri_restore_options_if_empty
-      return if !emptied && dropped.drop(1).none?
+      options_dropped, *selection_dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
+      options_left = Array(@result.dig(:restrict_values, 'group_id')).any?(&:present?)
+      return if selection_dropped.none? && (options_left || !options_dropped)
 
-      # A regra de público prevalece sobre os workflows: o campo volta a aparecer e a ser editável, senão o cliente
-      #   fica sem como escolher uma fila permitida.
-      Rails.logger.warn "Lri::QueueAudience: workflow deixaria o usuário #{user.id} sem fila do seu público; campo de fila liberado"
+      # Nunca repõe filas que um workflow retirou: só tira as do outro público. Se um workflow escolheu ou fixou uma
+      #   delas, o campo volta a aparecer e a ser editável, e o log aponta o workflow como causa.
+      Rails.logger.warn "Lri::QueueAudience: workflow escolheu ou fixou fila de outro público para o usuário #{user.id}" \
+                        "#{'; nenhuma fila do seu público sobrou: revisar os Core Workflows de chamado' if !options_left}"
       @result[:visibility]['group_id'] = 'show'
       @result[:readonly]['group_id']   = false
-    end
-
-    # Só depois de o filtro de público ter retirado opções: se nenhuma sobrou, volta às filas do público do cliente.
-    #   Uma restrição vazia feita de propósito por um workflow continua valendo. true se precisou.
-    def lri_restore_options_if_empty
-      return false if !@result[:restrict_values].key?('group_id')
-      return false if Array(@result[:restrict_values]['group_id']).any?(&:present?)
-
-      base = Group.where(id: Setting.get('customer_ticket_create_group_ids'), active: true).pluck(:id)
-      @result[:restrict_values]['group_id'] = [''] + Lri::QueueAudience.allowed_group_ids(user, base).map(&:to_s)
-      true
     end
 
     # true se algo foi retirado.

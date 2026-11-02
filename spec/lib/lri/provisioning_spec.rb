@@ -149,7 +149,8 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
     end
 
-    it 'gives each audience its own queues back when a workflow fixes the field to the other audience', :aggregate_failures do
+    it 'removes a queue of the other audience fixed by a workflow, frees the field and says why', :aggregate_failures do
+      allow(Rails.logger).to receive(:warn)
       create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
              perform: { 'ticket.group_id' => { 'operator' => %w[set_fixed_to hide set_readonly], 'set_fixed_to' => [internal_queue.id.to_s],
                                                'hide' => true, 'set_readonly' => true } })
@@ -158,10 +159,17 @@ RSpec.describe Lri::Provisioning do
       result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
                                                'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
 
-      expect(result[:restrict_values]['group_id'].map(&:to_s)).to include(brand_queue.id.to_s)
       expect(result[:restrict_values]['group_id'].map(&:to_s)).not_to include(internal_queue.id.to_s)
       expect(result[:visibility]['group_id']).to eq('show')
       expect(result[:readonly]['group_id']).to be(false)
+      expect(Rails.logger).to have_received(:warn).with(%r{nenhuma fila do seu público sobrou: revisar os Core Workflows})
+    end
+
+    it 'does not log anything on an ordinary customer form' do
+      allow(Rails.logger).to receive(:warn)
+      offered_group_ids(create(:customer))
+
+      expect(Rails.logger).not_to have_received(:warn).with(%r{Lri::QueueAudience})
     end
 
     it 'keeps a deliberate empty restriction of a workflow', :aggregate_failures do

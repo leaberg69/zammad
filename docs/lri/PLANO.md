@@ -88,6 +88,11 @@ O setting `customer_ticket_create_group_ids` limita os grupos que clientes podem
   parte dos testes da fase 1.
 - **Perfis (roles)**: `Admin`, `Agente LRI`, `Agente Mean Well Brasil`, `Agente IRD.Net`, `Agente Interno` e
   `Cliente`. Colaboradores que abrem chamados internos usam o perfil `Cliente` e veem apenas os grupos `Interno::*`.
+- **Provisionamento (fase 1)**: `Lri::Provisioning` cria grupos, organizações internas e perfis de agente. Os perfis de
+  marca têm as permissões do `Agent` nativo, sem relatórios nem edição da base de conhecimento, e entram nas visões
+  padrão de chamados. `Admin` e `Customer` continuam os perfis nativos. Enquanto o Core Workflow que mostra
+  `Interno::*` só a colaboradores não existir, essas filas ficam fora da lista do portal: colaborador abre chamado
+  interno por e-mail ou pela equipe de TI.
 
 ### 2.4 Canais de e-mail
 
@@ -928,7 +933,7 @@ implantação é autorizada à parte por Leandro.
 | Fase | Entregas | Critério de conclusão |
 | ---- | -------- | --------------------- |
 | **0. Plano** | este documento | PLANO.md aprovado por Leandro |
-| **1. Fundação** | CI do fork estável; remoto upstream; inventário de diferenças; provisionamento em `contrib/lri/` com pt-BR, fuso, grupos, perfis e organizações | ambiente de desenvolvimento recriado do zero pelo script |
+| **1. Fundação** | CI do fork estável; remoto upstream; inventário de diferenças; provisionamento em `contrib/lri/` com pt-BR, fuso, grupos, perfis e organizações (`contrib/lri/provisionamento/provisionar.rb`, regra em `Lri::Provisioning`) | ambiente de desenvolvimento recriado do zero pelo script |
 | **2. Marcas e e-mail** | canais de e-mail por marca, endereços e assinaturas por grupo, gatilhos de confirmação, templates de e-mail com marca | e-mail de teste de cada marca vira chamado no grupo certo e a resposta sai com remetente e assinatura certos |
 | **3. Portal e branding** | logos e cores LRI/IRD.Net nas pastas `custom`; portal do cliente; base de conhecimento com categorias por marca; revisão pt-BR | `ux-report` do UX-B aprovado, com screenshots, para identidade e textos |
 | **4. Operação de atendimento** | SLAs e calendários (feriados nacionais e locais de RS e SC); macros e módulos de texto; Core Workflow; relatórios por marca | piloto interno com a equipe de TI usando a central |

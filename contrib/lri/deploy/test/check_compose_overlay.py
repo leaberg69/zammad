@@ -42,6 +42,28 @@ def heap_bytes(value):
     return number * {"": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}[unit]
 
 
+GOOD_TAGS = ["develop-" + "a1" * 20, "1.2.3", "7.3.0-rc.1"]
+BAD_TAGS = ["latest", "develop", "develop-abc1234", "1.2", "v1.2.3", "1.2.3-", "01.2.3", "1.2.3; true"]
+
+
+def check_tag_command(service):
+    """Executa o comando real do lri-config-check contra tags válidas e inválidas."""
+    command = service.get("command") or []
+    if service.get("entrypoint") != ["/bin/sh", "-c"] or len(command) != 1:
+        return ["lri-config-check: ausente ou fora do formato esperado (sh -c <comando>)"]
+
+    script = command[0].replace("$$", "$")
+    problems = []
+    for tag, should_pass in [(t, True) for t in GOOD_TAGS] + [(t, False) for t in BAD_TAGS]:
+        result = subprocess.run(["sh", "-c", script], env={"PATH": os.environ["PATH"], "LRI_IMAGE_TAG": tag},
+                                capture_output=True, text=True, check=False)
+        if (result.returncode == 0) != should_pass:
+            problems.append(f"lri-config-check: tag {tag!r} {'recusada' if should_pass else 'aceita'} indevidamente")
+        if not should_pass and "recusada" not in result.stderr:
+            problems.append(f"lri-config-check: tag {tag!r} recusada sem dizer o motivo")
+    return problems
+
+
 def check(config):
     problems = []
     services = config["services"]
@@ -52,10 +74,16 @@ def check(config):
         if not service.get("mem_limit"):
             problems.append(f"{name}: sem mem_limit")
 
+    expected_image = IMAGE_PREFIX + DUMMY_ENV["LRI_IMAGE_TAG"]
     for name in sorted(ZAMMAD_SERVICES):
-        image = services.get(name, {}).get("image", "")
-        if not image.startswith(IMAGE_PREFIX) or image.endswith(":latest"):
-            problems.append(f"{name}: imagem {image!r} não é uma tag fixa de {IMAGE_PREFIX}")
+        service = services.get(name, {})
+        if service.get("image") != expected_image:
+            problems.append(f"{name}: imagem {service.get('image')!r}, esperada {expected_image!r}")
+        condition = service.get("depends_on", {}).get("lri-config-check", {}).get("condition")
+        if condition != "service_completed_successfully":
+            problems.append(f"{name}: não espera a checagem da tag (lri-config-check)")
+
+    problems += check_tag_command(services.get("lri-config-check", {}))
 
     opts = services.get("zammad-elasticsearch", {}).get("environment", {}).get("ES_JAVA_OPTS", "")
     heaps = [heap_bytes(h) for h in re.findall(r"-Xm[sx](\S+)", opts)]

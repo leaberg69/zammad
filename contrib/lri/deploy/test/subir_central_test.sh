@@ -19,16 +19,17 @@ if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then exit 1; fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; fi
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 saude_padrao='{"status":"yellow","timed_out":false}'
+ultimo="${!#}"
 case "$*" in
+  "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
+  "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
   "ps -a -q --filter "*) [ "${PS_FALHA:-0}" = 1 ] && exit 1; printf '%s' "${INIT_RESTANTE:-}" ;;
   *" ps -q --status running "*) printf '%s' "${APP_RODANDO:-}" ;;
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
   *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
   *" config --images "*) printf '%s\n' postgres:17.11-alpine redis:8.10.3-alpine memcached:1.6.45-alpine \
                             "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" "${IMAGEM_CONFIG_2:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
-  *" ps -q "* | *" ps -a -q "*) echo "id-${*##* }" ;;
-  "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
-  "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
+  *" ps -q "* | *" ps -a -q "*) echo "id-$ultimo" ;;
 esac
 exit 0
 FAKE

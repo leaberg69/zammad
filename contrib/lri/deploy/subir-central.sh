@@ -69,9 +69,12 @@ temporario() {
 }
 
 parar() {
-  # O cliente em segundo plano (timeout + compose run) é encerrado antes do container.
+  # O cliente em segundo plano (timeout + compose run) é encerrado e esperado antes de mexer no container: uma
+  #   criação em andamento termina (ou é abortada) antes do rm e da consulta, e não escapa da limpeza. O timeout tem
+  #   --kill-after, então essa espera é limitada.
   if [ -n "$temp_child" ]; then
     kill "$temp_child" 2> /dev/null
+    wait "$temp_child" 2> /dev/null
     temp_child=""
   fi
   [ -n "$temp_container" ] && encerrar_temporario
@@ -109,6 +112,10 @@ expected_image=$(printf '%s\n' "$images" | grep "^$IMAGE_REPO:" | sort -u)
 if [ -z "$expected_image" ] || [ "$(printf '%s\n' "$expected_image" | wc -l)" != 1 ]; then
   parar "imagem do zammad-railsserver fora de $IMAGE_REPO ou com mais de uma tag: $(printf '%s' "$images" | tr '\n' ' ')"
 fi
+# O conteúdo, não só o nome: o ID da imagem local dessa tag (baixada e conferida pelo digest no runbook) é o que
+#   todo container tem de estar rodando. Nada aqui baixa imagem, então o ID não muda durante a subida.
+expected_id=$(docker image inspect -f '{{.Id}}' "$expected_image" 2>&1) \
+  || parar "imagem $expected_image não está neste servidor (rodar o pull do runbook antes): $expected_id"
 
 # Interrupção (Ctrl+C, TERM, queda da sessão SSH) em qualquer ponto passa por parar(): encerra o container temporário
 #   em andamento, para os processos de fundo e fecha o túnel, conforme o que já tiver sido feito.
@@ -163,8 +170,9 @@ conferir_imagens() {
   for service in "$@"; do
     id=$("${DC[@]}" ps -q "$service")
     [ -n "$id" ] || parar "$service sem container"
-    image=$(docker inspect -f '{{.Config.Image}}' "$id") || parar "não foi possível inspecionar $service"
-    [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
+    image=$(docker inspect -f '{{.Config.Image}} {{.Image}}' "$id") || parar "não foi possível inspecionar $service"
+    [ "$image" = "$expected_image $expected_id" ] \
+      || parar "$service rodando '$image', esperado '$expected_image $expected_id' (mesma tag e mesmo conteúdo)"
   done
 }
 

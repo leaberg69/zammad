@@ -16,12 +16,20 @@ cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then exit 1; fi
-if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; fi
+if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
+  # CRIACAO_TARDIA: ao receber TERM, o "daemon" ainda conclui a criação do container antes de o cliente sair.
+  if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
+    trap 'sleep 1; echo "criado-tarde" >> "$LOG"; exit 143' TERM
+  fi
+  sleep 10 & wait $!
+fi
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 saude_padrao='{"status":"yellow","timed_out":false}'
 ultimo="${!#}"
 case "$*" in
-  "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
+  "image inspect -f {{.Id}} "*) echo "${IMAGEM_ID:-sha256:aaa}" ;;
+  "inspect -f {{.Config.Image}} {{.Image}} "*)
+    echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3} ${CONTAINER_IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
   "ps -q --filter status=running --filter "*) printf '%s' "${INIT_ANTIGO:-}" ;;
@@ -127,7 +135,13 @@ cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"s
 confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'
 
 cenario 'imagem diferente da tag do .env' 1 ABRIR_TUNEL=1 IMAGEM_FALSA=ghcr.io/leaberg69/zammad-lri:0.9.0
-confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'
+confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado .ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'
+
+cenario 'mesma tag com conteúdo diferente' 1 ABRIR_TUNEL=1 CONTAINER_IMAGEM_ID=sha256:bbb
+confere 'conteúdo divergente com a mesma tag mantém o túnel fechado' '! tunel_aberto && grep -q "mesmo conteúdo" "$work/saida"'
+
+cenario 'imagem da tag ausente no servidor' 1 ABRIR_TUNEL=1 FALHAR_EM='image inspect'
+confere 'sem a imagem local nada é parado' '! grep -q "stop cloudflared" "$work/log" && grep -q "rodar o pull do runbook" "$work/saida"'
 
 cenario 'REINDEXAR=1 reconstrói o índice antes do túnel' 0 ABRIR_TUNEL=1 REINDEXAR=1
 confere 'reindexação antes de reabrir' '[ "$(linha "searchindex:rebuild")" -lt "$(linha "no-deps cloudflared")" ]'
@@ -208,6 +222,10 @@ for sinal in TERM HUP; do
   confere "$sinal durante o init encerra o init na hora e confirma" \
     '[ "$codigo" != 0 ] && [ "$duracao" -lt 5 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
 done
+
+interromper_em TERM 'name lri-zammad-init' INIT_PRAZO=60 PENDURAR_EM='name lri-zammad-init' CRIACAO_TARDIA=1 ABRIR_TUNEL=1
+confere 'criação tardia do container acontece antes da remoção e da confirmação' \
+  '[ "$(linha "criado-tarde")" -lt "$(linha "^rm -f lri-zammad-init-")" ] && grep -q "foi encerrado e removido" "$work/saida"'
 
 interromper_em TERM 'name lri-zammad-reindex' REINDEXAR=1 REINDEX_PRAZO=60 PENDURAR_EM='name lri-zammad-reindex' ABRIR_TUNEL=1
 confere 'interrupção durante a reindexação encerra o container na hora e confirma' \

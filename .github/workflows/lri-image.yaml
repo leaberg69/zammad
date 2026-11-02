@@ -16,10 +16,14 @@ on:
 permissions:
   contents: read
 
-# PR: uma execução por PR, a nova cancela a antiga. Push e execução manual: um grupo por execução, para nenhuma
-#   publicação pendente da develop ser descartada; a mesma tag de versão é protegida pela checagem de imutabilidade.
+# PR: uma execução por PR, a nova cancela a antiga. Tag de versão (push ou manual): uma de cada vez por tag, sem
+#   cancelar, para a checagem "já publicada" e o push não se cruzarem. develop: um grupo por execução, porque cada
+#   tag develop-<sha> é única e nenhuma publicação pendente pode ser descartada.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('lri-image-pr-{0}', github.ref) || format('lri-image-run-{0}', github.run_id) }}
+  group: >-
+    ${{ github.event_name == 'pull_request' && format('lri-image-pr-{0}', github.ref)
+    || startsWith(github.ref, 'refs/tags/') && format('lri-image-tag-{0}', github.ref)
+    || format('lri-image-run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # A tag de imagem de uma versão (X.Y.Z) é imutável: republicar a mesma versão é recusado no job de publicação.

@@ -70,7 +70,10 @@ class Lri::Provisioning
       committed = true
     end
 
-    PushMessages.deliver(PushMessages.flush) if committed && !outer_buffer
+    if committed && !outer_buffer
+      messages = PushMessages.flush
+      ActiveRecord.after_all_transactions_commit { PushMessages.deliver(messages) }
+    end
     results
   ensure
     # O cache de Setting leu os valores da transação desfeita.

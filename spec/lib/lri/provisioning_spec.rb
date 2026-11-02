@@ -141,6 +141,15 @@ RSpec.describe Lri::Provisioning do
       expect(Sessions).to have_received(:broadcast).with(hash_including(event: 'Group:create'), any_args).at_least(:once)
     end
 
+    it 'does not announce the records when the enclosing transaction rolls back' do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        described_class.apply!
+        raise ActiveRecord::Rollback
+      end
+
+      expect(Sessions).not_to have_received(:broadcast).with(hash_including(event: 'Group:create'), any_args)
+    end
+
     it 'does not announce the records of a dry run' do
       described_class.apply!(dry_run: true)
 

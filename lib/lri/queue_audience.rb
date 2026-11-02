@@ -34,9 +34,17 @@ module Lri::QueueAudience
     internal_groups.exists?(id: group.id)
   end
 
-  # Raiz gravada mas apagada: ninguém de fora cria chamado até reprovisionar, em vez de as filas virarem públicas.
+  # Instalação provisionada sem a raiz registrada (versão anterior do provisionamento) ou com a raiz apagada: nenhum
+  #   cliente cria chamado até reprovisionar, em vez de as filas internas virarem públicas.
   def self.internal_root_missing?
-    root_id.present? && !Group.exists?(id: root_id)
+    return false if !provisioned?
+
+    root_id.nil? || !Group.exists?(id: root_id)
+  end
+
+  def self.provisioned?
+    Organization.exists?(name: Lri::Provisioning::ORGANIZATIONS.pluck(:name)) ||
+      Group.exists?(name: Lri::Provisioning::GROUPS.keys - [INTERNAL_ROOT])
   end
 
   def self.collaborator?(user)
@@ -50,7 +58,7 @@ module Lri::QueueAudience
   # nil = permitido; senão, o motivo da recusa.
   def self.denial(user, group)
     return if group.nil? || exempt?(user)
-    return 'raiz das filas internas apagada; reprovisionar' if internal_root_missing?
+    return 'raiz das filas internas não registrada ou apagada; rodar o provisionamento' if internal_root_missing?
 
     internal     = internal_group?(group)
     collaborator = collaborator?(user)

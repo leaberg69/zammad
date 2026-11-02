@@ -94,6 +94,23 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     end
   end
 
+  context 'with an older provisioning that has no stored internal root' do
+    before do
+      Setting.find_by(name: Lri::QueueAudience::ROOT_SETTING).destroy!
+      Setting.reload
+    end
+
+    it 'refuses an outsider over REST and says why', :aggregate_failures do
+      expect { rest_create(outsider, internal_queue) }.not_to change(Ticket, :count)
+      expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
+    end
+
+    it 'refuses an outsider over GraphQL and says why', :aggregate_failures do
+      expect { graphql_create_as(outsider, internal_queue) }.not_to change(Ticket, :count)
+      expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
+    end
+  end
+
   # O Zammad já ignora a fila na atualização feita por cliente (TicketsController#update): o chamado não muda.
   it 'keeps the queue when a collaborator asks to move a ticket over REST' do
     rest_create(collaborator, internal_queue)

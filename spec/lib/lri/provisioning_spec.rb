@@ -211,6 +211,19 @@ RSpec.describe Lri::Provisioning do
       expect(Group.find_by(name: 'Interno')).to be_nil
     end
 
+    it 'closes every queue to customers on an older provisioning without the stored root, until it runs again', :aggregate_failures do
+      Setting.find_by(name: Lri::QueueAudience::ROOT_SETTING).destroy!
+      Setting.reload
+      outsider = create(:customer)
+
+      expect(offered_group_ids(outsider).compact_blank).to be_empty
+      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(Lri::QueueAudience.denial(outsider, internal_queue)).to include('rodar o provisionamento')
+
+      described_class.apply!
+      expect { create_ticket_as(outsider, brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
     it 'treats a queue as internal by the stored root, not by its name' do
       Group.find_by(name: 'Interno').update!(name: 'Apoio')
       create(:group, name: 'Apoio::RH')

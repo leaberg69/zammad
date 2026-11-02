@@ -191,8 +191,10 @@ Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banc
 
 1. **Guardar o conjunto em uso**: `.env` (só a linha `LRI_IMAGE_TAG` muda), `docker-compose.lri.yml` e
    `cloudflared/config.yml`, com a tag e o commit do fork anotados. É o que a seção 9 repõe.
-2. **Backup consistente**: parar a central (`docker compose ... stop`, os volumes ficam) e copiar os volumes
-   `postgresql-data` e `zammad-storage`, ou rodar o `zammad-backup` com `BACKUP_ON_START`.
+2. **Backup consistente**: parar a stack inteira (`docker compose -f docker-compose.yml -f docker-compose.lri.yml
+   stop`, os volumes ficam; conferir com `ps -a` que nenhum serviço ficou de pé) e só então copiar os volumes
+   `postgresql-data` e `zammad-storage`, do mesmo momento. Não usar o `zammad-backup` para isso: ele copia os arquivos
+   antes do banco com a aplicação gravando, e banco e anexos podem sair de momentos diferentes.
 3. **Arquivos do commit novo, sem perder os valores reais**: baixar o overlay e o exemplo do túnel do commit da imagem
    nova (como no passo 2) para `docker-compose.lri.yml.novo` e `cloudflared/config.yml.novo`. O overlay novo
    substitui o antigo inteiro (não tem valor local). No túnel, comparar (`diff cloudflared/config.yml

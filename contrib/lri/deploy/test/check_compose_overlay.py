@@ -29,10 +29,32 @@ DUMMY_ENV = {
 
 
 def render(official, overlay, env):
+    # Variáveis da central herdadas do ambiente não podem mudar o resultado: só valem as de env.
+    base = {key: value for key, value in os.environ.items()
+            if not key.startswith(("LRI_", "CLOUDFLARED_"))}
     return subprocess.run(
         ["docker", "compose", "-f", official, "-f", overlay, "config", "--format", "json"],
-        capture_output=True, text=True, env={**os.environ, **env}, check=False,
+        capture_output=True, text=True, env={**base, **env}, check=False,
     )
+
+
+GUARDED_SERVICES = ("zammad-railsserver", "zammad-websocket", "zammad-scheduler")
+
+
+def check_guard_modes(official, overlay):
+    """Fase A do go-live (LRI_ZONE_GUARD=off) e o padrão enforce com a variável vazia."""
+    problems = []
+    for value, expected in (("off", "off"), ("", "enforce")):
+        result = render(official, overlay, {**DUMMY_ENV, "LRI_ZONE_GUARD": value})
+        if result.returncode != 0:
+            problems.append(f"LRI_ZONE_GUARD={value!r}: compose recusou: {result.stderr.strip()}")
+            continue
+        services = json.loads(result.stdout)["services"]
+        for name in GUARDED_SERVICES:
+            guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
+            if guard != expected:
+                problems.append(f"LRI_ZONE_GUARD={value!r}: {name} ficou {guard!r}, esperado {expected!r}")
+    return problems
 
 
 def heap_bytes(value):
@@ -104,7 +126,7 @@ def check(config, image=None):
             problems.append(f"{name}: não espera a checagem da tag (lri-config-check)")
 
     # Sem LRI_ZONE_GUARD no .env (fase B e qualquer instalação normal), a guarda fica ligada.
-    for name in ("zammad-railsserver", "zammad-websocket", "zammad-scheduler"):
+    for name in GUARDED_SERVICES:
         guard = services.get(name, {}).get("environment", {}).get("LRI_ZONE_GUARD")
         if guard != "enforce":
             problems.append(f"{name}: LRI_ZONE_GUARD={guard!r}, esperado 'enforce' quando o .env não define")
@@ -133,6 +155,7 @@ def main(official, overlay, image=None):
         print(f"docker compose config falhou:\n{result.stderr}")
         return 1
     problems = check(json.loads(result.stdout), image)
+    problems += check_guard_modes(official, overlay)
 
     # Sem token, a stack não pode subir: o compose tem de recusar com a mensagem do overlay.
     without_token = {**DUMMY_ENV, "CLOUDFLARED_TUNNEL_TOKEN": ""}

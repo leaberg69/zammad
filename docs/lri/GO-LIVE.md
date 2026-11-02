@@ -104,7 +104,20 @@ No nome interno, pelo navegador (passando pelo Access):
 
 1. Assistente inicial do Zammad: criar o administrador com o login de `LRI_EMERGENCY_LOGIN`.
 2. Nesse usuário, cadastrar o 2FA por **aplicativo autenticador (TOTP)**; manter o método ligado nas configurações.
-3. Provisionamento: simular, aplicar e conferir. O mesmo comando três vezes, a primeira com `DRY_RUN=1`:
+3. Endereços da aplicação (PLANO, seção 2.6), **antes** de configurar os provedores de login e e-mail, porque os
+   retornos de OAuth, os links dos e-mails e a origem aceita no WebSocket saem deles. O assistente, aberto pelo nome
+   interno, pode ter gravado outro endereço:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver bundle exec rails runner '
+     Setting.set("http_type", "https"); Setting.set("fqdn", "suporte.lri.com.br")
+     Setting.set("alternative_fqdn", "suporte.ird.net.br")
+     puts %w[http_type fqdn alternative_fqdn].map { |name| "#{name}=#{Setting.get(name)}" }'
+   ```
+
+   A saída tem de mostrar `http_type=https fqdn=suporte.lri.com.br alternative_fqdn=suporte.ird.net.br`. Depois,
+   recriar `zammad-railsserver` e `zammad-websocket` (`up -d --force-recreate`), que leem esses valores na partida.
+4. Provisionamento: simular, aplicar e conferir. O mesmo comando três vezes, a primeira com `DRY_RUN=1`:
 
    ```sh
    docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
@@ -116,24 +129,31 @@ No nome interno, pelo navegador (passando pelo Access):
    ```
 
    Nenhuma linha `CONFLITO` em nenhuma das três; a terceira, que confere a idempotência, termina com `Nada a mudar`.
-4. Branding, no mesmo container: `docker compose -f docker-compose.yml -f docker-compose.lri.yml exec
+5. Branding, no mesmo container: `docker compose -f docker-compose.yml -f docker-compose.lri.yml exec
    zammad-railsserver bundle exec rails runner contrib/lri/branding/aplicar_branding.rb`.
-5. Login por Google e Microsoft configurados (com `auth_third_party_no_create_user` ligado) e agentes cadastrados com
+6. Login por Google e Microsoft configurados (com `auth_third_party_no_create_user` ligado) e agentes cadastrados com
    o perfil da marca.
 
 ## 7. Fase B — guarda ligada e portais públicos
 
+A guarda é ligada e conferida **com o túnel ainda só interno**; os portais públicos só entram depois.
+
 1. No `.env`, remover `LRI_ZONE_GUARD` (o overlay usa `enforce`).
-2. Em `cloudflared/config.yml`, acrescentar os três nomes `suporte`; no DNS, trocá-los para `CNAME` do túnel.
-3. Recriar:
+2. Recriar os serviços com a guarda e só seguir se a recriação der certo:
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d
-   docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared
+   docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate \
+     zammad-railsserver zammad-websocket zammad-scheduler && \
+   docker compose -f docker-compose.yml -f docker-compose.lri.yml ps zammad-railsserver zammad-websocket zammad-scheduler
    ```
 
-4. Log do railsserver: `guarda de zona LRI LIGADA` e `conta de emergência: (login), com 2FA`.
-5. Senhas locais da equipe, exceto a de emergência, trocadas por valores aleatórios (checklist, seção 5).
+3. Conferir, ainda sem portais públicos: os três serviços `healthy` ou `running`; nos logs de railsserver,
+   websocket e scheduler, `guarda de zona LRI LIGADA`; no railsserver, `conta de emergência: (login), com 2FA`; nenhum
+   container da fase A sobrando (`docker compose ... ps -a`). Se qualquer item falhar, parar aqui.
+4. Senhas locais da equipe, exceto a de emergência, trocadas por valores aleatórios (checklist, seção 5).
+5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`;
+   `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared`; e, por último,
+   trocar o DNS dos três `suporte` para `CNAME` do túnel.
 
 ## 8. Conferências
 
@@ -152,18 +172,20 @@ No nome interno, pelo navegador (passando pelo Access):
 - **Imagem com defeito**: uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banco migrado.
   Por isso, **toda troca de imagem** (inclusive a primeira atualização depois do go-live) começa com backup
   consistente: parar a central (`docker compose ... stop`, os volumes ficam), copiar os volumes `postgresql-data` e
-  `zammad-storage` (ou um `zammad-backup` com o `BACKUP_ON_START`), anotar a tag em uso e só então trocar a tag. Para
-  voltar:
-  - se as notas da versão nova confirmarem que não há migração de banco entre as duas tags, basta voltar
-    `LRI_IMAGE_TAG` à tag anterior e repetir os passos 5 e 7 (tags publicadas são imutáveis, a anterior continua
-    igual);
+  `zammad-storage` (ou um `zammad-backup` com o `BACKUP_ON_START`), guardar uma cópia de `docker-compose.lri.yml` e
+  `cloudflared/config.yml` em uso, anotar a tag e o commit do fork em uso e só então trocar. A troca leva tag,
+  overlay e configuração do túnel juntos, todos do commit da imagem nova (passo 2); o `.env` só muda na tag. Para
+  voltar, sempre com o conjunto da versão anterior (tag, overlay e `config.yml` guardados):
+  - se as notas da versão nova confirmarem que não há migração de banco entre as duas, repor o conjunto anterior e
+    repetir os passos 5 e 7 (tags publicadas são imutáveis, a anterior continua igual);
   - nos demais casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo
-    momento) e só então subir a tag anterior. Restaurar apaga o que entrou depois do backup: decisão do Leandro.
+    momento), repor o conjunto anterior e só então subir. Restaurar apaga o que entrou depois do backup: decisão do
+    Leandro.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Registro
 
-No registro privado: data e hora de cada fase, quem autorizou, tag e digest da imagem, commit da stack oficial,
+No registro privado: data e hora de cada fase, quem autorizou, tag, digest e commit do fork da imagem, commit da stack oficial,
 resultado das conferências e qualquer desvio deste runbook. Aqui, só a data e a fase concluída.
 
 | Data | Fase | Autorização |

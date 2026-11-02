@@ -49,9 +49,9 @@ código 0, sobe a aplicação esperando ficar saudável, confere a imagem de cad
 respondem, reconstrói o índice se `REINDEXAR=1` e só reabre o túnel com `ABRIR_TUNEL=1` e tudo aprovado. Qualquer
 falha para com `PARAR:` e o motivo, com o túnel parado. O CI testa essa sequência (`subir_central_test.sh`).
 
-Overlay, script e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse par que o
-workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack oficial é o
-mesmo que o CI usa nessa conferência; outro commit exige refazê-la.
+Overlay, script e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse
+conjunto que o workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack
+oficial é o mesmo que o CI usa nessa conferência; outro commit exige refazê-la.
 
 ## 3. Cloudflare
 
@@ -208,9 +208,9 @@ Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banc
    antes do banco com a aplicação gravando, e banco e anexos podem sair de momentos diferentes.
 3. **Arquivos do commit novo, sem perder os valores reais**: baixar o overlay, o `subir-central.sh` e o exemplo do
    túnel do commit da imagem nova (como no passo 2) para `docker-compose.lri.yml.novo`, `subir-central.sh.novo` e
-   `cloudflared/config.yml.novo`. Overlay e script novos substituem os antigos inteiros (não têm valor local). No túnel, comparar (`diff cloudflared/config.yml
-   cloudflared/config.yml.novo`) e levar só as mudanças de estrutura para o `config.yml` em uso, mantendo ID do
-   túnel, AUD do Access e os nomes da fase em que se está; depois,
+   `cloudflared/config.yml.novo`. Overlay e script novos substituem os antigos inteiros (não têm valor local). No
+   túnel, comparar (`diff cloudflared/config.yml cloudflared/config.yml.novo`) e levar só as mudanças de estrutura
+   para o `config.yml` em uso, mantendo ID do túnel, AUD do Access e os nomes da fase em que se está; depois,
    `docker run --rm -v "$PWD/cloudflared:/etc/cloudflared:ro" cloudflare/cloudflared:<versão do .env> tunnel --config
    /etc/cloudflared/config.yml ingress validate` tem de responder `OK`.
 4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir: `ABRIR_TUNEL=1 bash subir-central.sh`. O
@@ -219,8 +219,8 @@ Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banc
 
 ## 11. Registro
 
-No registro privado: data e hora de cada fase, quem autorizou, tag, digest e commit do fork da imagem, commit da stack oficial,
-resultado das conferências e qualquer desvio deste runbook. Aqui, só a data e a fase concluída.
+No registro privado: data e hora de cada fase, quem autorizou, tag, digest e commit do fork da imagem, commit da
+stack oficial, resultado das conferências e qualquer desvio deste runbook. Aqui, só a data e a fase concluída.
 
 | Data | Fase | Autorização |
 | ---- | ---- | ----------- |

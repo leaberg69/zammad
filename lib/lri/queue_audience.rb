@@ -9,9 +9,10 @@ module Lri::QueueAudience
   # Texto do fork, em pt-BR, fora do catálogo de traduções do Zammad.
   MESSAGE = 'Esta fila não está disponível para a sua conta. Escolha outra fila.'.freeze # rubocop:disable Zammad/DetectTranslatableString
 
+  # Antes da validação genérica do Core Workflow, para o cliente receber o motivo e não só "Invalid value".
   included do
-    before_create :lri_check_queue_audience
-    before_update :lri_check_queue_audience, if: :group_id_changed?
+    before_create :lri_check_queue_audience, prepend: true
+    before_update :lri_check_queue_audience, prepend: true, if: :group_id_changed?
   end
 
   # A fila raiz e todas as descendentes, inclusive as criadas depois do provisionamento.
@@ -23,6 +24,11 @@ module Lri::QueueAudience
     group.name == INTERNAL_ROOT || group.name.start_with?("#{INTERNAL_ROOT}::")
   end
 
+  # Renomear ou apagar a raiz faria as filas internas parecerem externas: aí ninguém de fora cria chamado até corrigir.
+  def self.internal_root_missing?
+    Group.exists?(name: Lri::Provisioning::GROUPS.keys - [INTERNAL_ROOT]) && !Group.exists?(name: INTERNAL_ROOT)
+  end
+
   def self.collaborator?(user)
     Lri::Provisioning::ORGANIZATIONS.pluck(:name).include?(user.organization&.name)
   end
@@ -30,6 +36,7 @@ module Lri::QueueAudience
   # nil = permitido; senão, o motivo da recusa.
   def self.denial(user, group)
     return if group.nil? || !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
+    return 'grupo Interno ausente numa instalação provisionada' if internal_root_missing?
 
     internal     = internal_group?(group)
     collaborator = collaborator?(user)

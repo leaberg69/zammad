@@ -33,14 +33,23 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
   it 'refuses an outsider in an internal queue over REST', :aggregate_failures do
     expect { rest_create(outsider, internal_queue) }.not_to change(Ticket, :count)
     expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
+  end
+
+  it 'logs the structured reason of a refusal' do
+    allow(Rails.logger).to receive(:warn)
+    rest_create(outsider, internal_queue)
+
+    expect(Rails.logger).to have_received(:warn).with(%r{Lri::QueueAudience: recusado reason=queue_audience user=#{outsider.id} group=#{internal_queue.id}})
   end
 
   it 'accepts an outsider in a brand queue over REST' do
     expect { rest_create(outsider, brand_queue) }.to change(Ticket, :count).by(1)
   end
 
-  it 'refuses a collaborator in a brand queue over REST' do
+  it 'refuses a collaborator in a brand queue over REST', :aggregate_failures do
     expect { rest_create(collaborator, brand_queue) }.not_to change(Ticket, :count)
+    expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
   end
 
   it 'accepts a collaborator in an internal queue over REST' do
@@ -53,12 +62,12 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
 
   it 'refuses an outsider in an internal queue over GraphQL, because of the group', :aggregate_failures do
     expect { graphql_create_as(outsider, internal_queue) }.not_to change(Ticket, :count)
-    expect(graphql_error).to eq("Invalid value '#{internal_queue.id}' for field 'group_id'!")
+    expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
   end
 
   it 'refuses a collaborator in a brand queue over GraphQL, because of the group', :aggregate_failures do
     expect { graphql_create_as(collaborator, brand_queue) }.not_to change(Ticket, :count)
-    expect(graphql_error).to eq("Invalid value '#{brand_queue.id}' for field 'group_id'!")
+    expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
   end
 
   it 'accepts an outsider in a brand queue over GraphQL' do

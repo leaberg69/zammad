@@ -156,6 +156,15 @@ RSpec.describe Lri::Provisioning do
       expect(ticket.reload.group_id).to eq(internal_queue.id)
     end
 
+    it 'keeps outsiders out of the internal queues after the root group is renamed', :aggregate_failures do
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      outsider = create(:customer)
+
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect { create_ticket_as(outsider, internal_queue.reload) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect(Lri::QueueAudience.denial(outsider, internal_queue)).to eq('grupo Interno ausente numa instalação provisionada')
+    end
+
     it 'lets an existing ticket be edited when its group does not change' do
       outsider = create(:customer)
       ticket   = UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }

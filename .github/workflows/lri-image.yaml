@@ -1,8 +1,9 @@
 name: LRI imagem
 
 # Imagem do fork do Grupo LRI (Dockerfile multi-stage do repositório, com lib/lri e contrib/lri) em
-# ghcr.io/leaberg69/zammad-lri. Em pull request só constrói, confere e escaneia; publica no push da develop
-# (develop-<sha>) e nas tags lri-vX.Y.Z (X.Y.Z e X.Y). Autenticação só pelo GITHUB_TOKEN do próprio job.
+# ghcr.io/leaberg69/zammad-lri. Em pull request e em execução manual fora da develop só constrói, confere e
+# escaneia; publica no push da develop (develop-<sha>) e nas tags lri-vX.Y.Z (X.Y.Z e, sem sufixo, X.Y).
+# Autenticação só pelo GITHUB_TOKEN do próprio job. Actions fixadas por SHA e scanner por digest.
 
 on:
   pull_request:
@@ -21,8 +22,8 @@ concurrency:
 env:
   IMAGE: ghcr.io/leaberg69/zammad-lri
   LOCAL_IMAGE: zammad-lri:ci
-  # Versão fixa do Trivy (imagem oficial), anterior ao comprometimento das tags do trivy-action em 2026.
-  TRIVY_IMAGE: aquasec/trivy:0.58.1
+  # aquasec/trivy:0.58.1, anterior ao comprometimento das tags do Trivy em 2026, fixado pelo digest.
+  TRIVY_IMAGE: aquasec/trivy@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7
 
 jobs:
   imagem:
@@ -34,29 +35,54 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Uma tag fora do formato não pode virar, por um trecho do nome, a tag de uma versão já publicada.
+      - name: Validar a referência e decidir se publica
+        id: ref
+        run: |
+          valid_release_tag() {
+            printf '%s' "$1" | grep -Eq '^lri-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
+          }
+          for ok in lri-v1.2.3 lri-v10.0.1 lri-v7.3.0-rc.1; do
+            valid_release_tag "$ok" || { echo "autoteste: $ok deveria ser aceita"; exit 1; }
+          done
+          for bad in lri-v1.2.3_test lri-v1.2 lri-v01.2.3 lri-vx.y.z lri-v1.2.3- lri-v1.2.3.4 xlri-v1.2.3; do
+            ! valid_release_tag "$bad" || { echo "autoteste: $bad deveria ser recusada"; exit 1; }
+          done
+
+          publish=false
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              valid_release_tag "$GITHUB_REF_NAME" || { echo "Tag '$GITHUB_REF_NAME' fora do formato lri-vX.Y.Z[-pré]; nada publicado."; exit 1; }
+              publish=true ;;
+            refs/heads/develop)
+              [ "$GITHUB_EVENT_NAME" = pull_request ] || publish=true ;;
+          esac
+          [ "$GITHUB_EVENT_NAME" = pull_request ] && publish=false
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Publicação neste evento ($GITHUB_EVENT_NAME, $GITHUB_REF): $publish" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Tags e rótulos
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.IMAGE }}
           flavor: |
             latest=false
           tags: |
             type=sha,prefix=develop-,format=short,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=match,pattern=lri-v(\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?),group=1
-            type=match,pattern=lri-v(\d+\.\d+)\.\d+$,group=1
-            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
+            type=match,pattern=^lri-v(\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?)$,group=1
+            type=match,pattern=^lri-v(\d+\.\d+)\.\d+$,group=1
           labels: |
             org.opencontainers.image.title=zammad-lri
-            org.opencontainers.image.description=Central de Atendimento Grupo LRI (fork do Zammad)
+            org.opencontainers.image.description=Central de Atendimento Grupo LRI
 
       - name: Build (multi-stage)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           build-args: |
@@ -97,7 +123,7 @@ jobs:
 
       - name: Publicar o relatório do scan
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: trivy-zammad-lri
           path: trivy/
@@ -105,20 +131,20 @@ jobs:
           retention-days: 30
 
       - name: Login no GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        if: steps.ref.outputs.publish == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publicar no GHCR
-        if: github.event_name != 'pull_request'
+        if: steps.ref.outputs.publish == 'true'
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           if [ -z "$TAGS" ]; then
-            echo "Nenhuma tag para publicar neste evento (${GITHUB_REF})."
+            echo "Nenhuma tag gerada para $GITHUB_REF; nada publicado."
             exit 1
           fi
           for tag in $TAGS; do

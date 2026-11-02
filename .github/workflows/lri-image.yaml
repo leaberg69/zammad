@@ -1,0 +1,130 @@
+name: LRI imagem
+
+# Imagem do fork do Grupo LRI (Dockerfile multi-stage do repositório, com lib/lri e contrib/lri) em
+# ghcr.io/leaberg69/zammad-lri. Em pull request só constrói, confere e escaneia; publica no push da develop
+# (develop-<sha>) e nas tags lri-vX.Y.Z (X.Y.Z e X.Y). Autenticação só pelo GITHUB_TOKEN do próprio job.
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+    tags: ['lri-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lri-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/leaberg69/zammad-lri
+  LOCAL_IMAGE: zammad-lri:ci
+  # Versão fixa do Trivy (imagem oficial), anterior ao comprometimento das tags do trivy-action em 2026.
+  TRIVY_IMAGE: aquasec/trivy:0.58.1
+
+jobs:
+  imagem:
+    name: Imagem do fork (build, conferência, scan e publicação)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Tags e rótulos
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=sha,prefix=develop-,format=short,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=match,pattern=lri-v(\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?),group=1
+            type=match,pattern=lri-v(\d+\.\d+)\.\d+$,group=1
+            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
+          labels: |
+            org.opencontainers.image.title=zammad-lri
+            org.opencontainers.image.description=Central de Atendimento Grupo LRI (fork do Zammad)
+
+      - name: Build (multi-stage)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_LABEL=lri
+          labels: ${{ steps.meta.outputs.labels }}
+          pull: true
+          load: true
+          push: false
+          tags: ${{ env.LOCAL_IMAGE }}
+
+      - name: Conferir o conteúdo do Grupo LRI na imagem
+        run: |
+          docker run --rm --entrypoint sh "$LOCAL_IMAGE" -c '
+            set -e
+            test -x contrib/lri/deploy/nginx-entrypoint.sh
+            test -f lib/lri/zone_guard.rb
+            test -f config/initializers/lri_zone_guard.rb
+            grep -q "\.lri\.docker$" VERSION
+          '
+          docker run --rm --entrypoint contrib/lri/deploy/nginx-entrypoint.sh \
+            -e LRI_NGINX_DRY_RUN=1 -e LRI_NGINX_INC_DIR=/tmp/lri -e LRI_NGINX_SITE=/tmp/site.conf \
+            -e LRI_ZONE_KEY=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci \
+            -e LRI_FQDN=suporte.example.com -e LRI_INTERNAL_HOST=atendimento.example.com \
+            -e LRI_MW_HOST=suporte.example.net -e LRI_PUBLIC_HOSTS="suporte.example.com suporte.example.net" \
+            "$LOCAL_IMAGE"
+
+      - name: Scan de vulnerabilidades (Trivy)
+        run: |
+          mkdir -p trivy "$HOME/.cache/trivy"
+          trivy() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+              -v "$PWD/trivy:/out" "$TRIVY_IMAGE" "$@"
+          }
+          # Relatório completo como artefato; o job falha só em CRITICAL com correção disponível.
+          trivy image --scanners vuln --format table --output /out/relatorio.txt "$LOCAL_IMAGE"
+          trivy image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --skip-db-update "$LOCAL_IMAGE"
+
+      - name: Publicar o relatório do scan
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: trivy-zammad-lri
+          path: trivy/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Login no GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar no GHCR
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          if [ -z "$TAGS" ]; then
+            echo "Nenhuma tag para publicar neste evento (${GITHUB_REF})."
+            exit 1
+          fi
+          for tag in $TAGS; do
+            docker tag "$LOCAL_IMAGE" "$tag"
+            docker push "$tag"
+            echo "publicada: $tag" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$(echo "$TAGS" | head -n1)")
+          echo "digest: $digest" | tee -a "$GITHUB_STEP_SUMMARY"

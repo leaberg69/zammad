@@ -117,6 +117,25 @@ RSpec.describe Lri::Provisioning do
     expect(Group.find_by(name: 'LRI')).to be_nil
   end
 
+  describe 'notifications to connected clients' do
+    before do
+      allow(Sessions).to receive(:broadcast)
+      allow(Sessions).to receive(:send_to)
+    end
+
+    it 'announces the new groups after a real run' do
+      described_class.apply!
+
+      expect(Sessions).to have_received(:broadcast).with(hash_including(event: 'Group:create'), any_args).at_least(:once)
+    end
+
+    it 'does not announce the records of a dry run' do
+      described_class.apply!(dry_run: true)
+
+      expect(Sessions).not_to have_received(:broadcast).with(hash_including(event: 'Group:create'), any_args)
+    end
+  end
+
   it 'warns when another organization is assigned the same domain' do
     create(:organization, name: 'Outra', domain: 'ird.net.br', domain_assignment: true)
 

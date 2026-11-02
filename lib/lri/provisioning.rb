@@ -1,8 +1,6 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-# Provisionamento da Central de Atendimento Grupo LRI (docs/lri/PLANO.md, seções 2.2, 2.3 e 4): idioma, fuso,
-# grupos por marca, organizações internas e perfis de agente. Idempotente: cria o que falta, corrige os atributos
-# que o plano fixa e devolve um relatório linha a linha. Não apaga registros nem mexe em usuários.
+# Regras em docs/lri/PLANO.md, seções 2.2 e 2.3. Nunca apaga registros nem mexe em usuários.
 class Lri::Provisioning
   SETTINGS = {
     'locale_default'   => 'pt-br',
@@ -58,20 +56,28 @@ class Lri::Provisioning
     @results = []
   end
 
+  # Os avisos aos clientes conectados ficam retidos e só saem se a transação for gravada.
   def apply!(dry_run: false)
-    ActiveRecord::Base.transaction do
-      UserInfo.ensure_current_user_id do
-        STEPS.each do |step|
-          send(step)
-          next if !conflicts?
+    outer_buffer = PushMessages.enabled?
+    PushMessages.init
+    buffered_before = Thread.current[:push_messages].size
+    committed = false
 
-          record(:provisionamento, step.to_s, :warning, 'interrompido depois deste passo por conflito')
-          break
-        end
-      end
+    ActiveRecord::Base.transaction do
+      UserInfo.ensure_current_user_id { run_steps }
       raise ActiveRecord::Rollback if dry_run || conflicts?
+
+      committed = true
     end
+
+    PushMessages.deliver(PushMessages.flush) if committed && !outer_buffer
     results
+  ensure
+    if outer_buffer
+      Thread.current[:push_messages]&.slice!(buffered_before..) if !committed
+    else
+      PushMessages.flush
+    end
   end
 
   def changed?
@@ -93,8 +99,18 @@ class Lri::Provisioning
 
   private
 
+  def run_steps
+    STEPS.each do |step|
+      send(step)
+      next if !conflicts?
+
+      record(:provisionamento, step.to_s, :warning, 'interrompido depois deste passo por conflito')
+      break
+    end
+  end
+
   def record(kind, name, action, detail = nil)
-    @results << Result.new(kind, name, action, detail)
+    results << Result.new(kind, name, action, detail)
   end
 
   # O banco diferencia maiúsculas, a validação de unicidade não: um nome igual em outra caixa vira conflito.

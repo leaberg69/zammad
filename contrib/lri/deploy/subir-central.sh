@@ -51,8 +51,23 @@ passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 passo "dependências (banco, cache, Redis, Elasticsearch)"
 "${DC[@]}" up -d --wait --wait-timeout 600 "${DEPENDENCIES[@]}" || parar "dependências não ficaram prontas"
 
-passo "zammad-init da imagem escolhida (migrações)"
-"${DC[@]}" run --rm --no-deps zammad-init || parar "zammad-init falhou"
+# Antes do init, que espera o Elasticsearch sem prazo. Nó único: yellow é o normal; red ou tempo esgotado param.
+passo "Elasticsearch em yellow ou green"
+health=$(timeout 180 "${DC[@]}" exec -T zammad-elasticsearch \
+  curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
+  || parar "Elasticsearch não responde"
+printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' && printf '%s' "$health" | grep -Eq '"timed_out" *: *false' \
+  || parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
+
+passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"
+init_name="lri-zammad-init-$$"
+timeout --kill-after=30 "${INIT_PRAZO:-1800}" "${DC[@]}" run --rm --no-deps --name "$init_name" zammad-init
+init_code=$?
+if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
+  docker rm -f "$init_name" > /dev/null 2>&1
+  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s e foi encerrado"
+fi
+[ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
 
 passo "aplicação"
 "${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${ZAMMAD_SERVICES[@]}" \
@@ -66,14 +81,22 @@ for service in "${ZAMMAD_SERVICES[@]}"; do
   [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
 done
 
-passo "Elasticsearch (yellow ou green) e Rails respondendo"
-# Nó único: yellow é o normal. Espera até 120 s; red ou tempo esgotado param, com o estado lido.
-health=$("${DC[@]}" exec -T zammad-elasticsearch \
-  curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
-  || parar "Elasticsearch não responde"
-printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' && printf '%s' "$health" | grep -Eq '"timed_out" *: *false' \
-  || parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
-"${DC[@]}" exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000 || parar "Rails não responde"
+# Nginx e WebSocket não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas.
+ate_responder() {
+  local descricao=$1; shift
+  for _ in $(seq 1 30); do
+    "$@" > /dev/null 2>&1 && return 0
+    sleep "$ESPERA"
+  done
+  parar "$descricao não respondeu depois de 30 tentativas"
+}
+
+passo "Rails, WebSocket e Nginx respondendo"
+ate_responder "Rails" "${DC[@]}" exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000
+ate_responder "WebSocket (porta 6042)" "${DC[@]}" exec -T zammad-websocket bash -c 'exec 3<>/dev/tcp/127.0.0.1/6042'
+# shellcheck disable=SC2016 # $LRI_FQDN é expandido dentro do container do Nginx
+ate_responder "Nginx (listener público 127.0.0.1:8081)" "${DC[@]}" exec -T zammad-nginx \
+  sh -c 'curl -sf -o /dev/null -H "Host: $LRI_FQDN" http://127.0.0.1:8081/'
 
 if [ "${REINDEXAR:-0}" = 1 ]; then
   passo "reconstrução do índice de busca"

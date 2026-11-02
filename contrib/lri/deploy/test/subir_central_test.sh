@@ -25,6 +25,7 @@ case "$*" in
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
 esac
+if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; fi
 exit 0
 FAKE
 chmod +x "$work/bin/docker"
@@ -47,19 +48,26 @@ cenario 'caminho feliz com ABRIR_TUNEL=1' 0 ABRIR_TUNEL=1
 confere 'imagem lida do compose e túnel parado antes de tudo' \
   '[ "$(sed -n 1p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml config --images zammad-railsserver" ] && [ "$(sed -n 2p "$work/log")" = "compose -f docker-compose.yml -f docker-compose.lri.yml stop cloudflared" ]'
 confere 'túnel reaberto só depois dos portões' '[ "$(linha "zammad-railsserver curl")" -lt "$(linha "no-deps cloudflared")" ]'
-confere 'zammad-init da imagem roda antes da aplicação' '[ "$(linha "run --rm --no-deps zammad-init")" -lt "$(linha "zammad-railsserver zammad-websocket")" ]'
-confere 'Elasticsearch sobe e o estado é conferido' 'grep -q "zammad-elasticsearch$" "$work/log" && grep -q "wait_for_status=yellow" "$work/log"'
+confere 'zammad-init da imagem roda antes da aplicação' '[ "$(linha "name lri-zammad-init")" -lt "$(linha "zammad-railsserver zammad-websocket")" ]'
+confere 'Elasticsearch sobe e é conferido antes do init' \
+  'grep -q "zammad-elasticsearch$" "$work/log" && [ "$(linha "wait_for_status=yellow")" -lt "$(linha "name lri-zammad-init")" ]'
+confere 'WebSocket e Nginx conferidos antes do túnel' \
+  '[ "$(linha "127.0.0.1/6042")" -lt "$(linha "no-deps cloudflared")" ] && [ "$(linha "127.0.0.1:8081")" -lt "$(linha "no-deps cloudflared")" ]'
 confere 'sucesso só com a conexão do túnel registrada' 'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida"'
 
 cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
 confere 'túnel não reaberto sem ABRIR_TUNEL' '! tunel_aberto'
 
-for passo in 'run --rm --no-deps lri-config-check' 'run --rm --no-deps zammad-init' '_cluster/health' \
-             'zammad-railsserver curl' '--wait --wait-timeout 900'; do
+for passo in 'run --rm --no-deps lri-config-check' 'name lri-zammad-init' '_cluster/health' \
+             'zammad-railsserver curl' '--wait --wait-timeout 900' '127.0.0.1/6042' '127.0.0.1:8081'; do
   cenario "falha em '$passo'" 1 ABRIR_TUNEL=1 FALHAR_EM="$passo"
   confere "falha em '$passo' mantém o túnel fechado e diz por quê" \
     '! tunel_aberto && grep -q "PARAR:" "$work/saida" && grep -q "Estado do túnel: parado" "$work/saida"'
 done
+
+cenario 'zammad-init pendurado' 1 ABRIR_TUNEL=1 INIT_PRAZO=1 PENDURAR_EM='name lri-zammad-init'
+confere 'prazo do init estoura, container removido e túnel fechado' \
+  '! tunel_aberto && grep -q "passou do prazo" "$work/saida" && grep -q "^rm -f lri-zammad-init-" "$work/log"'
 
 cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"status":"red","timed_out":true}'
 confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'

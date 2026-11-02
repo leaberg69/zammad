@@ -109,6 +109,28 @@ RSpec.describe Lri::Provisioning do
       expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
     end
 
+    it 'still refuses an outsider when an earlier workflow stops the chain' do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket', priority: 0, stop_after_match: true)
+
+      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+    end
+
+    it 'leaves a collaborator who is also an agent free to use the brand queues', :aggregate_failures do
+      both = create(:agent, groups: [brand_queue], organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      both.roles << Role.find_by(name: 'Customer')
+
+      expect(offered_group_ids(both)).to include(brand_queue.id.to_s)
+      expect { create_ticket_as(both, brand_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'does not touch tickets created without a screen, such as incoming e-mail' do
+      outsider = create(:customer)
+
+      expect do
+        UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }
+      end.to change(Ticket, :count).by(1)
+    end
+
     it 'leaves agents alone' do
       agent = create(:agent, groups: [internal_queue, brand_queue])
 

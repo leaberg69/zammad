@@ -17,9 +17,10 @@ end
 
 Rails.application.config.middleware.insert_after ActionDispatch::Session::ActiveRecordStore, LriZoneGuardMiddleware
 
-# Organizações novas sem compartilhamento (Lri::PrivateOrganizations), reaplicado a cada recarga de código.
+# Organizações novas sem compartilhamento e filas por público no servidor, reaplicados a cada recarga de código.
 Rails.application.config.to_prepare do
   Organization.include(Lri::PrivateOrganizations) if !(Organization < Lri::PrivateOrganizations)
+  Ticket.include(Lri::QueueAudience) if !(Ticket < Lri::QueueAudience)
 end
 
 # Guarda ligada com configuração incompleta não sobe: melhor parar na partida do que proteger pela metade.

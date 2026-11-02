@@ -260,8 +260,8 @@ class Lri::Provisioning
     end
   end
 
-  # Cliente de fora só usa as filas das marcas; colaborador, só as Interno::* (PLANO, seção 2.3). O Core Workflow
-  #   também é conferido no servidor ao criar o chamado (ChecksCoreWorkflow), não só na tela.
+  # Cliente de fora só vê as filas das marcas; colaborador, só as Interno::* (PLANO, seção 2.3). A mesma regra é
+  #   imposta no servidor por Lri::QueueAudience.
   def apply_internal_queues_workflow
     internal_groups = Group.where(name: self.class.internal_group_names)
     ensure_workflow(INTERNAL_QUEUES_WORKFLOW, organization_operator: 'is not', removed_groups: internal_groups)
@@ -293,10 +293,14 @@ class Lri::Provisioning
       object:             'Ticket',
       preferences:        { 'screen' => ['create_middle'] },
       condition_saved:    {},
+      # Sem acesso de criação a grupo = não é agente, mesmo que também tenha um perfil de cliente.
       condition_selected: {
-        'session.role_ids'        => { 'operator' => 'is', 'value' => customer_role_ids },
-        'session.organization_id' => { 'operator' => organization_operator, 'value' => internal_org_ids },
+        'session.role_ids'         => { 'operator' => 'is', 'value' => customer_role_ids },
+        'session.group_ids_create' => { 'operator' => 'not set' },
+        'session.organization_id'  => { 'operator' => organization_operator, 'value' => internal_org_ids },
       },
+      # Roda cedo para a tela; a regra no servidor é Lri::QueueAudience, que não depende desta ordem.
+      priority:           1,
       perform:            { 'ticket.group_id' => { 'operator' => 'remove_option', 'remove_option' => removed_groups.pluck(:id).sort.map(&:to_s) } },
       active:             true,
       stop_after_match:   false,

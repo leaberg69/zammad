@@ -74,13 +74,13 @@ RSpec.describe Lri::Provisioning do
     end
 
     it 'refuses a ticket in an internal queue from a customer outside the group' do
-      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
     it 'refuses it also from a customer of another company' do
       outsider = create(:customer, organization: create(:organization, name: 'Cliente Externo'))
 
-      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+      expect { create_ticket_as(outsider, internal_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
     it 'accepts a ticket in a brand queue from a customer outside the group' do
@@ -96,7 +96,7 @@ RSpec.describe Lri::Provisioning do
     it 'refuses a ticket in a brand queue from a collaborator' do
       collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
 
-      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+      expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
     it 'shows the brand queues to outsiders and the internal queues to collaborators', :aggregate_failures do
@@ -112,7 +112,32 @@ RSpec.describe Lri::Provisioning do
     it 'still refuses an outsider when an earlier workflow stops the chain' do
       create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket', priority: 0, stop_after_match: true)
 
-      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::ApplicationModel, %r{group_id})
+      expect { create_ticket_as(create(:customer), internal_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+    end
+
+    it 'treats an internal queue created after provisioning as internal', :aggregate_failures do
+      new_queue    = create(:group, name: 'Interno::RH')
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+
+      expect { create_ticket_as(create(:customer), new_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect { create_ticket_as(collaborator, new_queue) }.to change(Ticket, :count).by(1)
+    end
+
+    it 'refuses moving an outsider ticket into an internal queue and keeps the group', :aggregate_failures do
+      outsider = create(:customer)
+      ticket   = create_ticket_as(outsider, brand_queue)
+
+      expect do
+        UserInfo.with_user_id(outsider.id) { ticket.update!(group: internal_queue, screen: 'edit') }
+      end.to raise_error(Exceptions::UnprocessableContent)
+      expect(ticket.reload.group).to eq(brand_queue)
+    end
+
+    it 'lets an existing ticket be edited when its group does not change' do
+      outsider = create(:customer)
+      ticket   = UserInfo.with_user_id(outsider.id) { Ticket.create!(title: 'Por e-mail', group: internal_queue, customer: outsider) }
+
+      expect { UserInfo.with_user_id(outsider.id) { ticket.update!(title: 'Novo título', screen: 'edit') } }.not_to raise_error
     end
 
     it 'leaves a collaborator who is also an agent free to use the brand queues', :aggregate_failures do

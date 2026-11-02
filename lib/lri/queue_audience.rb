@@ -5,20 +5,38 @@
 module Lri::QueueAudience
   extend ActiveSupport::Concern
 
+  INTERNAL_ROOT = 'Interno'.freeze
+  # Texto do fork, em pt-BR, fora do catálogo de traduções do Zammad.
+  MESSAGE = 'Esta fila não está disponível para a sua conta. Escolha outra fila.'.freeze # rubocop:disable Zammad/DetectTranslatableString
+
   included do
     before_create :lri_check_queue_audience
     before_update :lri_check_queue_audience, if: :group_id_changed?
   end
 
-  def self.allowed?(user, group)
-    return true if group.nil? || !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
+  # A fila raiz e todas as descendentes, inclusive as criadas depois do provisionamento.
+  def self.internal_groups
+    Group.where(name: INTERNAL_ROOT).or(Group.where('name LIKE ?', "#{INTERNAL_ROOT}::%"))
+  end
 
-    internal_names = Lri::Provisioning.internal_group_names
-    return true if Group.where(name: internal_names).none?
+  def self.internal_group?(group)
+    group.name == INTERNAL_ROOT || group.name.start_with?("#{INTERNAL_ROOT}::")
+  end
 
-    internal_queue = internal_names.include?(group.name)
-    collaborator   = Lri::Provisioning::ORGANIZATIONS.pluck(:name).include?(user.organization&.name)
-    internal_queue == collaborator
+  def self.collaborator?(user)
+    Lri::Provisioning::ORGANIZATIONS.pluck(:name).include?(user.organization&.name)
+  end
+
+  # nil = permitido; senão, o motivo da recusa.
+  def self.denial(user, group)
+    return if group.nil? || !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
+    return if !Group.exists?(name: INTERNAL_ROOT)
+
+    internal     = internal_group?(group)
+    collaborator = collaborator?(user)
+    return if internal == collaborator
+
+    internal ? 'fila interna para cliente de fora' : 'fila de marca para colaborador'
   end
 
   private
@@ -26,10 +44,11 @@ module Lri::QueueAudience
   def lri_check_queue_audience
     return if !screen || !UserInfo.current_user_id
 
-    user = User.find_by(id: UserInfo.current_user_id)
-    return if user.nil? || Lri::QueueAudience.allowed?(user, group)
+    user   = User.find_by(id: UserInfo.current_user_id)
+    reason = user && Lri::QueueAudience.denial(user, group)
+    return if !reason
 
-    Rails.logger.warn "Lri::QueueAudience: usuário #{user.id} recusado no grupo #{group_id} (fila de outro público)"
-    raise Exceptions::ApplicationModel.new(self, "Invalid value '#{group_id}' for field 'group_id'!")
+    Rails.logger.warn "Lri::QueueAudience: recusado reason=queue_audience user=#{user.id} group=#{group_id} motivo=#{reason}"
+    raise Exceptions::UnprocessableContent, MESSAGE
   end
 end

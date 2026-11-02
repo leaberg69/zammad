@@ -263,7 +263,7 @@ class Lri::Provisioning
   # Cliente de fora só vê as filas das marcas; colaborador, só as Interno::* (PLANO, seção 2.3). A mesma regra é
   #   imposta no servidor por Lri::QueueAudience.
   def apply_internal_queues_workflow
-    internal_groups = Group.where(name: self.class.internal_group_names)
+    internal_groups = Lri::QueueAudience.internal_groups
     ensure_workflow(INTERNAL_QUEUES_WORKFLOW, organization_operator: 'is not', removed_groups: internal_groups)
     ensure_workflow(COLLABORATOR_QUEUES_WORKFLOW, organization_operator: 'is', removed_groups: Group.where.not(id: internal_groups))
   end

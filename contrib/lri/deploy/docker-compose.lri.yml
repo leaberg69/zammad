@@ -1,6 +1,11 @@
 # Sobreposição da stack oficial (zammad/zammad-docker-compose) para a Central de Atendimento Grupo LRI.
 # Uso (na VPS, só com OK do Leandro): docker compose -f docker-compose.yml -f <este arquivo> up -d
 # Ver docs/lri/PLANO.md, seção 2.9.2. Os valores vêm do .env da central (permissão 600, fora do repositório).
+# Nenhuma porta é publicada no host: o acesso é só pelo cloudflared, que faz conexões de saída.
+
+x-lri-image: &lri-image
+  # Imagem do fork publicada pelo workflow lri-image.yaml; a tag é develop-<sha> ou X.Y.Z, nunca "latest".
+  image: ghcr.io/leaberg69/zammad-lri:${LRI_IMAGE_TAG:?defina LRI_IMAGE_TAG (develop-<sha> ou X.Y.Z) no .env}
 
 x-lri-zone: &lri-zone
   LRI_ZONE_GUARD: enforce
@@ -14,20 +19,55 @@ x-lri-zone: &lri-zone
   # lri-app de faixa fixa (um nome de container seria resolvido na partida, antes do Nginx existir).
   RAILS_TRUSTED_PROXIES: ${LRI_APP_SUBNET:-172.31.250.0/24}
 
+x-lri-checked: &lri-checked
+  depends_on:
+    lri-config-check:
+      condition: service_completed_successfully
+
 services:
+  # Roda uma vez antes dos serviços Zammad: o compose só confere que a tag existe; aqui se recusa "latest" ou
+  #   qualquer tag fora de develop-<sha de 40> ou X.Y.Z, com a mensagem do motivo.
+  lri-config-check:
+    <<: *lri-image
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '%s' "$$LRI_IMAGE_TAG" | grep -Eq '^(develop-[0-9a-f]{40}|(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?)$$'
+        || { echo "LRI_IMAGE_TAG='$$LRI_IMAGE_TAG' recusada: use develop-<sha de 40 caracteres> ou X.Y.Z, nunca latest" >&2; exit 1; }
+    environment:
+      LRI_IMAGE_TAG: ${LRI_IMAGE_TAG}
+    restart: "no"
+    network_mode: none
+    mem_limit: 64m
+
+  zammad-backup:
+    <<: [*lri-image, *lri-checked]
+    mem_limit: ${LRI_MEM_BACKUP:-512m}
+
+  zammad-init:
+    <<: [*lri-image, *lri-checked]
+    mem_limit: ${LRI_MEM_INIT:-1g}
+
   zammad-railsserver:
+    <<: [*lri-image, *lri-checked]
     environment: *lri-zone
     networks: [default, lri-app]
+    mem_limit: ${LRI_MEM_RAILS:-1536m}
 
   zammad-websocket:
+    <<: [*lri-image, *lri-checked]
     environment: *lri-zone
     networks: [default, lri-app]
+    mem_limit: ${LRI_MEM_WEBSOCKET:-768m}
 
   # Mesmas regras nos processos de fundo (importações criam organizações; e-mails de redefinição saem daqui).
   zammad-scheduler:
+    <<: [*lri-image, *lri-checked]
     environment: *lri-zone
+    mem_limit: ${LRI_MEM_SCHEDULER:-1536m}
 
   zammad-nginx:
+    <<: [*lri-image, *lri-checked]
     entrypoint: ["/opt/zammad/contrib/lri/deploy/nginx-entrypoint.sh"]
     command: []
     environment:
@@ -39,14 +79,37 @@ services:
     # Nenhuma porta no host: só o cloudflared, no mesmo namespace, alcança 127.0.0.1:8081/8082.
     ports: !reset []
     networks: [lri-app, lri-edge]
+    mem_limit: ${LRI_MEM_NGINX:-128m}
+
+  # Heap fixo em 1 GB (teto do PLANO), sem variável que o aumente; o teto do container dá folga para a memória nativa
+  #   da JVM.
+  zammad-elasticsearch:
+    environment:
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    mem_limit: ${LRI_MEM_ELASTICSEARCH:-2g}
+
+  zammad-postgresql:
+    mem_limit: ${LRI_MEM_POSTGRESQL:-1g}
+
+  zammad-redis:
+    mem_limit: ${LRI_MEM_REDIS:-256m}
+
+  # O memcached da stack oficial usa até 256 MB de cache; o teto cobre isso mais o processo.
+  zammad-memcached:
+    mem_limit: ${LRI_MEM_MEMCACHED:-320m}
 
   cloudflared:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:?fixe a versão do cloudflared no .env}
     restart: ${RESTART:-always}
+    # Túnel gerenciado localmente: as regras vêm do config.yml (exemplo em contrib/lri/deploy/cloudflared); a
+    #   credencial vem só do TUNNEL_TOKEN do .env, nunca de arquivo no repositório.
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?defina CLOUDFLARED_TUNNEL_TOKEN no .env}
     network_mode: service:zammad-nginx
     volumes:
-      - ./cloudflared:/etc/cloudflared:ro
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+    mem_limit: ${LRI_MEM_CLOUDFLARED:-128m}
     # Usa o namespace de rede do Nginx: se o zammad-nginx for recriado, recrie também este serviço
     #   (docker compose up -d --force-recreate cloudflared). Ver docs/lri/VPS-CHECKLIST.md.
     depends_on:

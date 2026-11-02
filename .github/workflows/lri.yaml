@@ -72,6 +72,22 @@ jobs:
       - name: Teste do proxy com upstream de eco
         run: contrib/lri/deploy/test/nginx_zones_test.sh
 
+  compose-overlay:
+    name: Overlay da stack (portas, imagem, memória, token)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Stack oficial (commit fixo)
+        uses: actions/checkout@v7
+        with:
+          repository: zammad/zammad-docker-compose
+          ref: cee5e1cef02543977de6d13937ba8cc7276b5a5a
+          path: stack-oficial
+      - name: Conferir o overlay renderizado
+        run: python3 contrib/lri/deploy/test/check_compose_overlay.py stack-oficial/docker-compose.yml contrib/lri/deploy/docker-compose.lri.yml
+
   zone-guard:
     name: Guarda de zona (RSpec e RuboCop)
     runs-on: ubuntu-latest

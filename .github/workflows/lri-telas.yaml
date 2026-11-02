@@ -75,6 +75,7 @@ jobs:
         env:
           RAILS_ENV: test
           CI_SKIP_ASSETS_PRECOMPILE: 'true'
+          LRI_MEDIR_TELA: ${{ secrets.LRI_MEDIR_TELA }}
         run: |
           source /etc/profile.d/rvm.sh
           bundle exec rake zammad:db:init

@@ -15,8 +15,15 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
     FileUtils.mkdir_p(screenshot_dir)
   end
 
+  # A régua de tela (medir-tela.js) é privada e chega só pelo secret LRI_MEDIR_TELA; sem ele, só a imagem.
   def capture(name)
     page.save_screenshot(screenshot_dir.join("#{name}.png").to_s) # rubocop:disable Lint/Debugger
+
+    probe = ENV['LRI_MEDIR_TELA'].to_s.strip.delete_suffix(';')
+    return if probe.blank?
+
+    page.execute_script("window.UI_LR = { raiz: 'body' }; window.__lriMedida = #{probe};")
+    screenshot_dir.join("#{name}.json").write(JSON.pretty_generate(page.evaluate_script('window.__lriMedida')))
   end
 
   shared_examples 'a login screen per zone' do |prefix, width, height|
@@ -53,6 +60,7 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
     end
 
     it_behaves_like 'a login screen per zone', 'v1-legado-1440', 1440, 900
+    it_behaves_like 'a login screen per zone', 'v1-legado-1024', 1024, 768
 
     context 'with a single provider and the automatic redirect on the public zone' do
       let(:zone_name) { 'public' }
@@ -63,8 +71,10 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
       end
 
       it 'stays on the login screen' do
+        page.current_window.resize_to(1440, 900)
         open_login
         expect(page).to have_field('username')
+        expect(page).to have_no_text('Acesso da equipe')
         capture('v5-legado-sem-redirecionamento')
       end
     end
@@ -77,6 +87,20 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
     end
 
     it_behaves_like 'a login screen per zone', 'v2-desktop-1440', 1440, 900
+    it_behaves_like 'a login screen per zone', 'v2-desktop-1024', 1024, 768
+  end
+
+  describe 'desktop personal settings of a customer', app: :desktop_view, authenticated_as: :customer do
+    let(:customer)  { create(:customer) }
+    let(:zone_name) { 'public' }
+
+    it 'has no linked accounts entry on the public zone' do
+      page.current_window.resize_to(1440, 900)
+      visit '/personal-setting'
+      expect(page).to have_text('Appearance')
+      expect(page).to have_no_text('Linked accounts')
+      capture('v6-desktop-perfil-cliente-publica')
+    end
   end
 
   describe 'mobile interface', app: :mobile do

@@ -39,7 +39,7 @@ class Lri::Provisioning
 
   STEPS = %i[apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews apply_customer_groups].freeze
 
-  ACTION_LABELS = {created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
+  ACTION_LABELS = { created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
 
   Result = Struct.new(:kind, :name, :action, :detail) do
     def to_s

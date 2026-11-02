@@ -41,9 +41,19 @@ case "$expected_image" in
   *) parar "zammad-railsserver configurado com '$expected_image', fora de $IMAGE_REPO" ;;
 esac
 
+# Interrupção (Ctrl+C, TERM) em qualquer ponto passa por parar(), que fecha o túnel se ele já tiver sido reaberto.
+trap 'parar "execução interrompida"' INT TERM
+
 passo "túnel parado"
 "${DC[@]}" stop cloudflared || parar "não foi possível parar o cloudflared (pode continuar aberto)"
 tunnel_state="parado"
+
+# As migrações não podem rodar com processos antigos gravando no banco (tarefas, e-mails, backup).
+passo "aplicação parada antes das migrações"
+"${DC[@]}" stop "${ZAMMAD_SERVICES[@]}" || parar "não foi possível parar a aplicação"
+running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
+  || parar "não foi possível confirmar a parada da aplicação: $running"
+[ -z "$running" ] || parar "serviços da aplicação ainda em execução depois do stop: $running"
 
 passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 "${DC[@]}" run --rm --no-deps lri-config-check || parar "tag recusada pelo lri-config-check"
@@ -66,9 +76,11 @@ init_code=$?
 if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
   # Só afirma o encerramento depois de confirmar que o container não existe mais: um init vivo segue mexendo no banco.
   rm_output=$(docker rm -f "$init_name" 2>&1)
-  if [ -z "$(docker ps -a -q --filter "name=^${init_name}\$")" ]; then
+  # Só a consulta bem-sucedida e vazia confirma; consulta que falha conta como "não confirmado".
+  if remaining=$(docker ps -a -q --filter "name=^${init_name}\$" 2>&1) && [ -z "$remaining" ]; then
     parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s; o container $init_name foi encerrado e removido"
   fi
+  rm_output="$rm_output; consulta: ${remaining:-sem saída}"
   parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s e NÃO foi possível confirmar o encerramento do" \
     "container $init_name ($rm_output); ele pode continuar migrando o banco: não restaurar nem subir de novo antes" \
     "de conferir com docker ps -a"

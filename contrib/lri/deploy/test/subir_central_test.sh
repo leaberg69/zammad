@@ -20,7 +20,8 @@ if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; f
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 saude_padrao='{"status":"yellow","timed_out":false}'
 case "$*" in
-  "ps -a -q --filter "*) printf '%s' "${INIT_RESTANTE:-}" ;;
+  "ps -a -q --filter "*) [ "${PS_FALHA:-0}" = 1 ] && exit 1; printf '%s' "${INIT_RESTANTE:-}" ;;
+  *" ps -q --status running "*) printf '%s' "${APP_RODANDO:-}" ;;
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
   *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
   *" config --images "*) echo "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
@@ -77,6 +78,18 @@ cenario 'zammad-init pendurado e a remoção não se confirma' 1 ABRIR_TUNEL=1 I
 confere 'não afirma encerramento sem confirmar' \
   '! tunel_aberto && grep -q "NÃO foi possível confirmar o encerramento" "$work/saida" && ! grep -q "foi encerrado e removido" "$work/saida"'
 
+cenario 'zammad-init pendurado e a consulta ao Docker falha' 1 ABRIR_TUNEL=1 INIT_PRAZO=1 PENDURAR_EM='name lri-zammad-init' PS_FALHA=1
+confere 'consulta que falha não confirma a remoção' \
+  'grep -q "NÃO foi possível confirmar o encerramento" "$work/saida" && ! grep -q "foi encerrado e removido" "$work/saida"'
+
+cenario 'caminho feliz (ordem da parada)' 0
+confere 'aplicação parada e confirmada antes do init' \
+  '[ "$(linha "stop zammad-railsserver")" -lt "$(linha "name lri-zammad-init")" ] && [ "$(linha "ps -q --status running")" -lt "$(linha "name lri-zammad-init")" ]'
+
+cenario 'aplicação continua rodando depois do stop' 1 ABRIR_TUNEL=1 APP_RODANDO=abc123
+confere 'sem parada confirmada não há migração nem túnel' \
+  '! grep -q "name lri-zammad-init" "$work/log" && ! tunel_aberto && grep -q "ainda em execução" "$work/saida"'
+
 cenario 'Nginx aceita a conexão e não responde' 1 ABRIR_TUNEL=1 PENDURAR_EM='127.0.0.1:8081' SUBIR_PRAZO_TENTATIVA=1 SUBIR_TENTATIVAS=2
 confere 'verificação pendurada para por prazo, com o túnel fechado' '! tunel_aberto && grep -q "Nginx .* não respondeu depois de 2 tentativas" "$work/saida"'
 
@@ -105,6 +118,18 @@ confere 'log antigo de conexão com /ready falhando não vale como sucesso' \
 cenario 'cloudflared nunca conecta' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel' TUNNEL_READY=false
 confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
   'grep -q "sem conexão ativa" "$work/saida" && grep -q "Starting tunnel" "$work/saida" && fechado_de_novo'
+
+# Interrupção durante a espera do /ready: o túnel recém-aberto tem de ser fechado.
+: > "$work/log"
+(cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=50 \
+  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='20241/ready' ABRIR_TUNEL=1 bash "$script" > "$work/saida" 2>&1) &
+pid=$!
+for _ in $(seq 1 100); do grep -q '20241/ready' "$work/log" 2>/dev/null && break; sleep 0.1; done
+kill -TERM "$pid"
+wait "$pid"
+codigo=$?
+confere 'interrupção com o túnel aberto fecha o túnel e diz por quê' \
+  '[ "$codigo" != 0 ] && fechado_de_novo && grep -q "execução interrompida" "$work/saida"'
 
 cenario 'falha ao parar o túnel' 1 ABRIR_TUNEL=1 FALHAR_EM='stop cloudflared'
 confere 'não afirma túnel parado sem ter parado' 'grep -q "pode continuar aberto" "$work/saida" && grep -q "não verificado" "$work/saida"'

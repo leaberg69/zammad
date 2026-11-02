@@ -317,8 +317,10 @@ escrito):
    (`Lri::PrivateOrganizations`, `before_create`);
 4. **Feito** — `state` obrigatório e comparado em tempo constante no retorno da autorização de caixa, em todos os
    provedores (`ExternalCredential.state_matches?`);
-5. **Pendente** — indicação de zona para a interface esconder os botões de SSO da equipe no portal (fatia com UX-A
-   e UX-B).
+5. **Feito** — na zona pública, a interface recebe os provedores de login de terceiros desligados e não mostra os
+   botões da equipe (`Lri::ZoneGuard.frontend_value` no REST legado, no `applicationConfig` e no `configUpdates`;
+   spec de UX em `docs/lri/esteira/login-zona/`). O evento de tempo real legado não sabe a zona: um provedor ligado
+   com o cliente na tela reaparece até recarregar, e o clique cai na página de bloqueio.
 
 Inventário dos caminhos por token do Zammad (`Token.check`), conferido em 01/11: token de API, iCal e assinatura
 de calendário passam por `current_user_set` (cobertos pelo ponto de checagem); `Signup`, `AdminAuth` e

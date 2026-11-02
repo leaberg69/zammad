@@ -86,4 +86,5 @@ RSpec.describe 'Grupo LRI login screen per zone', authenticated_as: false, type:
     end
 
     it_behaves_like 'a login screen per zone', 'v3-mobile-390', 390, 844
-  endend
+  end
+end

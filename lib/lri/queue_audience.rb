@@ -7,7 +7,10 @@ module Lri::QueueAudience
 
   INTERNAL_ROOT = 'Interno'.freeze
   # Texto do fork, em pt-BR, fora do catálogo de traduções do Zammad.
-  MESSAGE = 'Esta fila não está disponível para a sua conta. Escolha outra fila.'.freeze # rubocop:disable Zammad/DetectTranslatableString
+  # rubocop:disable Zammad/DetectTranslatableString
+  MESSAGE = 'Esta fila não está disponível para a sua conta. Escolha outra fila.'.freeze
+  UNAVAILABLE_MESSAGE = 'A abertura de chamados pelo portal está indisponível no momento. Fale com o suporte por e-mail.'.freeze
+  # rubocop:enable Zammad/DetectTranslatableString
 
   # Antes da validação genérica do Core Workflow, para o cliente receber o motivo e não só "Invalid value".
   included do
@@ -108,6 +111,11 @@ module Lri::QueueAudience
     user   = User.find_by(id: UserInfo.current_user_id)
     reason = user && Lri::QueueAudience.denial(user, group)
     return if !reason
+
+    if Lri::QueueAudience.internal_root_missing?
+      Rails.logger.error "Lri::QueueAudience: recusado reason=internal_root_missing user=#{user.id} group=#{group_id} motivo=#{reason}"
+      raise Exceptions::UnprocessableContent, UNAVAILABLE_MESSAGE
+    end
 
     Rails.logger.warn "Lri::QueueAudience: recusado reason=queue_audience user=#{user.id} group=#{group_id} motivo=#{reason}"
     raise Exceptions::UnprocessableContent, MESSAGE

@@ -100,14 +100,21 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
       Setting.reload
     end
 
-    it 'refuses an outsider over REST and says why', :aggregate_failures do
-      expect { rest_create(outsider, internal_queue) }.not_to change(Ticket, :count)
-      expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
+    it 'refuses an outsider over REST and points to support', :aggregate_failures do
+      expect { rest_create(outsider, brand_queue) }.not_to change(Ticket, :count)
+      expect(response.parsed_body['error']).to eq(Lri::QueueAudience::UNAVAILABLE_MESSAGE)
     end
 
-    it 'refuses an outsider over GraphQL and says why', :aggregate_failures do
-      expect { graphql_create_as(outsider, internal_queue) }.not_to change(Ticket, :count)
-      expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
+    it 'refuses an outsider over GraphQL and points to support', :aggregate_failures do
+      expect { graphql_create_as(outsider, brand_queue) }.not_to change(Ticket, :count)
+      expect(graphql_error).to eq(Lri::QueueAudience::UNAVAILABLE_MESSAGE)
+    end
+
+    it 'logs the reprovisioning instruction' do
+      allow(Rails.logger).to receive(:error)
+      rest_create(outsider, brand_queue)
+
+      expect(Rails.logger).to have_received(:error).with(%r{reason=internal_root_missing .*rodar o provisionamento})
     end
   end
 

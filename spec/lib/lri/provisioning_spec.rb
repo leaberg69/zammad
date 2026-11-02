@@ -217,7 +217,7 @@ RSpec.describe Lri::Provisioning do
       outsider = create(:customer)
 
       expect(offered_group_ids(outsider).compact_blank).to be_empty
-      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
+      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::UNAVAILABLE_MESSAGE)
       expect(Lri::QueueAudience.denial(outsider, internal_queue)).to include('rodar o provisionamento')
 
       described_class.apply!

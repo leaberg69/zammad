@@ -76,6 +76,17 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     expect(graphql_error).to eq(Lri::QueueAudience::MESSAGE)
   end
 
+  it 'refuses moving a collaborator ticket into a brand queue over REST and keeps the queue', :aggregate_failures do
+    rest_create(collaborator, internal_queue)
+    ticket = Ticket.last
+
+    put "/api/v1/tickets/#{ticket.id}", params: { group: brand_queue.name }, as: :json
+
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
+    expect(ticket.reload.group).to eq(internal_queue)
+  end
+
   it 'tells the customer why when only the server rule refuses' do
     CoreWorkflow.where(name: [Lri::Provisioning::INTERNAL_QUEUES_WORKFLOW]).update_all(active: false)
 

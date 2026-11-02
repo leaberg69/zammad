@@ -49,3 +49,4 @@ app/assets/stylesheets/fineuploader.css linguist-vendored
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
 # Grupo LRI: scripts e configurações de deploy rodam em Linux (sh/nginx); sempre LF.
 contrib/lri/deploy/** text eol=lf
+contrib/lri/vps/** text eol=lf

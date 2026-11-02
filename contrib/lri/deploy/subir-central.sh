@@ -68,6 +68,11 @@ parar() {
   exit 1
 }
 
+# Uma subida por vez neste diretório: duas em paralelo migrariam o mesmo banco e uma abriria o túnel no meio da outra.
+#   O lock vale até o fim do processo (o descritor 9 fecha na saída).
+exec 9> .subir-central.lock || parar "não foi possível criar .subir-central.lock neste diretório"
+flock -n 9 || parar "outra execução do subir-central.sh está em andamento neste diretório; nada foi alterado"
+
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
 images=$("${DC[@]}" config --images zammad-railsserver) \

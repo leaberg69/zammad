@@ -157,13 +157,14 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 1. No `.env`, remover `LRI_ZONE_GUARD` (o overlay usa `enforce`).
 2. Subir com os portões e **sem** reabrir o túnel: `bash subir-central.sh` (termina com `PORTÕES OK` e o túnel
    parado).
-3. Conferir, ainda com o túnel parado: nos logs de railsserver, websocket e scheduler, `guarda de zona LRI LIGADA`;
-   no railsserver, `conta de emergência: (login), com 2FA`. Se qualquer item falhar, parar aqui.
+3. Conferir, ainda com túnel e processos de fundo parados: nos logs de railsserver e websocket, `guarda de zona LRI
+   LIGADA`; no railsserver, `conta de emergência: (login), com 2FA`. Se qualquer item falhar, parar aqui. (O
+   scheduler só é recriado na liberação, no passo 5, e é conferido ali.)
 4. Senhas locais da equipe, exceto a de emergência, trocadas por valores aleatórios (checklist, seção 5).
 5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`; validar
    (`ingress validate`, seção 10); `ABRIR_TUNEL=1 bash subir-central.sh` (repete os portões, libera scheduler e
-   backup e reabre o túnel até a conexão ficar ativa); e, por último, trocar o DNS dos três `suporte` para `CNAME`
-   do túnel.
+   backup e reabre o túnel até a conexão ficar ativa); conferir no log do scheduler `guarda de zona LRI LIGADA`; e,
+   por último, trocar o DNS dos três `suporte` para `CNAME` do túnel.
 6. **Validar o login da equipe** (obrigatório antes de dar o go-live por concluído): pelo nome interno, entrar com
    Google (conta da LRI) e com Microsoft (conta da IRD.Net); o retorno passa pelo `fqdn` e volta ao nome interno
    (PLANO, seção 2.9.2). Se falhar, a equipe continua só com a conta de emergência e o go-live não fecha.

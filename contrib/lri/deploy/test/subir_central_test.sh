@@ -152,6 +152,15 @@ codigo=$?
 confere 'interrupção com o túnel aberto fecha o túnel e diz por quê' \
   '[ "$codigo" != 0 ] && fechado_de_novo && grep -q "execução interrompida" "$work/saida"'
 
+# Outra execução segurando o lock: a segunda é recusada antes de tocar na stack.
+( flock 9; sleep 5 ) 9> "$work/.subir-central.lock" &
+lock_pid=$!
+for _ in $(seq 1 50); do flock -n "$work/.subir-central.lock" true 2>/dev/null || break; sleep 0.1; done
+cenario 'segunda execução simultânea' 1 ABRIR_TUNEL=1
+confere 'segunda execução recusada sem chamar o docker' '[ ! -s "$work/log" ] && grep -q "outra execução" "$work/saida"'
+kill "$lock_pid" 2>/dev/null
+wait "$lock_pid" 2>/dev/null
+
 cenario 'falha ao parar o túnel' 1 ABRIR_TUNEL=1 FALHAR_EM='stop cloudflared'
 confere 'não afirma túnel parado sem ter parado' 'grep -q "pode continuar aberto" "$work/saida" && grep -q "não verificado" "$work/saida"'
 

@@ -73,6 +73,8 @@ confere 'túnel e processos de fundo não liberados sem ABRIR_TUNEL' '! tunel_ab
 
 cenario 'init anterior ainda rodando' 1 ABRIR_TUNEL=1 INIT_ANTIGO=velho123
 confere 'init anterior impede a migração nova' '! grep -q "name lri-zammad-init" "$work/log" && grep -q "init ou reindexação em execução de antes" "$work/saida"'
+confere 'init em reinício ou pausado também conta como ativo, e o serviço zammad-init é parado' \
+  'grep -q "status=restarting --filter status=paused" "$work/log" && grep -q "stop .*zammad-backup zammad-init$" "$work/log"'
 
 cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='false 2'
 confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \
@@ -161,9 +163,11 @@ interromper_em() {
     if grep -q -- "$marca" "$work/log" 2>/dev/null; then visto=1; break; fi
     sleep 0.1
   done
+  local inicio=$SECONDS
   kill -"$sinal" "$pid" 2>/dev/null
   wait "$pid"
   codigo=$?
+  duracao=$((SECONDS - inicio))
   if [ "$visto" != 1 ]; then
     echo "ERRO  interrupção: o passo '$marca' não foi alcançado em 30 s"; cat "$work/saida"; falhas=$((falhas + 1))
   fi
@@ -201,13 +205,13 @@ confere 'tags divergentes recusadas antes de parar algo' '[ "$(wc -l < "$work/lo
 # Interrupção durante o init e durante a reindexação: o container temporário é encerrado e a remoção confirmada.
 for sinal in TERM HUP; do
   interromper_em "$sinal" 'name lri-zammad-init' INIT_PRAZO=60 PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1
-  confere "$sinal durante o init encerra o init e confirma" \
-    '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
+  confere "$sinal durante o init encerra o init na hora e confirma" \
+    '[ "$codigo" != 0 ] && [ "$duracao" -lt 5 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
 done
 
 interromper_em TERM 'name lri-zammad-reindex' REINDEXAR=1 REINDEX_PRAZO=60 PENDURAR_EM='name lri-zammad-reindex' ABRIR_TUNEL=1
-confere 'interrupção durante a reindexação encerra o container e confirma' \
-  '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-reindex-" "$work/log" && grep -q "foi encerrado e removido" "$work/saida" && ! fundo_iniciado'
+confere 'interrupção durante a reindexação encerra o container na hora e confirma' \
+  '[ "$codigo" != 0 ] && [ "$duracao" -lt 5 ] && grep -q "^rm -f lri-zammad-reindex-" "$work/log" && grep -q "foi encerrado e removido" "$work/saida" && ! fundo_iniciado'
 
 cenario 'reindexação falha com o container ainda lá' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='name lri-zammad-reindex' INIT_RESTANTE=abc
 confere 'reindexação remanescente vira aviso explícito' \

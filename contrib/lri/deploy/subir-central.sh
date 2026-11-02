@@ -29,6 +29,7 @@ reindex_name="lri-zammad-reindex-$$"
 # Container temporário em andamento (init ou reindexação): parar() o encerra e confirma.
 temp_container=""
 temp_effect=""
+temp_child=""
 init_state=""
 
 passo() { printf '== %s\n' "$*"; }
@@ -48,13 +49,18 @@ encerrar_temporario() {
   temp_container=""
 }
 
-# Roda um container temporário com prazo, rastreado por nome; qualquer saída diferente de 0 passa por parar().
+# Roda um container temporário com prazo, rastreado por nome; qualquer saída diferente de 0 passa por parar(). O
+#   cliente fica em segundo plano e o script espera com wait, que um sinal interrompe na hora (um comando em primeiro
+#   plano adiaria o trap até o fim do prazo).
 temporario() {
   local name=$1 effect=$2 prazo=$3 descricao=$4; shift 4
   temp_container=$name
   temp_effect=$effect
-  timeout --kill-after=30 "$prazo" "${DC[@]}" run --rm --no-deps --name "$name" "$@"
+  timeout --kill-after=30 "$prazo" "${DC[@]}" run --rm --no-deps --name "$name" "$@" &
+  temp_child=$!
+  wait "$temp_child"
   local code=$?
+  temp_child=""
   if [ "$code" = 124 ] || [ "$code" = 137 ]; then
     parar "$descricao passou do prazo de $prazo s"
   fi
@@ -63,6 +69,11 @@ temporario() {
 }
 
 parar() {
+  # O cliente em segundo plano (timeout + compose run) é encerrado antes do container.
+  if [ -n "$temp_child" ]; then
+    kill "$temp_child" 2> /dev/null
+    temp_child=""
+  fi
   [ -n "$temp_container" ] && encerrar_temporario
   # Falha depois da liberação: os processos de fundo param de novo.
   if [ "$background_started" = 1 ]; then
@@ -109,16 +120,19 @@ tunnel_state="parado"
 
 # As migrações não podem rodar com processos antigos gravando no banco (tarefas, e-mails, backup).
 passo "aplicação parada antes das migrações"
-"${DC[@]}" stop "${ZAMMAD_SERVICES[@]}" || parar "não foi possível parar a aplicação"
+# zammad-init junto: o da stack oficial reinicia sozinho em caso de falha e voltaria a migrar.
+"${DC[@]}" stop "${ZAMMAD_SERVICES[@]}" zammad-init || parar "não foi possível parar a aplicação"
 running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
   || parar "não foi possível confirmar a parada da aplicação: $running"
 [ -z "$running" ] || parar "serviços da aplicação ainda em execução depois do stop: $running"
 
 # Um init ou uma reindexação de antes (execução interrompida à força, ou iniciados pelo compose) não podem rodar junto
 #   com os novos. Na dúvida (outra stack com serviço zammad-init, consulta que falha), para.
-old_temps=$( { docker ps -q --filter status=running --filter label=com.docker.compose.service=zammad-init \
-             && docker ps -q --filter status=running --filter name=lri-zammad-init- \
-             && docker ps -q --filter status=running --filter name=lri-zammad-reindex-; } 2>&1 ) \
+#   Em reinício (o zammad-init oficial tem restart: on-failure) ou pausado conta como ativo.
+ATIVOS=(--filter status=running --filter status=restarting --filter status=paused)
+old_temps=$( { docker ps -q "${ATIVOS[@]}" --filter label=com.docker.compose.service=zammad-init \
+             && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-init- \
+             && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-reindex-; } 2>&1 ) \
   || parar "não foi possível consultar containers de init ou reindexação em execução: $old_temps"
 [ -z "$old_temps" ] || parar "há init ou reindexação em execução de antes ($(printf '%s' "$old_temps" | sort -u | tr '\n' ' '));" \
   "esperar terminar ou conferir com docker ps antes de subir"

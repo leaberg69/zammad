@@ -126,6 +126,7 @@ RSpec.describe Lri::Provisioning do
 
     expect(run).to be_changed
     expect(Group.find_by(name: 'LRI')).to be_nil
+    expect(Setting.get('timezone_default')).not_to eq('America/Sao_Paulo')
   end
 
   describe 'notifications to connected clients' do

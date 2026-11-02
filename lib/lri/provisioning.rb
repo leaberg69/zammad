@@ -63,7 +63,7 @@ class Lri::Provisioning
     buffered_before = Thread.current[:push_messages].size
     committed = false
 
-    ActiveRecord::Base.transaction do
+    ActiveRecord::Base.transaction(requires_new: true) do
       UserInfo.ensure_current_user_id { run_steps }
       raise ActiveRecord::Rollback if dry_run || conflicts?
 
@@ -73,6 +73,9 @@ class Lri::Provisioning
     PushMessages.deliver(PushMessages.flush) if committed && !outer_buffer
     results
   ensure
+    # O cache de Setting leu os valores da transação desfeita.
+    Setting.reload if !committed
+
     if outer_buffer
       Thread.current[:push_messages]&.slice!(buffered_before..) if !committed
     else

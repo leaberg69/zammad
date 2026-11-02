@@ -94,6 +94,9 @@ Itens verificados em homologação, antes de produção.
 | a verificar | `auth_sso` desligado, `api_password_access` desativado e nenhuma aplicação OAuth2 cadastrada no Zammad |
 | a verificar | conta de emergência (`LRI_EMERGENCY_LOGIN`) com 2FA do Zammad por **aplicativo autenticador (TOTP)** cadastrado antes de ligar `enforce` (chave de segurança não funciona no nome interno); login aceito no nome interno e recusado no público |
 | a verificar | agente com senha local: login por senha e "esqueci a senha" recusados nas duas zonas com a mesma resposta de usuário desconhecido; entrada só por Google ou Microsoft |
+| a verificar | no go-live, senhas locais da equipe (exceto a de emergência) trocadas por valores aleatórios, para o controle não depender só de `LRI_ZONE_GUARD`; log da partida mostra "conta de emergência: <login>, com 2FA" |
+| a verificar | método de 2FA "aplicativo autenticador" mantido ligado nas configurações (desligá-lo tranca a conta de emergência) |
+| decisão | organizações que já existem antes de ligar `LRI_ORGANIZATIONS_PRIVATE`: revisão manual de "Organização compartilhada" (a regra só vale para as novas) |
 | a verificar | `LRI_ORGANIZATIONS_PRIVATE=true` no railsserver; organização criada pelo painel nasce com "Organização compartilhada" desligada |
 | a verificar | sessão criada no nome interno e reapresentada pelo nome público é recusada, em HTTP, `/ws` e `/cable` |
 | a verificar | pelos nomes `suporte`: portal do cliente, base de conhecimento e formulário funcionam; login de agente, SSO da equipe, autorização de caixas e administração são recusados |

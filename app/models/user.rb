@@ -514,6 +514,8 @@ returns
 
     return if !user || !user.email
     return if !user.permissions?('admin.*')
+    # Grupo LRI: senha da equipe (docs/lri/PLANO.md, seção 2.9.3).
+    return if Lri::ZonePolicy.password_denied?(user)
 
     # Discard any possible previous tokens for safety reasons.
     Token.where(action: 'AdminAuth', user_id: user.id).destroy_all

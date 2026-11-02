@@ -172,18 +172,16 @@ class Lri::Provisioning
 
   def store_internal_root
     root = Group.find_by!(name: Lri::QueueAudience::INTERNAL_ROOT)
-    # rubocop:disable Zammad/DetectTranslatableString
     Setting.create_if_not_exists(
-      title:       'Grupo LRI: raiz das filas internas',
+      title:       'Grupo LRI: raiz das filas internas', # rubocop:disable Zammad/DetectTranslatableString
       name:        Lri::QueueAudience::ROOT_SETTING,
       area:        'Lri::Provisioning',
-      description: 'Id do grupo raiz das filas internas, gravado pelo provisionamento (Lri::QueueAudience).',
+      description: 'Id do grupo raiz das filas internas, gravado pelo provisionamento (Lri::QueueAudience).', # rubocop:disable Zammad/DetectTranslatableString
       options:     {},
       state:       '',
       preferences: { permission: ['admin.group'] },
       frontend:    false,
     )
-    # rubocop:enable Zammad/DetectTranslatableString
 
     previous = Lri::QueueAudience.root_id
     return record(:setting, Lri::QueueAudience::ROOT_SETTING, :unchanged) if previous == root.id

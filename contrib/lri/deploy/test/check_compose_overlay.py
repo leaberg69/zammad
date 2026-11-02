@@ -34,9 +34,13 @@ def render(official, overlay, env):
     #   diretório do projeto (--env-file vazio).
     base = {key: value for key, value in os.environ.items()
             if not key.startswith(("LRI_", "CLOUDFLARED_"))}
-    with tempfile.NamedTemporaryFile("w", suffix=".env") as empty_env:
+    # Arquivo fechado antes do subprocesso, para o compose conseguir abri-lo também no Windows.
+    with tempfile.TemporaryDirectory() as directory:
+        empty_env = os.path.join(directory, "vazio.env")
+        with open(empty_env, "w", encoding="utf-8"):
+            pass
         return subprocess.run(
-            ["docker", "compose", "--env-file", empty_env.name, "-f", official, "-f", overlay,
+            ["docker", "compose", "--env-file", empty_env, "-f", official, "-f", overlay,
              "config", "--format", "json"],
             capture_output=True, text=True, env={**base, **env}, check=False,
         )

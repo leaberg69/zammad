@@ -33,9 +33,13 @@ module Lri::QueueAudience
     Lri::Provisioning::ORGANIZATIONS.pluck(:name).include?(user.organization&.name)
   end
 
+  def self.exempt?(user)
+    !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
+  end
+
   # nil = permitido; senão, o motivo da recusa.
   def self.denial(user, group)
-    return if group.nil? || !user.permissions?('ticket.customer') || user.permissions?('ticket.agent')
+    return if group.nil? || exempt?(user)
     return 'grupo Interno ausente numa instalação provisionada' if internal_root_missing?
 
     internal     = internal_group?(group)
@@ -45,13 +49,33 @@ module Lri::QueueAudience
     internal ? 'fila interna para cliente de fora' : 'fila de marca para colaborador'
   end
 
-  # Lista de filas oferecida ao cliente (CoreWorkflow::Attributes::Group), antes de qualquer Core Workflow: a ordem
-  #   ou a interrupção da cadeia de workflows não reabre filas de outro público.
-  module GroupOptions
-    def groups_customer
-      groups = super
-      user   = @attributes.user
-      groups.where(id: groups.select { |group| Lri::QueueAudience.denial(user, group).nil? }.map(&:id))
+  # Os ids permitidos dentre group_ids, com um número fixo de consultas, qualquer que seja o número de filas.
+  def self.allowed_group_ids(user, group_ids)
+    ids = Array(group_ids).compact_blank.map(&:to_i)
+    return ids if exempt?(user)
+    return [] if internal_root_missing?
+
+    internal_ids = internal_groups.where(id: ids).pluck(:id)
+    collaborator?(user) ? internal_ids : ids - internal_ids
+  end
+
+  # Filtra as filas oferecidas no resultado final do Core Workflow, depois de qualquer workflow (inclusive
+  #   add_option ou uma cadeia interrompida): o cliente só vê filas do seu público.
+  module ResultFilter
+    def run
+      super.tap { lri_filter_group_options }
+    end
+
+    private
+
+    def lri_filter_group_options
+      return if payload['class_name'] != 'Ticket' || user.nil?
+
+      values = @result.dig(:restrict_values, 'group_id')
+      return if values.blank?
+
+      allowed = Lri::QueueAudience.allowed_group_ids(user, values).map(&:to_s)
+      @result[:restrict_values]['group_id'] = values.select { |value| value.blank? || allowed.include?(value.to_s) }
     end
   end
 

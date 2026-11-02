@@ -120,6 +120,18 @@ RSpec.describe Lri::Provisioning do
       expect { create_ticket_as(collaborator, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
     end
 
+    it 'does not let a workflow add a queue of the other audience back', :aggregate_failures do
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => 'add_option', 'add_option' => [internal_queue.id.to_s, brand_queue.id.to_s] } })
+      collaborator = create(:customer, organization: Organization.find_by(name: 'LRI Automação Industrial'))
+      outsider     = create(:customer)
+
+      expect(offered_group_ids(outsider)).to include(brand_queue.id.to_s)
+      expect(offered_group_ids(outsider)).not_to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).to include(internal_queue.id.to_s)
+      expect(offered_group_ids(collaborator)).not_to include(brand_queue.id.to_s)
+    end
+
     it 'treats an internal queue created after provisioning as internal on the server' do
       new_queue = create(:group, name: 'Interno::RH')
 

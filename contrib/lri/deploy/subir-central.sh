@@ -18,9 +18,29 @@ DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsear
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
 tunnel_state="não verificado (nada foi parado ainda)"
 tunnel_started=0
+init_name="lri-zammad-init-$$"
+init_running=0
+init_state=""
 
 passo() { printf '== %s\n' "$*"; }
+
+# Remove o container do init e só afirma o encerramento se uma consulta bem-sucedida confirmar que ele sumiu: um
+#   init vivo segue migrando o banco.
+encerrar_init() {
+  local rm_output remaining
+  rm_output=$(docker rm -f "$init_name" 2>&1)
+  if remaining=$(docker ps -a -q --filter "name=^${init_name}\$" 2>&1) && [ -z "$remaining" ]; then
+    init_state="o container $init_name foi encerrado e removido"
+  else
+    init_state="NÃO foi possível confirmar o encerramento do container $init_name ($rm_output; consulta:"
+    init_state="$init_state ${remaining:-sem saída}); ele pode continuar migrando o banco: não restaurar nem subir de"
+    init_state="$init_state novo antes de conferir com docker ps -a"
+  fi
+  init_running=0
+}
+
 parar() {
+  [ "$init_running" = 1 ] && encerrar_init
   # Falha depois de reabrir o túnel: fecha de novo, para ele não abrir sozinho mais tarde.
   if [ "$tunnel_started" = 1 ]; then
     if "${DC[@]}" stop cloudflared > /dev/null 2>&1; then
@@ -29,17 +49,19 @@ parar() {
       tunnel_state="PODE ESTAR ABERTO: falhou ao parar o cloudflared depois da falha"
     fi
   fi
-  printf 'PARAR: %s. Estado do túnel: %s. Ver "docker compose ... logs" do serviço citado.\n' "$*" "$tunnel_state" >&2
+  printf 'PARAR: %s.%s Estado do túnel: %s. Ver "docker compose ... logs" do serviço citado.\n' \
+    "$*" "${init_state:+ Init: $init_state.}" "$tunnel_state" >&2
   exit 1
 }
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
-expected_image=$("${DC[@]}" config --images zammad-railsserver) \
+#   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
+images=$("${DC[@]}" config --images zammad-railsserver) \
   || parar "o compose não renderizou a configuração (ver a mensagem acima, por exemplo LRI_IMAGE_TAG ausente)"
-case "$expected_image" in
-  "$IMAGE_REPO":*) ;;
-  *) parar "zammad-railsserver configurado com '$expected_image', fora de $IMAGE_REPO" ;;
-esac
+expected_image=$(printf '%s\n' "$images" | grep "^$IMAGE_REPO:" | sort -u)
+if [ -z "$expected_image" ] || [ "$(printf '%s\n' "$expected_image" | wc -l)" != 1 ]; then
+  parar "imagem do zammad-railsserver fora de $IMAGE_REPO ou com mais de uma tag: $(printf '%s' "$images" | tr '\n' ' ')"
+fi
 
 # Interrupção (Ctrl+C, TERM) em qualquer ponto passa por parar(), que fecha o túnel se ele já tiver sido reaberto.
 trap 'parar "execução interrompida"' INT TERM
@@ -66,25 +88,19 @@ passo "Elasticsearch em yellow ou green"
 health=$(timeout 180 "${DC[@]}" exec -T zammad-elasticsearch \
   curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
   || parar "Elasticsearch não responde"
-printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' && printf '%s' "$health" | grep -Eq '"timed_out" *: *false' \
-  || parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
+if ! printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' \
+   || ! printf '%s' "$health" | grep -Eq '"timed_out" *: *false'; then
+  parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
+fi
 
 passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"
-init_name="lri-zammad-init-$$"
+init_running=1
 timeout --kill-after=30 "${INIT_PRAZO:-1800}" "${DC[@]}" run --rm --no-deps --name "$init_name" zammad-init
 init_code=$?
 if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
-  # Só afirma o encerramento depois de confirmar que o container não existe mais: um init vivo segue mexendo no banco.
-  rm_output=$(docker rm -f "$init_name" 2>&1)
-  # Só a consulta bem-sucedida e vazia confirma; consulta que falha conta como "não confirmado".
-  if remaining=$(docker ps -a -q --filter "name=^${init_name}\$" 2>&1) && [ -z "$remaining" ]; then
-    parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s; o container $init_name foi encerrado e removido"
-  fi
-  rm_output="$rm_output; consulta: ${remaining:-sem saída}"
-  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s e NÃO foi possível confirmar o encerramento do" \
-    "container $init_name ($rm_output); ele pode continuar migrando o banco: não restaurar nem subir de novo antes" \
-    "de conferir com docker ps -a"
+  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s"
 fi
+init_running=0
 [ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
 
 passo "aplicação"

@@ -30,7 +30,7 @@ DUMMY_ENV = {
 }
 
 
-def render(official, overlay, env):
+def render(official, overlay, env, config_args=("--format", "json")):
     # Só valem as variáveis de env: nem as herdadas do processo nem o .env que o compose carregaria sozinho do
     #   diretório do projeto (--env-file vazio).
     base = {key: value for key, value in os.environ.items()
@@ -41,10 +41,21 @@ def render(official, overlay, env):
         with open(empty_env, "w", encoding="utf-8"):
             pass
         return subprocess.run(
-            ["docker", "compose", "--env-file", empty_env, "-f", official, "-f", overlay,
-             "config", "--format", "json"],
+            ["docker", "compose", "--env-file", empty_env, "-f", official, "-f", overlay, "config", *config_args],
             capture_output=True, text=True, env={**base, **env}, check=False,
         )
+
+
+def check_images_listing(official, overlay):
+    """A leitura que subir-central.sh faz (config --images, filtrada pelo repositório do fork) dá uma só imagem."""
+    result = render(official, overlay, DUMMY_ENV, ("--images", "zammad-railsserver"))
+    if result.returncode != 0:
+        return [f"config --images zammad-railsserver falhou: {result.stderr.strip()}"]
+    fork_images = sorted({line for line in result.stdout.splitlines() if line.startswith(IMAGE_PREFIX)})
+    expected = IMAGE_PREFIX + DUMMY_ENV["LRI_IMAGE_TAG"]
+    if fork_images != [expected]:
+        return [f"config --images zammad-railsserver, filtrada pelo fork, deu {fork_images}; esperado [{expected!r}]"]
+    return []
 
 
 GUARDED_SERVICES = ("zammad-railsserver", "zammad-websocket", "zammad-scheduler")
@@ -178,6 +189,7 @@ def main(official, overlay, image=None):
         return 1
     problems = check(json.loads(result.stdout), image)
     problems += check_guard_modes(official, overlay)
+    problems += check_images_listing(official, overlay)
 
     # Sem token, a stack não pode subir: o compose tem de recusar com a mensagem do overlay.
     without_token = {**DUMMY_ENV, "CLOUDFLARED_TUNNEL_TOKEN": ""}

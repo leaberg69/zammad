@@ -2,7 +2,7 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
 # subir-central.sh com um docker falso: ordem dos passos, portões e túnel fechado em qualquer falha.
-# shellcheck disable=SC2016 # as conferências são avaliadas depois, por confere (eval)
+# shellcheck disable=SC2016,SC2317 # conferências e funções auxiliares são avaliadas depois, por confere (eval)
 set -u
 
 script="$(cd "$(dirname "$0")/.." && pwd)/subir-central.sh"
@@ -24,7 +24,8 @@ case "$*" in
   *" ps -q --status running "*) printf '%s' "${APP_RODANDO:-}" ;;
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
   *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
-  *" config --images "*) echo "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
+  *" config --images "*) printf '%s\n' postgres:17.11-alpine redis:8.10.3-alpine memcached:1.6.45-alpine \
+                            "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" "${IMAGEM_CONFIG_2:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   *" ps -q "* | *" ps -a -q "*) echo "id-${*##* }" ;;
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
@@ -138,7 +139,23 @@ cenario 'compose não renderiza (LRI_IMAGE_TAG ausente)' 1 ABRIR_TUNEL=1 FALHAR_
 confere 'nada além da leitura é chamado e o túnel fica como não verificado' \
   '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "não verificado" "$work/saida"'
 
-cenario 'imagem configurada fora do repositório do fork' 1 ABRIR_TUNEL=1 IMAGEM_CONFIG=ghcr.io/zammad/zammad:7.2.0
+cenario 'imagem configurada fora do repositório do fork' 1 ABRIR_TUNEL=1 \
+  IMAGEM_CONFIG=ghcr.io/zammad/zammad:7.2.0 IMAGEM_CONFIG_2=ghcr.io/zammad/zammad:7.2.0
 confere 'imagem estranha recusada antes de parar algo' '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "fora de ghcr.io/leaberg69/zammad-lri" "$work/saida"'
+
+cenario 'duas tags do fork na mesma configuração' 1 ABRIR_TUNEL=1 IMAGEM_CONFIG_2=ghcr.io/leaberg69/zammad-lri:9.9.9
+confere 'tags divergentes recusadas antes de parar algo' '[ "$(wc -l < "$work/log")" = 1 ] && grep -q "mais de uma tag" "$work/saida"'
+
+# Interrupção durante o init: o container do init tem de ser encerrado e a remoção confirmada.
+: > "$work/log"
+(cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 INIT_PRAZO=60 \
+  PENDURAR_EM='name lri-zammad-init' ABRIR_TUNEL=1 bash "$script" > "$work/saida" 2>&1) &
+pid=$!
+for _ in $(seq 1 100); do grep -q 'name lri-zammad-init' "$work/log" 2>/dev/null && break; sleep 0.1; done
+kill -TERM "$pid"
+wait "$pid"
+codigo=$?
+confere 'interrupção durante o init encerra o init e confirma' \
+  '[ "$codigo" != 0 ] && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "execução interrompida" "$work/saida" && grep -q "foi encerrado e removido" "$work/saida" && ! tunel_aberto'
 
 exit "$falhas"

@@ -94,14 +94,13 @@ RSpec.describe 'Grupo LRI queue audience', type: :request do
     end
   end
 
-  it 'refuses moving a collaborator ticket into a brand queue over REST and keeps the queue', :aggregate_failures do
+  # O Zammad já ignora a fila na atualização feita por cliente (TicketsController#update): o chamado não muda.
+  it 'keeps the queue when a collaborator asks to move a ticket over REST' do
     rest_create(collaborator, internal_queue)
     ticket = Ticket.last
 
     put "/api/v1/tickets/#{ticket.id}", params: { group: brand_queue.name }, as: :json
 
-    expect(response).to have_http_status(:unprocessable_content)
-    expect(response.parsed_body['error']).to eq(Lri::QueueAudience::MESSAGE)
     expect(ticket.reload.group).to eq(internal_queue)
   end
 end

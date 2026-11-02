@@ -95,6 +95,17 @@ RSpec.describe Lri::Provisioning do
     expect(described_class.apply!).not_to be_changed
   end
 
+  it 'removes access to an inactive group of another brand', :aggregate_failures do
+    described_class.apply!
+    create(:group, name: 'Fila antiga')
+    role = Role.find_by(name: 'Agente Mean Well Brasil')
+    role.group_names_access_map = role.group_names_access_map.merge('Fila antiga' => ['full'])
+    Group.find_by(name: 'Fila antiga').update!(active: false)
+
+    expect(result_for(described_class.apply!, 'Agente Mean Well Brasil').detail).to include('-Fila antiga')
+    expect(role.groups.access.pluck(:name)).not_to include('Fila antiga')
+  end
+
   it 'names the queues it removes from the customer list' do
     described_class.apply!
     Setting.set('customer_ticket_create_group_ids', Group.where(name: ['Interno::TI', 'MW::Suporte']).pluck(:id).map(&:to_s))

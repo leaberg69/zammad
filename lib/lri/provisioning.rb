@@ -218,7 +218,7 @@ class Lri::Provisioning
 
     role.update!(active: true, default_at_signup: false, permission_ids: agent_permission_ids) if changes.any?
 
-    current = normalized(role.reload.saved_group_names_access_map)
+    current = persisted_group_access(role.reload)
     if current != normalized(access)
       changes << describe_change('grupos', current.keys, access.keys)
       role.group_names_access_map = access
@@ -251,6 +251,13 @@ class Lri::Provisioning
     current_names = Group.where(id: current).pluck(:name)
     Setting.set('customer_ticket_create_group_ids', wanted)
     record(:setting, 'customer_ticket_create_group_ids', :updated, describe_change('grupos', current_names, wanted_names))
+  end
+
+  # O mapa do Zammad esconde grupos inativos; um acesso a grupo inativo de outra marca voltaria ao reativá-lo.
+  def persisted_group_access(role)
+    role.groups.access.pluck(:name, :access).each_with_object({}) do |(name, access), map|
+      (map[name] ||= []) << access
+    end.transform_values(&:sort)
   end
 
   def normalized(access_map)

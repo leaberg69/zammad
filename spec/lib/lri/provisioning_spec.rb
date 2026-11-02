@@ -164,6 +164,19 @@ RSpec.describe Lri::Provisioning do
       expect(result[:readonly]['group_id']).to be(false)
     end
 
+    it 'keeps a deliberate empty restriction of a workflow', :aggregate_failures do
+      brand_ids = Group.where(name: described_class.customer_group_names).where.not(id: Lri::QueueAudience.internal_groups).pluck(:id).map(&:to_s)
+      create(:core_workflow, :active_and_screen, screen: 'create_middle', object: 'Ticket',
+             perform: { 'ticket.group_id' => { 'operator' => 'remove_option', 'remove_option' => brand_ids } })
+      outsider = create(:customer)
+
+      result = CoreWorkflow.perform(payload: { 'event' => 'core_workflow', 'request_id' => 'teste', 'class_name' => 'Ticket',
+                                               'screen' => 'create_middle', 'params' => {} }, user: outsider, assets: false)
+
+      expect(Array(result[:restrict_values]['group_id']).compact_blank).to be_empty
+      expect { create_ticket_as(outsider, brand_queue) }.to raise_error(Exceptions::UnprocessableContent)
+    end
+
     it 'treats an internal queue created after provisioning as internal on the server' do
       new_queue = create(:group, name: 'Interno::RH')
 

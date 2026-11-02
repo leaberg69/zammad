@@ -80,7 +80,7 @@ module Lri::QueueAudience
       return if payload['class_name'] != 'Ticket' || user.nil? || Lri::QueueAudience.exempt?(user)
 
       dropped = %i[restrict_values select fill_in].map { |group| lri_drop_forbidden(group) }
-      emptied = lri_restore_options_if_empty
+      emptied = dropped.first && lri_restore_options_if_empty
       return if !emptied && dropped.drop(1).none?
 
       # A regra de público prevalece sobre os workflows: o campo volta a aparecer e a ser editável, senão o cliente
@@ -90,7 +90,8 @@ module Lri::QueueAudience
       @result[:readonly]['group_id']   = false
     end
 
-    # Se nenhuma fila permitida sobrou nas opções, volta às filas do público do cliente. true se precisou.
+    # Só depois de o filtro de público ter retirado opções: se nenhuma sobrou, volta às filas do público do cliente.
+    #   Uma restrição vazia feita de propósito por um workflow continua valendo. true se precisou.
     def lri_restore_options_if_empty
       return false if !@result[:restrict_values].key?('group_id')
       return false if Array(@result[:restrict_values]['group_id']).any?(&:present?)

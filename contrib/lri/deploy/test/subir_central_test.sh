@@ -16,8 +16,11 @@ cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then exit 1; fi
+if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; fi
+if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 saude_padrao='{"status":"yellow","timed_out":false}'
 case "$*" in
+  "ps -a -q --filter "*) printf '%s' "${INIT_RESTANTE:-}" ;;
   *"_cluster/health"*) printf '%s' "${ES_BODY-$saude_padrao}" ;;
   *" logs "*cloudflared*) printf '%s\n' "${TUNNEL_LOG-INF Registered tunnel connection connIndex=0}" ;;
   *" config --images "*) echo "${IMAGEM_CONFIG:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
@@ -25,7 +28,6 @@ case "$*" in
   "inspect -f {{.Config.Image}} "*) echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3}" ;;
   "inspect -f {{.State.Running}} "*) echo "${TUNNEL_RUNNING:-true}" ;;
 esac
-if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then sleep 10; fi
 exit 0
 FAKE
 chmod +x "$work/bin/docker"
@@ -34,7 +36,8 @@ falhas=0
 cenario() {
   local nome=$1 esperado_codigo=$2; shift 2
   : > "$work/log"
-  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 "$@" bash "$script" > "$work/saida" 2>&1)
+  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 "$@" \
+    bash "$script" > "$work/saida" 2>&1)
   local codigo=$?
   if [ "$codigo" != "$esperado_codigo" ]; then
     echo "ERRO  $nome: código $codigo, esperado $esperado_codigo"; cat "$work/saida"; falhas=$((falhas + 1))
@@ -53,7 +56,8 @@ confere 'Elasticsearch sobe e é conferido antes do init' \
   'grep -q "zammad-elasticsearch$" "$work/log" && [ "$(linha "wait_for_status=yellow")" -lt "$(linha "name lri-zammad-init")" ]'
 confere 'WebSocket e Nginx conferidos antes do túnel' \
   '[ "$(linha "127.0.0.1/6042")" -lt "$(linha "no-deps cloudflared")" ] && [ "$(linha "127.0.0.1:8081")" -lt "$(linha "no-deps cloudflared")" ]'
-confere 'sucesso só com a conexão do túnel registrada' 'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida"'
+confere 'sucesso só com a conexão do túnel ativa (/ready)' \
+  'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida" && grep -q "exec -T zammad-nginx curl .*20241/ready" "$work/log"'
 
 cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
 confere 'túnel não reaberto sem ABRIR_TUNEL' '! tunel_aberto'
@@ -66,8 +70,15 @@ for passo in 'run --rm --no-deps lri-config-check' 'name lri-zammad-init' '_clus
 done
 
 cenario 'zammad-init pendurado' 1 ABRIR_TUNEL=1 INIT_PRAZO=1 PENDURAR_EM='name lri-zammad-init'
-confere 'prazo do init estoura, container removido e túnel fechado' \
-  '! tunel_aberto && grep -q "passou do prazo" "$work/saida" && grep -q "^rm -f lri-zammad-init-" "$work/log"'
+confere 'prazo do init estoura, remoção confirmada e túnel fechado' \
+  '! tunel_aberto && grep -q "foi encerrado e removido" "$work/saida" && grep -q "^rm -f lri-zammad-init-" "$work/log" && grep -q "^ps -a -q --filter name=^lri-zammad-init-" "$work/log"'
+
+cenario 'zammad-init pendurado e a remoção não se confirma' 1 ABRIR_TUNEL=1 INIT_PRAZO=1 PENDURAR_EM='name lri-zammad-init' INIT_RESTANTE=abc123
+confere 'não afirma encerramento sem confirmar' \
+  '! tunel_aberto && grep -q "NÃO foi possível confirmar o encerramento" "$work/saida" && ! grep -q "foi encerrado e removido" "$work/saida"'
+
+cenario 'Nginx aceita a conexão e não responde' 1 ABRIR_TUNEL=1 PENDURAR_EM='127.0.0.1:8081' SUBIR_PRAZO_TENTATIVA=1 SUBIR_TENTATIVAS=2
+confere 'verificação pendurada para por prazo, com o túnel fechado' '! tunel_aberto && grep -q "Nginx .* não respondeu depois de 2 tentativas" "$work/saida"'
 
 cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"status":"red","timed_out":true}'
 confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'
@@ -87,9 +98,13 @@ confere 'queda do túnel vira falha com o motivo e o túnel é fechado de novo' 
 cenario 'cloudflared conecta e cai' 1 ABRIR_TUNEL=1 TUNNEL_RUNNING=false
 confere 'registro antigo de conexão não vale com o container parado' '! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
 
-cenario 'cloudflared nunca registra conexão' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel'
-confere 'sem conexão registrada não há sucesso e o túnel é fechado de novo' \
-  'grep -q "sem conexão registrada" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
+cenario 'cloudflared conectou, perdeu a conexão e segue rodando' 1 ABRIR_TUNEL=1 TUNNEL_READY=false
+confere 'log antigo de conexão com /ready falhando não vale como sucesso' \
+  'grep -q "sem conexão ativa" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
+
+cenario 'cloudflared nunca conecta' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel' TUNNEL_READY=false
+confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
+  'grep -q "sem conexão ativa" "$work/saida" && grep -q "Starting tunnel" "$work/saida" && fechado_de_novo'
 
 cenario 'falha ao parar o túnel' 1 ABRIR_TUNEL=1 FALHAR_EM='stop cloudflared'
 confere 'não afirma túnel parado sem ter parado' 'grep -q "pode continuar aberto" "$work/saida" && grep -q "não verificado" "$work/saida"'

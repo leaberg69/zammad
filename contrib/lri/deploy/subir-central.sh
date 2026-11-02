@@ -64,8 +64,14 @@ init_name="lri-zammad-init-$$"
 timeout --kill-after=30 "${INIT_PRAZO:-1800}" "${DC[@]}" run --rm --no-deps --name "$init_name" zammad-init
 init_code=$?
 if [ "$init_code" = 124 ] || [ "$init_code" = 137 ]; then
-  docker rm -f "$init_name" > /dev/null 2>&1
-  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s e foi encerrado"
+  # Só afirma o encerramento depois de confirmar que o container não existe mais: um init vivo segue mexendo no banco.
+  rm_output=$(docker rm -f "$init_name" 2>&1)
+  if [ -z "$(docker ps -a -q --filter "name=^${init_name}\$")" ]; then
+    parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s; o container $init_name foi encerrado e removido"
+  fi
+  parar "zammad-init passou do prazo de ${INIT_PRAZO:-1800} s e NÃO foi possível confirmar o encerramento do" \
+    "container $init_name ($rm_output); ele pode continuar migrando o banco: não restaurar nem subir de novo antes" \
+    "de conferir com docker ps -a"
 fi
 [ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
 
@@ -81,22 +87,26 @@ for service in "${ZAMMAD_SERVICES[@]}"; do
   [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
 done
 
-# Nginx e WebSocket não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas.
+# Nginx, WebSocket e o túnel não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas e
+#   prazo por tentativa (uma conexão aceita sem resposta não prende o script).
+TENTATIVAS=${SUBIR_TENTATIVAS:-30}
+PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}
 ate_responder() {
   local descricao=$1; shift
-  for _ in $(seq 1 30); do
-    "$@" > /dev/null 2>&1 && return 0
+  for _ in $(seq 1 "$TENTATIVAS"); do
+    timeout "$PRAZO_TENTATIVA" "$@" > /dev/null 2>&1 && return 0
     sleep "$ESPERA"
   done
-  parar "$descricao não respondeu depois de 30 tentativas"
+  parar "$descricao não respondeu depois de $TENTATIVAS tentativas de até $PRAZO_TENTATIVA s"
 }
 
 passo "Rails, WebSocket e Nginx respondendo"
-ate_responder "Rails" "${DC[@]}" exec -T zammad-railsserver curl -sf -o /dev/null http://127.0.0.1:3000
-ate_responder "WebSocket (porta 6042)" "${DC[@]}" exec -T zammad-websocket bash -c 'exec 3<>/dev/tcp/127.0.0.1/6042'
+ate_responder "Rails" "${DC[@]}" exec -T zammad-railsserver curl -sf --max-time 10 -o /dev/null http://127.0.0.1:3000
+ate_responder "WebSocket (porta 6042)" "${DC[@]}" exec -T zammad-websocket \
+  timeout 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/6042'
 # shellcheck disable=SC2016 # $LRI_FQDN é expandido dentro do container do Nginx
 ate_responder "Nginx (listener público 127.0.0.1:8081)" "${DC[@]}" exec -T zammad-nginx \
-  sh -c 'curl -sf -o /dev/null -H "Host: $LRI_FQDN" http://127.0.0.1:8081/'
+  sh -c 'curl -sf --max-time 10 -o /dev/null -H "Host: $LRI_FQDN" http://127.0.0.1:8081/'
 
 if [ "${REINDEXAR:-0}" = 1 ]; then
   passo "reconstrução do índice de busca"
@@ -116,17 +126,19 @@ tunnel_started=1
 "${DC[@]}" up -d --force-recreate --no-deps cloudflared || parar "cloudflared não subiu"
 tunnel_state="iniciado, sem conexão confirmada"
 
-# Sucesso só com o container em execução E a conexão registrada na Cloudflare. Container parado (token ou config
-#   recusados, ou queda depois de conectar) ou tempo esgotado: falha, e parar() fecha o túnel de novo.
+# Sucesso só com o container em execução E o /ready das métricas do cloudflared respondendo 200, que exige uma
+#   conexão ativa agora (um registro antigo no log não vale). As métricas ficam em 127.0.0.1:20241 do namespace do
+#   Nginx, consultadas de dentro dele. Container parado ou tempo esgotado: falha, e parar() fecha o túnel de novo.
 tunnel_id=$("${DC[@]}" ps -a -q cloudflared)
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$TENTATIVAS"); do
   [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
     || parar "cloudflared não está em execução: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
-  if "${DC[@]}" logs cloudflared 2>&1 | grep -q 'Registered tunnel connection'; then
+  if timeout "$PRAZO_TENTATIVA" "${DC[@]}" exec -T zammad-nginx \
+       curl -sf --max-time 5 -o /dev/null http://127.0.0.1:20241/ready > /dev/null 2>&1; then
     tunnel_state="aberto"
-    echo "TÚNEL ABERTO: conexão registrada na Cloudflare."
+    echo "TÚNEL ABERTO: conexão ativa com a Cloudflare (/ready)."
     exit 0
   fi
   sleep "$ESPERA"
 done
-parar "cloudflared sem conexão registrada depois de 30 tentativas"
+parar "cloudflared sem conexão ativa (/ready) depois de $TENTATIVAS tentativas: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"

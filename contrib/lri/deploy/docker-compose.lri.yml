@@ -104,8 +104,9 @@ services:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:?fixe a versão do cloudflared no .env}
     restart: ${RESTART:-always}
     # Túnel gerenciado localmente: as regras vêm do config.yml (exemplo em contrib/lri/deploy/cloudflared); a
-    #   credencial vem só do TUNNEL_TOKEN do .env, nunca de arquivo no repositório.
-    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    #   credencial vem só do TUNNEL_TOKEN do .env, nunca de arquivo no repositório. As métricas (com /ready, usado
+    #   por subir-central.sh) ficam em 127.0.0.1 do namespace do Nginx, sem porta no host.
+    command: tunnel --no-autoupdate --metrics 127.0.0.1:20241 --config /etc/cloudflared/config.yml run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?defina CLOUDFLARED_TUNNEL_TOKEN no .env}
     network_mode: service:zammad-nginx

@@ -35,7 +35,10 @@ class Lri::Provisioning
     'Agente Interno'          => 'Interno',
   }.freeze
 
-  STEPS = %i[apply_settings apply_groups apply_organizations apply_agent_roles apply_overviews apply_customer_groups].freeze
+  STEPS = %i[
+    apply_settings check_internal_root apply_groups store_internal_root apply_organizations apply_agent_roles
+    apply_overviews apply_customer_groups
+  ].freeze
 
   ACTION_LABELS = { created: 'criado', updated: 'atualizado', unchanged: 'sem mudança', conflict: 'CONFLITO', warning: 'AVISO' }.freeze
 
@@ -144,6 +147,38 @@ class Lri::Provisioning
       Setting.set(name, value)
       record(:setting, name, :updated, "#{current.inspect} -> #{value.inspect}")
     end
+  end
+
+  # Recriar Interno com a raiz antiga renomeada deixaria as filas antigas fora da regra de público.
+  def check_internal_root
+    root_id = Lri::QueueAudience.root_id
+    root    = root_id && Group.find_by(id: root_id)
+    return if root.nil? || root.name == Lri::QueueAudience::INTERNAL_ROOT
+
+    record(:group, Lri::QueueAudience::INTERNAL_ROOT, :conflict,
+           "a raiz das filas internas (id #{root.id}) foi renomeada para #{root.name.inspect}; volte o nome para #{Lri::QueueAudience::INTERNAL_ROOT}")
+  end
+
+  def store_internal_root
+    root = Group.find_by!(name: Lri::QueueAudience::INTERNAL_ROOT)
+    # rubocop:disable Zammad/DetectTranslatableString
+    Setting.create_if_not_exists(
+      title:       'Grupo LRI: raiz das filas internas',
+      name:        Lri::QueueAudience::ROOT_SETTING,
+      area:        'Lri::Provisioning',
+      description: 'Id do grupo raiz das filas internas, gravado pelo provisionamento (Lri::QueueAudience).',
+      options:     {},
+      state:       '',
+      preferences: { permission: ['admin.group'] },
+      frontend:    false,
+    )
+    # rubocop:enable Zammad/DetectTranslatableString
+
+    previous = Lri::QueueAudience.root_id
+    return record(:setting, Lri::QueueAudience::ROOT_SETTING, :unchanged) if previous == root.id
+
+    Setting.set(Lri::QueueAudience::ROOT_SETTING, root.id.to_s)
+    record(:setting, Lri::QueueAudience::ROOT_SETTING, :updated, "#{previous.inspect} -> #{root.id}")
   end
 
   def apply_groups

@@ -15,18 +15,28 @@ module Lri::QueueAudience
     before_update :lri_check_queue_audience, prepend: true, if: :group_id_changed?
   end
 
-  # A fila raiz e todas as descendentes, inclusive as criadas depois do provisionamento.
+  # Id da raiz gravado pelo provisionamento: a classificação segue o grupo, não o nome, e resiste a renomear.
+  ROOT_SETTING = 'lri_internal_root_group_id'.freeze
+
+  def self.root_id
+    Setting.find_by(name: ROOT_SETTING) && Setting.get(ROOT_SETTING).presence&.to_i
+  end
+
+  # A raiz e todas as descendentes, inclusive as criadas depois do provisionamento.
   def self.internal_groups
-    Group.where(name: INTERNAL_ROOT).or(Group.where('name LIKE ?', "#{INTERNAL_ROOT}::%"))
+    root = root_id && Group.find_by(id: root_id)
+    return Group.none if root.nil?
+
+    Group.where(id: [root.id] + root.all_children.pluck(:id))
   end
 
   def self.internal_group?(group)
-    group.name == INTERNAL_ROOT || group.name.start_with?("#{INTERNAL_ROOT}::")
+    internal_groups.exists?(id: group.id)
   end
 
-  # Renomear ou apagar a raiz faria as filas internas parecerem externas: aí ninguém de fora cria chamado até corrigir.
+  # Raiz gravada mas apagada: ninguém de fora cria chamado até reprovisionar, em vez de as filas virarem públicas.
   def self.internal_root_missing?
-    Group.exists?(name: Lri::Provisioning::GROUPS.keys - [INTERNAL_ROOT]) && !Group.exists?(name: INTERNAL_ROOT)
+    root_id.present? && !Group.exists?(id: root_id)
   end
 
   def self.collaborator?(user)
@@ -40,7 +50,7 @@ module Lri::QueueAudience
   # nil = permitido; senão, o motivo da recusa.
   def self.denial(user, group)
     return if group.nil? || exempt?(user)
-    return 'grupo Interno ausente numa instalação provisionada' if internal_root_missing?
+    return 'raiz das filas internas apagada; reprovisionar' if internal_root_missing?
 
     internal     = internal_group?(group)
     collaborator = collaborator?(user)

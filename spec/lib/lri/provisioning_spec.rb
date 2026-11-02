@@ -199,7 +199,23 @@ RSpec.describe Lri::Provisioning do
       expect(renamed_queue.name).to eq('Apoio::TI')
       expect(offered_group_ids(outsider)).not_to include(renamed_queue.id.to_s)
       expect { create_ticket_as(outsider, renamed_queue) }.to raise_error(Exceptions::UnprocessableContent, Lri::QueueAudience::MESSAGE)
-      expect(Lri::QueueAudience.denial(outsider, renamed_queue)).to eq('grupo Interno ausente numa instalação provisionada')
+      expect(Lri::QueueAudience.denial(outsider, renamed_queue)).to eq('fila interna para cliente de fora')
+    end
+
+    it 'refuses to recreate the internal root while the old one is renamed', :aggregate_failures do
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+
+      run = described_class.apply!
+      expect(run).to be_conflicts
+      expect(result_for(run, 'Interno')).to have_attributes(action: :conflict, detail: include('renomeada para "Apoio"'))
+      expect(Group.find_by(name: 'Interno')).to be_nil
+    end
+
+    it 'treats a queue as internal by the stored root, not by its name' do
+      Group.find_by(name: 'Interno').update!(name: 'Apoio')
+      create(:group, name: 'Apoio::RH')
+
+      expect(Lri::QueueAudience.denial(create(:customer), Group.find_by(name: 'Apoio::RH'))).to eq('fila interna para cliente de fora')
     end
 
     it 'lets an existing ticket be edited when its group does not change' do

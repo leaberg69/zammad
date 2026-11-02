@@ -62,8 +62,15 @@ confere 'WebSocket e Nginx conferidos antes do túnel' \
 confere 'sucesso só com a conexão do túnel ativa (/ready)' \
   'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida" && grep -q "exec -T zammad-nginx curl .*20241/ready" "$work/log"'
 
+fundo_iniciado() { grep -q -- "--wait-timeout 900 zammad-scheduler zammad-backup" "$work/log"; }
+confere 'processos de fundo só na liberação, depois dos portões e antes do túnel' \
+  '[ "$(linha "127.0.0.1:8081")" -lt "$(linha "wait-timeout 900 zammad-scheduler")" ] && [ "$(linha "wait-timeout 900 zammad-scheduler")" -lt "$(linha "no-deps cloudflared")" ]'
+
 cenario 'sem ABRIR_TUNEL o túnel fica parado' 0
-confere 'túnel não reaberto sem ABRIR_TUNEL' '! tunel_aberto'
+confere 'túnel e processos de fundo não liberados sem ABRIR_TUNEL' '! tunel_aberto && ! fundo_iniciado'
+
+cenario 'restauração com reindexação falhando' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='searchindex:rebuild'
+confere 'reindexação que falha não libera processos de fundo nem túnel' '! fundo_iniciado && ! tunel_aberto'
 
 for passo in 'run --rm --no-deps lri-config-check' 'name lri-zammad-init' '_cluster/health' \
              'zammad-railsserver curl' '--wait --wait-timeout 900' '127.0.0.1/6042' '127.0.0.1:8081'; do
@@ -126,6 +133,8 @@ confere 'registro antigo de conexão não vale com o container parado' '! grep -
 cenario 'cloudflared conectou, perdeu a conexão e segue rodando' 1 ABRIR_TUNEL=1 TUNNEL_READY=false
 confere 'log antigo de conexão com /ready falhando não vale como sucesso' \
   'grep -q "sem conexão ativa" "$work/saida" && ! grep -q "TÚNEL ABERTO" "$work/saida" && fechado_de_novo'
+confere 'falha depois da liberação para os processos de fundo de novo' \
+  '[ "$(linha "stop zammad-scheduler zammad-backup")" -gt "$(linha "wait-timeout 900 zammad-scheduler")" ] && grep -q "processos de fundo parados de novo" "$work/saida"'
 
 cenario 'cloudflared nunca conecta' 1 ABRIR_TUNEL=1 TUNNEL_LOG='INF Starting tunnel' TUNNEL_READY=false
 confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \

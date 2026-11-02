@@ -5,14 +5,20 @@
 # Roda no diretório da central (docker-compose.yml oficial, docker-compose.lri.yml e .env). O túnel fica parado do
 # início ao fim e só reabre com ABRIR_TUNEL=1 e todos os portões aprovados; qualquer falha para com o motivo.
 #
-#   ABRIR_TUNEL=1   reabre o cloudflared no fim (sem isso, deixa parado para conferência manual)
+#   ABRIR_TUNEL=1   libera no fim: sobe os processos de fundo e reabre o cloudflared (sem isso, os dois ficam
+#                   parados para conferência manual)
 #   REINDEXAR=1     reconstrói o índice de busca (obrigatório depois de restaurar o banco)
 
 set -u
 
 DC=(docker compose -f docker-compose.yml -f docker-compose.lri.yml)
 IMAGE_REPO=ghcr.io/leaberg69/zammad-lri
-ZAMMAD_SERVICES=(zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup)
+# Web sobe para os portões; os de fundo (tarefas, e-mails, backup) só na liberação, porque fechar o túnel não impede
+#   o que eles fazem para fora.
+WEB_SERVICES=(zammad-railsserver zammad-websocket zammad-nginx)
+BACKGROUND_SERVICES=(zammad-scheduler zammad-backup)
+ZAMMAD_SERVICES=("${WEB_SERVICES[@]}" "${BACKGROUND_SERVICES[@]}")
+background_started=0
 DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch)
 
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
@@ -41,6 +47,14 @@ encerrar_init() {
 
 parar() {
   [ "$init_running" = 1 ] && encerrar_init
+  # Falha depois da liberação: os processos de fundo param de novo.
+  if [ "$background_started" = 1 ]; then
+    if "${DC[@]}" stop "${BACKGROUND_SERVICES[@]}" > /dev/null 2>&1; then
+      init_state="${init_state:+$init_state; }processos de fundo parados de novo"
+    else
+      init_state="${init_state:+$init_state; }NÃO foi possível parar os processos de fundo (scheduler, backup)"
+    fi
+  fi
   # Falha depois de reabrir o túnel: fecha de novo, para ele não abrir sozinho mais tarde.
   if [ "$tunnel_started" = 1 ]; then
     if "${DC[@]}" stop cloudflared > /dev/null 2>&1; then
@@ -105,17 +119,21 @@ fi
 [ "$init_code" = 0 ] || parar "zammad-init falhou (código $init_code)"
 init_running=0
 
-passo "aplicação"
-"${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${ZAMMAD_SERVICES[@]}" \
-  || parar "serviços da aplicação não ficaram saudáveis"
+conferir_imagens() {
+  local service id image
+  for service in "$@"; do
+    id=$("${DC[@]}" ps -q "$service")
+    [ -n "$id" ] || parar "$service sem container"
+    image=$(docker inspect -f '{{.Config.Image}}' "$id") || parar "não foi possível inspecionar $service"
+    [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
+  done
+}
 
-passo "imagem de cada serviço"
-for service in "${ZAMMAD_SERVICES[@]}"; do
-  id=$("${DC[@]}" ps -q "$service")
-  [ -n "$id" ] || parar "$service sem container"
-  image=$(docker inspect -f '{{.Config.Image}}' "$id") || parar "não foi possível inspecionar $service"
-  [ "$image" = "$expected_image" ] || parar "$service rodando $image, esperado $expected_image"
-done
+passo "aplicação web (processos de fundo continuam parados)"
+"${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${WEB_SERVICES[@]}" \
+  || parar "serviços web não ficaram saudáveis"
+passo "imagem de cada serviço web"
+conferir_imagens "${WEB_SERVICES[@]}"
 
 # Nginx, WebSocket e o túnel não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas e
 #   prazo por tentativa (uma conexão aceita sem resposta não prende o script).
@@ -147,9 +165,15 @@ fi
 echo "PORTÕES OK ($expected_image)"
 
 if [ "${ABRIR_TUNEL:-0}" != 1 ]; then
-  echo "Túnel mantido parado (ABRIR_TUNEL=1 para reabrir)."
+  echo "Processos de fundo e túnel mantidos parados (ABRIR_TUNEL=1 para liberar)."
   exit 0
 fi
+
+passo "processos de fundo (liberação)"
+background_started=1
+"${DC[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 900 "${BACKGROUND_SERVICES[@]}" \
+  || parar "processos de fundo não ficaram prontos"
+conferir_imagens "${BACKGROUND_SERVICES[@]}"
 
 passo "reabrindo o túnel"
 tunnel_started=1

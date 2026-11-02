@@ -43,11 +43,13 @@ curl -fsSL "https://raw.githubusercontent.com/leaberg69/zammad/$FORK_COMMIT/cont
   -o cloudflared/config.yml
 ```
 
-`subir-central.sh` é a subida com portões usada no go-live, nas atualizações e no retorno: para o túnel, confere a
-tag, sobe banco, cache, Redis e Elasticsearch, roda o `zammad-init` da imagem escolhida (migrações) até terminar com
-código 0, sobe a aplicação esperando ficar saudável, confere a imagem de cada container e que Elasticsearch e Rails
-respondem, reconstrói o índice se `REINDEXAR=1` e só reabre o túnel com `ABRIR_TUNEL=1` e tudo aprovado. Qualquer
-falha para com `PARAR:` e o motivo, com o túnel parado. O CI testa essa sequência (`subir_central_test.sh`).
+`subir-central.sh` é a subida com portões usada no go-live, nas atualizações e no retorno: para o túnel e a
+aplicação, confere a tag, sobe banco, cache, Redis e Elasticsearch (em yellow ou green), roda o `zammad-init` da
+imagem escolhida (migrações) com prazo, sobe Rails, WebSocket e Nginx e confere imagem e resposta de cada um,
+reconstrói o índice se `REINDEXAR=1` e, só com `ABRIR_TUNEL=1` e tudo aprovado, libera: sobe scheduler e backup e
+reabre o túnel até a conexão ficar ativa. Sem `ABRIR_TUNEL=1`, scheduler, backup e túnel ficam parados para
+conferência manual. Qualquer falha para com `PARAR:`, o motivo e o estado do túnel e do init. O CI testa essa
+sequência (`subir_central_test.sh`).
 
 Overlay, script e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse
 conjunto que o workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack
@@ -159,8 +161,9 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
    no railsserver, `conta de emergência: (login), com 2FA`. Se qualquer item falhar, parar aqui.
 4. Senhas locais da equipe, exceto a de emergência, trocadas por valores aleatórios (checklist, seção 5).
 5. Só então abrir os portais: em `cloudflared/config.yml`, acrescentar os três nomes `suporte`; validar
-   (`ingress validate`, seção 10); `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d
-   --force-recreate --no-deps cloudflared`; e, por último, trocar o DNS dos três `suporte` para `CNAME` do túnel.
+   (`ingress validate`, seção 10); `ABRIR_TUNEL=1 bash subir-central.sh` (repete os portões, libera scheduler e
+   backup e reabre o túnel até a conexão ficar ativa); e, por último, trocar o DNS dos três `suporte` para `CNAME`
+   do túnel.
 6. **Validar o login da equipe** (obrigatório antes de dar o go-live por concluído): pelo nome interno, entrar com
    Google (conta da LRI) e com Microsoft (conta da IRD.Net); o retorno passa pelo `fqdn` e volta ao nome interno
    (PLANO, seção 2.9.2). Se falhar, a equipe continua só com a conta de emergência e o go-live não fecha.
@@ -190,10 +193,10 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
      Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
      existe), então reconstruir junto: `REINDEXAR=1 bash subir-central.sh`. Sem restauração: `bash
      subir-central.sh`.
-  2. Com `PORTÕES OK`, conferir à mão, ainda com o túnel parado, que um chamado alterado depois do backup aparece na
-     busca com os dados restaurados (só quando houve restauração).
-  3. Só então reabrir: `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate
-     --no-deps cloudflared`.
+  2. Com `PORTÕES OK`, conferir à mão, ainda com túnel e processos de fundo parados, que um chamado alterado depois
+     do backup aparece na busca com os dados restaurados (só quando houve restauração).
+  3. Só então liberar: `ABRIR_TUNEL=1 bash subir-central.sh` (sem `REINDEXAR`, já feito), que sobe scheduler e
+     backup e reabre o túnel.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Atualização da imagem depois do go-live

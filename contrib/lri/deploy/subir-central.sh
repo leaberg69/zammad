@@ -235,7 +235,7 @@ if [ "$guard" != enforce ]; then
   [ -n "$internal_host" ] || parar "guarda desligada (LRI_ZONE_GUARD=$guard) e LRI_INTERNAL_URL sem https:// no railsserver"
   # O YAML é lido de verdade pelo validador que vem na própria imagem (mesmo commit), sem rede.
   validacao=$(docker run --rm --network none --entrypoint ruby -v "$PWD/cloudflared:/etc/lri-cloudflared:ro" \
-    "$expected_image" contrib/lri/deploy/validar-tunel-fase-a.rb /etc/lri-cloudflared/config.yml "$internal_host" 2>&1) \
+    "$expected_image" contrib/lri/deploy/validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml "$internal_host" 2>&1) \
     || parar "guarda de zona desligada (LRI_ZONE_GUARD=$guard) e o túnel não está só no nome interno: $validacao;" \
       "corrigir o config.yml ou ligar a guarda (fase B)"
 fi

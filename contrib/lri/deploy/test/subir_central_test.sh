@@ -16,7 +16,7 @@ cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
-if [[ "$*" == *"validar-tunel-fase-a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
+if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
   # CRIACAO_TARDIA: ao receber TERM, o "daemon" ainda conclui a criação do container antes de o cliente sair.
   if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
@@ -91,16 +91,16 @@ cenario 'scheduler cai durante a inicialização' 1 ABRIR_TUNEL=1 FUNDO_ESTADO='
 confere 'processo de fundo instável impede o túnel e para os de fundo de novo' \
   '! tunel_aberto && grep -q "instável" "$work/saida" && grep -q "processos de fundo parados de novo" "$work/saida"'
 
-# O YAML do túnel é conferido pelo validar-tunel-fase-a.rb (com teste próprio); aqui, o que o script faz com o veredito.
+# O YAML do túnel é conferido pelo validar_tunel_fase_a.rb (com teste próprio); aqui, o que o script faz com o veredito.
 cenario 'guarda desligada e o validador recusa o túnel' 1 ABRIR_TUNEL=1 GUARDA=off TUNEL_INVALIDO='nomes além do interno: "suporte.example.com"'
 confere 'guarda off com túnel recusado não libera nada e diz por quê' \
-  '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar-tunel-fase-a.rb /etc/lri-cloudflared/config.yml atendimento.example.com" "$work/log"'
+  '! tunel_aberto && ! fundo_iniciado && grep -q "suporte.example.com" "$work/saida" && grep -q "validar_tunel_fase_a.rb /etc/lri-cloudflared/config.yml atendimento.example.com" "$work/log"'
 
 cenario 'guarda desligada e o validador aceita (fase A)' 0 ABRIR_TUNEL=1 GUARDA=off
 confere 'fase A libera com o túnel aprovado pelo validador' 'tunel_aberto && grep -q "TÚNEL ABERTO" "$work/saida"'
 
 cenario 'guarda ligada não consulta o validador' 0 ABRIR_TUNEL=1 TUNEL_INVALIDO='não deveria ser chamado'
-confere 'com a guarda ligada o túnel segue sem o validador' '! grep -q "validar-tunel-fase-a.rb" "$work/log" && tunel_aberto'
+confere 'com a guarda ligada o túnel segue sem o validador' '! grep -q "validar_tunel_fase_a.rb" "$work/log" && tunel_aberto'
 
 cenario 'restauração com reindexação falhando' 1 ABRIR_TUNEL=1 REINDEXAR=1 FALHAR_EM='searchindex:rebuild'
 confere 'reindexação que falha não libera processos de fundo nem túnel' '! fundo_iniciado && ! tunel_aberto'

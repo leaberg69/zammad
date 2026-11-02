@@ -182,24 +182,33 @@ A guarda é ligada e conferida **com o túnel ainda só interno**; os portais p�
 - **Imagem com defeito**: voltar ao conjunto anterior guardado na atualização (seção 10). Se as notas da versão nova
   confirmarem que não há migração de banco entre as duas, basta repor o conjunto e subir a stack inteira; nos demais
   casos, parar a central, restaurar o backup feito antes da troca (banco e arquivos juntos, do mesmo momento), repor
-  o conjunto e só então subir. Restaurar apaga o que entrou depois do backup: decisão do Leandro. Subir a stack
-  inteira, sempre:
+  o conjunto e só então subir. Restaurar apaga o que entrou depois do backup: decisão do Leandro.
 
-  ```sh
-  docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate && \
-  docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate cloudflared && \
-  docker compose -f docker-compose.yml -f docker-compose.lri.yml ps -a --format '{{.Service}} {{.Image}} {{.State}}'
-  ```
+  O atendimento só reabre no fim: o túnel fica parado enquanto a stack sobe e é conferida.
 
-  Todos os serviços Zammad (`init`, `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) têm de aparecer com
-  a tag do conjunto reposto; nenhum com a tag defeituosa. Se o banco foi restaurado, o índice de busca ficou mais novo
-  que ele (a partida não o refaz quando o índice já existe): reconstruir antes de reabrir o atendimento, e conferir
-  que um chamado alterado depois do backup aparece na busca com os dados restaurados:
+  1. Parar o túnel primeiro (`docker compose ... stop cloudflared`); com ele parado, ninguém de fora alcança a central.
+  2. Subir a stack sem o túnel e conferir as imagens:
 
-  ```sh
-  docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
-    bundle exec rake zammad:searchindex:rebuild
-  ```
+     ```sh
+     docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate --no-deps \
+       lri-config-check zammad-init zammad-railsserver zammad-websocket zammad-scheduler zammad-nginx zammad-backup \
+       zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch && \
+     docker compose -f docker-compose.yml -f docker-compose.lri.yml ps -a --format '{{.Service}} {{.Image}} {{.State}}'
+     ```
+
+     Todos os serviços Zammad (`init`, `railsserver`, `websocket`, `scheduler`, `nginx`, `backup`) com a tag do
+     conjunto reposto; nenhum com a tag defeituosa.
+  3. Se o banco foi restaurado, o índice de busca ficou mais novo que ele (a partida não o refaz quando o índice já
+     existe): reconstruir e conferir que um chamado alterado depois do backup aparece na busca com os dados
+     restaurados.
+
+     ```sh
+     docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver \
+       bundle exec rake zammad:searchindex:rebuild
+     ```
+
+  4. Só então reabrir: `docker compose -f docker-compose.yml -f docker-compose.lri.yml up -d --force-recreate
+     cloudflared`.
 - **Servidor comprometido**: restaurar o snapshot do passo 0 (decisão do Leandro).
 
 ## 10. Atualização da imagem depois do go-live
@@ -219,8 +228,8 @@ Uma imagem nova pode migrar o banco, e a anterior pode não funcionar com o banc
    túnel, AUD do Access e os nomes da fase em que se está; depois,
    `docker run --rm -v "$PWD/cloudflared:/etc/cloudflared:ro" cloudflare/cloudflared:<versão do .env> tunnel --config
    /etc/cloudflared/config.yml ingress validate` tem de responder `OK`.
-4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir a stack inteira com o bloco da seção 9, conferindo
-   a tag de todos os serviços.
+4. Trocar `LRI_IMAGE_TAG`, repetir o passo 5 (pull e digest) e subir com a mesma sequência da seção 9 (túnel parado,
+   stack conferida, túnel por último), conferindo a tag de todos os serviços.
 
 ## 11. Registro
 

@@ -10,6 +10,7 @@ Cada regra violada é listada com o serviço e o motivo; o código de saída é 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -63,19 +64,18 @@ def check_guard_modes(official, overlay):
             if guard != expected:
                 problems.append(f"LRI_ZONE_GUARD={value!r}: {name} ficou {guard!r}, esperado {expected!r}")
 
-    # Um .env com off ao lado da stack oficial não pode vazar para a verificação do padrão enforce.
-    stray_env = os.path.join(os.path.dirname(os.path.abspath(official)), ".env")
-    if not os.path.exists(stray_env):
-        try:
-            with open(stray_env, "w", encoding="utf-8") as handle:
-                handle.write("LRI_ZONE_GUARD=off\n")
-            result = render(official, overlay, DUMMY_ENV)
-            guard = json.loads(result.stdout)["services"]["zammad-railsserver"]["environment"].get("LRI_ZONE_GUARD") \
-                if result.returncode == 0 else None
-            if guard != "enforce":
-                problems.append(f".env externo com off alterou a renderização (railsserver ficou {guard!r})")
-        finally:
-            os.remove(stray_env)
+    # Um .env com off ao lado da stack não pode vazar para a verificação do padrão enforce. Numa cópia da stack em
+    #   diretório temporário, para nunca deixar um .env no diretório real.
+    with tempfile.TemporaryDirectory() as directory:
+        isolated = os.path.join(directory, "docker-compose.yml")
+        shutil.copyfile(official, isolated)
+        with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+            handle.write("LRI_ZONE_GUARD=off\n")
+        result = render(isolated, overlay, DUMMY_ENV)
+        guard = json.loads(result.stdout)["services"]["zammad-railsserver"]["environment"].get("LRI_ZONE_GUARD") \
+            if result.returncode == 0 else None
+        if guard != "enforce":
+            problems.append(f".env externo com off alterou a renderização (railsserver ficou {guard!r}): {result.stderr.strip()}")
     return problems
 
 

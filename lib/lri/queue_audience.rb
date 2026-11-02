@@ -59,14 +59,7 @@ module Lri::QueueAudience
     collaborator?(user) ? internal_ids : ids - internal_ids
   end
 
-  # Filtro na origem: a lista base de filas do cliente, antes de qualquer Core Workflow.
-  module GroupOptions
-    def groups_customer
-      groups = super
-      groups.where(id: Lri::QueueAudience.allowed_group_ids(@attributes.user, groups.pluck(:id)))
-    end
-  end
-
+  # Um filtro só, no fim: filtrar antes dos workflows esvaziaria um set_fixed_to sem dizer por quê.
   # Filtro no resultado final, depois de qualquer workflow (add_option, select, cadeia interrompida): opções,
   #   seleção e preenchimento do campo de fila só com filas do público do cliente.
   module ResultFilter

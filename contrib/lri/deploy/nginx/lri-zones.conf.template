@@ -24,7 +24,8 @@ real_ip_header CF-Connecting-IP;
 
 underscores_in_headers off;
 ignore_invalid_headers on;
-server_tokens off;
+# server_tokens fica em cada server, não aqui: o nginx.conf do Debian da imagem já o define no http, e repetir no
+# mesmo nível faz o nginx -t recusar ("directive is duplicate"). No server vale mesmo com outro nginx.conf.
 
 # ---------------------------------------------------------------------------------------------------------------
 # ZONA PÚBLICA: suporte.lri.com.br, suporte.meanwellbrasil.com.br, suporte.ird.net.br
@@ -32,12 +33,14 @@ server_tokens off;
 server {
   listen 127.0.0.1:8081 default_server;
   server_name _;
+  server_tokens off;
   return 404;
 }
 
 server {
   listen 127.0.0.1:8081;
   server_name @PUBLIC_HOSTS@;
+  server_tokens off;
 
   root /opt/zammad/public;
   access_log /dev/stdout;
@@ -104,12 +107,14 @@ server {
 server {
   listen 127.0.0.1:8082 default_server;
   server_name _;
+  server_tokens off;
   return 404;
 }
 
 server {
   listen 127.0.0.1:8082;
   server_name @INTERNAL_HOST@;
+  server_tokens off;
 
   root /opt/zammad/public;
   access_log /dev/stdout;

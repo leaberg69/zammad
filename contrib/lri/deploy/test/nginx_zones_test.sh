@@ -28,7 +28,10 @@ docker run -d --name "$NAME-nginx" --network "container:$NAME-echo" \
   -e LRI_PUBLIC_HOSTS="suporte.lri.com.br suporte.meanwellbrasil.com.br suporte.ird.net.br" \
   -e ZAMMAD_RAILSSERVER_HOST=127.0.0.1 -e ZAMMAD_WEBSOCKET_HOST=127.0.0.1 \
   -e LRI_NGINX_DRY_RUN=1 -e LRI_NGINX_SITE=/etc/nginx/conf.d/default.conf \
-  "$NGINX_IMAGE" sh -c '/opt/zammad/contrib/lri/deploy/nginx-entrypoint.sh && nginx -t && exec nginx -g "daemon off;"' >/dev/null
+  "$NGINX_IMAGE" sh -c '
+    # Como o nginx.conf do Debian da imagem: server_tokens já definido no http (o template não pode repeti-lo).
+    echo "server_tokens off;" > /etc/nginx/conf.d/00-distro.conf
+    /opt/zammad/contrib/lri/deploy/nginx-entrypoint.sh && nginx -t && exec nginx -g "daemon off;"' >/dev/null
 
 for _ in $(seq 1 20); do
   if docker exec "$NAME-nginx" sh -c 'nc -z 127.0.0.1 8081 && nc -z 127.0.0.1 8082 && nc -z 127.0.0.1 3000' 2>/dev/null; then

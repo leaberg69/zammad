@@ -12,6 +12,7 @@
 #   LRI_PUBLIC_HOSTS    nomes públicos separados por espaço
 #   ZAMMAD_RAILSSERVER_HOST/PORT, ZAMMAD_WEBSOCKET_HOST/PORT, NGINX_CLIENT_MAX_BODY_SIZE (padrões da stack oficial)
 #   LRI_NGINX_DRY_RUN=1 só renderiza (usado pelos testes)
+#   LRI_NGINX_CHECK_ONLY=1 faz tudo o que a partida faz, inclusive o nginx -t, e sai sem iniciar (CI da imagem)
 
 set -eu
 
@@ -75,5 +76,9 @@ NAMESERVER=$(grep '^nameserver' --max-count 1 < /etc/resolv.conf | awk '{print $
 echo "resolver $NAMESERVER valid=5s;" > /etc/nginx/conf.d/resolver.conf
 
 nginx -t || fail "nginx -t recusou a configuração renderizada"
+if [ "${LRI_NGINX_CHECK_ONLY:-0}" = "1" ]; then
+  echo "nginx-entrypoint (Grupo LRI): configuração renderizada e aprovada pelo nginx -t (só conferência)"
+  exit 0
+fi
 echo "nginx-entrypoint (Grupo LRI): zonas pública (127.0.0.1:8081) e interna (127.0.0.1:8082) configuradas"
 exec nginx -g 'daemon off;'

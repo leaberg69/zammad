@@ -120,6 +120,17 @@ jobs:
             -e LRI_MW_HOST=suporte.example.net -e LRI_PUBLIC_HOSTS="suporte.example.com suporte.example.net" \
             "$LOCAL_IMAGE"
 
+      # O mesmo caminho da partida em produção (caminhos padrão, usuário da imagem, nginx.conf da imagem), parando
+      # logo depois do nginx -t. Pega diretiva repetida entre o template e o nginx.conf da distribuição.
+      - name: Nginx das zonas aprovado pelo nginx -t dentro da imagem
+        run: |
+          docker run --rm --entrypoint contrib/lri/deploy/nginx-entrypoint.sh -e LRI_NGINX_CHECK_ONLY=1 \
+            -e LRI_ZONE_KEY=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci \
+            -e LRI_FQDN=suporte.example.com -e LRI_INTERNAL_HOST=atendimento.example.com \
+            -e LRI_MW_HOST=suporte.example.net -e LRI_PUBLIC_HOSTS="suporte.example.com suporte.example.net" \
+            "$LOCAL_IMAGE" | tee nginx-check.log
+          grep -q "aprovada pelo nginx -t" nginx-check.log
+
       - name: Stack oficial (commit fixo) para conferir o overlay
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

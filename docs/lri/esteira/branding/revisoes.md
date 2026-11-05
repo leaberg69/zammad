@@ -11,6 +11,15 @@ partir do commit revisado, rodando localmente com os dados de `contrib/lri/qa/`)
 | [`ux-spec-v1.yaml`](ux-spec-v1.yaml) | UX-A | cores, tokens por interface, contraste WCAG AA, logos, pt-BR, telas de aceite |
 | [`ux-spec-v2.yaml`](ux-spec-v2.yaml) | UX-A | Mean Well Brasil como terceira marca; logos 100% vetoriais da pasta oficial |
 | [`ux-spec-v3.yaml`](ux-spec-v3.yaml) | UX-A | estado em verde sobre superfície escura (barra e peças pretas sobre verde), botões de envio, mobile |
+| [`ux-spec-v4.yaml`](ux-spec-v4.yaml) | UX-A | marca LRI no lugar do pássaro do Zammad no menu e no avatar do sistema (app clássico); **proposta, não revisada** |
+
+## Pendente: ux-spec-v4
+
+Pedido do Leandro em 05/11/2026, 20:46: "precisamos colocar o logo da LRI e nao dos passaros" ("podem até ter alguma
+animação"). A v4 abre uma exceção pontual ao item da v1 que deixava fora do escopo o ícone do Zammad no menu do
+legado. Ela ainda não foi revisada: sem rodada UX-B, sem implementação. Decisões abertas para a revisão: D1 (avatar
+LRI em toda ocorrência do usuário de sistema ou só no fluxo de atividades) e D2 (entrada e realce só no menu ou marca
+estática).
 
 ## Rodadas
 

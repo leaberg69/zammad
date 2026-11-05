@@ -1,0 +1,152 @@
+# ux-spec-v4 — Branding Grupo LRI, DELTA sobre a v3: marca LRI no lugar do pássaro do Zammad
+# STATUS: PROPOSTA DO UX-A, AINDA NÃO REVISADA. Nenhuma aprovação registrada; não implementar antes da revisão.
+# Tudo o que esta v4 não cita continua valendo como está na v3, na v2 e na v1.
+artifact_meta:
+  name: ux-spec
+  version: 4
+  produced_by: ux_engineer_a
+  created_at: "2026-11-05T23:55:00Z"
+  base_git_commit: d2892a98a5909f727aecf6869d48c21bf361d277
+  cycle_id: nivel-1-sem-ciclo-registrado  # esteira Nível 1; invariantes = docs/lri/PLANO.md §3 e §4
+  identity_raw_sha256: null  # sem ciclo v5.4 registrado (Nível 1)
+  consumed:
+    - { artifact: ux-spec-v3, raw_sha256: ecd10d43cc8fa16e727d5d42fbe5287c61cac0b935b9cfb54538bc36633fbf7d }
+    - { artifact: "revisão UX-B 4 (revisoes.md)", verdict: aprovado, commit: 3aa04c03 }
+    - { artifact: captura-do-usuario, origem: "Leandro, 05/11/2026, /#dashboard do app clássico", nota: "verde aplicado; pássaro no menu e no avatar de sistema do fluxo de atividades" }
+format_version: 2
+
+ui_impact: low   # troca de imagem em dois pontos; sem fluxo, layout, texto ou permissão novos
+
+origem_do_pedido:
+  quem: Leandro
+  quando: "05/11/2026 20:46 (Brasília)"
+  pedido: "precisamos colocar o logo da LRI e nao dos passaros"
+  complemento: "podem até ter alguma animação"
+  excecao_a_heranca: >-
+    Revoga, só neste ponto, o item de ux-spec-v1.yaml fora_de_escopo "Ícone do Zammad no topo do menu do legado
+    (.search .logo .icon-logo, botão do fluxo de atividades) ...". A parte do mesmo item sobre LeftSidebarHeader.vue
+    (app Vue) continua fora do escopo. O resto da v1 a v3 (UI-only, sem redesign, sem core, sem i18n) continua valendo.
+
+escopo:
+  interface: "Somente o app clássico (CoffeeScript). O app Vue (desktop e mobile) fica como está."
+  pontos:
+    - id: P1-menu
+      onde: "navigation.jst.eco:11-13 — div.logo.js-toggleNotifications com svg.icon-logo e div.activity-counter"
+      hoje: "pássaro do Zammad (sprite do núcleo); clique abre e fecha o fluxo de atividades; contador vermelho por cima"
+      depois: "marca LRI no mesmo slot; clique, contador e atalho de teclado inalterados"
+    - id: P2-avatar-do-sistema
+      onde: "avatar_system.jst.eco — span.avatar com fundo branco inline e svg.icon-logo; usado só quando o usuário é o id 1 (user.coffee:111-113)"
+      hoje: "pássaro do Zammad nas entradas do sistema"
+      depois: "marca LRI estática"
+      abrangencia: >-
+        Recomendação: todas as ocorrências do avatar do usuário de sistema (fluxo de atividades do painel,
+        notificações e qualquer outro lugar que desenhe o avatar do id 1), porque é a mesma identidade e o mesmo template. Restringir ao fluxo
+        de atividades deixaria o pássaro nos outros lugares para o mesmo usuário. Ponto a confirmar na revisão
+        (decisao_para_revisao D1).
+  fora_de_escopo:
+    - "Fotos e avatares gerados de atendentes e clientes (usam background-image no .avatar, não svg.icon-logo)."
+    - "Avatar do agente de IA (.activity-ai-avatar, ícone ai-agent) e qualquer outro ícone funcional."
+    - "Link 'zammad.org' com o ícone logo no rodapé de login, cadastro, verificação e redefinição de senha (login.jst.eco:134, signup.jst.eco:22, signup/verify.jst.eco:25, password/*.jst.eco, admin_password_auth/*.jst.eco): atribuição, mantida como na v1."
+    - "LeftSidebarHeader.vue e o app Vue em geral; favicon; e-mails."
+    - "Nome acessível do botão do fluxo de atividades: hoje é um div sem nome nem foco (lacuna do upstream). Corrigir exige mudar o template do núcleo; registrar, não tratar aqui."
+    - "Arquivos de marca novos ou redesenhados."
+
+asset:
+  fonte_autentica: "docs/lri/brand-assets/lri-logo.svg — vetor oficial da LRI, só a marca LRI, sem fill (renderiza preto), viewBox 0 0 1000 775,4"
+  derivados_existentes:
+    - { arquivo: "public/assets/lri/lri-logo-escuro.svg", fill: "#74b527", uso: "P1-menu (o menu é escuro nos dois temas)" }
+    - { arquivo: "public/assets/lri/lri-logo-claro.svg", fill: "#3d7a12", uso: "P2-avatar-do-sistema (fundo branco fixo no template)" }
+  como_foram_gerados: "contrib/lri/branding/gerar_logos.py: recorte da área útil medida nos paths (x 233-767, y 251-524) com 4% de respiro e troca de fill; desenho intacto"
+  proporcao: "viewBox 576,7 x 294,8 (1,956:1); tinta = 92,6% da largura e 92,6% da altura da caixa"
+  nao_usar: "grupo-lri-logo*.svg (composto com IRD.Net e Mean Well Brasil) e lri-logo-white.png (raster 181 x 93)"
+  arquivo_faltante: "nenhum"
+
+geometria:
+  regra: "A marca ocupa o slot que o pássaro ocupa hoje; o slot não muda de tamanho nem de posição. Encaixe 'contain', centrado, sem distorcer nem espelhar (inclusive em RTL)."
+  P1-menu:
+    slot_medido:
+      padrao: "svg.icon-logo 42 x 36 (svg-dimensions.css:97), dentro de .search .logo com margem -4px 10px 0 12px (zammad.scss:5395-5406)"
+      estreito: "35 x 30 com margin-left 4px, sob o mixin phone: largura até 767 px ou #app.navigation-collapsed (zammad.scss:5408-5416; mixin em 224-232)"
+    marca_resultante:
+      padrao: "caixa 42 x 21,5; tinta cerca de 39 x 20"
+      estreito: "caixa 35 x 17,9; tinta cerca de 32 x 17"
+    camadas: "o contador .activity-counter continua acima da marca, na mesma posição (right -3px, bottom 2px)"
+  P2-avatar-do-sistema:
+    slot_medido: ".avatar 40 x 40 redondo (zammad.scss:5656-5668); 30 x 30 no phone e em .size-30; 22 x 22 em .size-30 no phone"
+    marca_resultante: "largura da caixa = 80% do diâmetro: 32 x 16,4 em 40; 24 x 12,3 em 30; 17,6 x 9 em 22"
+    por_que_80: "um retângulo 1,956:1 inscrito no círculo cabe até cerca de 89% do diâmetro; 80% deixa respiro igual dos dois lados e não encosta na borda"
+
+cor_e_contraste:
+  regra: "Logotipo é isento do critério de texto do WCAG, mas precisa ficar reconhecível no fundo (requisito herdado da v1)."
+  P1-menu: "#74b527 sobre o menu: 6,02:1 no tema claro (--background-quaternary hsl(231,9%,16%) = #25262c) e 6,50:1 no escuro (hsl(230,7%,13%) = #1f2023)"
+  P2-avatar-do-sistema: "#3d7a12 sobre branco: 5,26:1 nos dois temas (o fundo branco é inline no template e não muda com o tema)"
+
+movimento:
+  abordagens:
+    A-estatica:
+      descricao: "Marca estática nos dois pontos."
+      pro: "Mais conservadora; nada a testar além da troca."
+      contra: "Ignora o 'podem até ter alguma animação'."
+    B-entrada-e-realce-so-no-menu:
+      descricao: "No menu, entrada suave uma única vez e realce leve no hover; avatar do sistema estático."
+      pro: "Atende o pedido opcional sem movimento nos registros; um ponto só, uma vez, sem efeito no layout."
+      contra: "Duas regras de movimento a testar; nada muda em toque (sem hover)."
+  recomendacao: B-entrada-e-realce-so-no-menu
+  B_regras:
+    entrada: "ao renderizar o menu, a marca vai de opacidade 0 e escala 0,92 para opacidade 1 e escala 1 em 240 ms (mesma duração da transição que o upstream já usa em .search .logo), ease-out, 1 iteração"
+    realce: "hover em .search .logo: escala 1 para 1,06 em 160 ms ease-out; volta ao sair"
+    onde_animar: >-
+      Só a camada da marca. O contêiner .search .logo não recebe animação, para que as regras do upstream que o
+      escondem (.search.focused .logo e .search.filled .logo no phone, opacidade 0) continuem valendo sem conflito.
+    proibido: "loop, iteração infinita, spinner, rotação, piscar, mudança de cor, deslocamento de layout ou de hitbox, movimento no avatar"
+    reduced_motion: "com prefers-reduced-motion: reduce, sem entrada e sem realce: marca estática"
+
+tecnica:
+  onde: "app/assets/stylesheets/custom/lri-branding.css (customização suportada, carregada por application.css). Sem core, sem template, sem i18n, sem JavaScript."
+  seletores:
+    P1-menu: ".search .logo > .icon-logo (único svg.icon-logo dentro de .search .logo)"
+    P2-avatar-do-sistema: ".avatar > .icon-logo (só o avatar de sistema põe svg.icon-logo dentro de .avatar; avatares reais usam background-image)"
+  principio: >-
+    O svg do pássaro continua no DOM com o mesmo tamanho, só invisível, para manter caixa, hitbox e contador; a
+    marca entra como camada visual do próprio contêiner, que hoje não usa ::before nem ::after (conferido em
+    zammad.scss para .avatar e .search .logo). Nenhum seletor global de .icon-logo ou de .avatar.
+  acessibilidade: "Árvore de acessibilidade inalterada: a camada não leva texto em content; o clique, o atalho de teclado (keyboard_shortcuts.coffee:187) e o foco seguem como estão."
+
+decisoes_para_revisao:
+  - id: D1
+    pergunta: "Avatar LRI em todas as ocorrências do usuário de sistema (recomendado) ou só no fluxo de atividades?"
+  - id: D2
+    pergunta: "Abordagem B (entrada e realce só no menu, recomendada) ou A (estática)?"
+
+acceptance_visuals:
+  ambiente: "Instância local isolada com os dados fictícios de contrib/lri/qa/; nada contra produção."
+  telas_novas:
+    - id: V16-menu-marca-lri
+      url: "/#dashboard como agente: 1280 px claro e escuro; 390 px; e com #app.navigation-collapsed"
+      verdade:
+        - "Nenhum pássaro visível em .search .logo; marca LRI #74b527 centrada, proporção 1,956:1 (tolerância de 2%)."
+        - "Caixa de .search .logo igual à medida antes da mudança (mesmo getBoundingClientRect, tolerância de 0,5 px) nos três tamanhos."
+        - "Clique na marca abre e fecha o fluxo de atividades; o atalho de teclado também; o contador vermelho aparece por cima com notificação não lida."
+        - "Com a busca focada (.search.focused), a marca some junto com o contêiner, como hoje."
+        - "Movimento (se B): animation-iteration-count 1 e duração até 240 ms na entrada; realce de 160 ms no hover; nenhum 'infinite'."
+        - "Com prefers-reduced-motion: reduce emulado: nenhuma animação nem transição na camada da marca."
+    - id: V17-avatar-do-sistema
+      url: "/#dashboard (fluxo de atividades), menu de notificações e, se D1 confirmar, qualquer outra tela com o avatar do sistema; claro, escuro e 390 px"
+      verdade:
+        - "Avatar do sistema com marca LRI #3d7a12 sobre branco, largura 80% do diâmetro (tolerância de 1 px), sem pássaro visível."
+        - "Nenhuma animação nem transição no avatar."
+        - "Avatares de atendentes e clientes na mesma tela: background-image inalterado e nenhum com a marca LRI."
+    - id: V18-nao-regressao
+      url: "/#login, /#signup, /#password_reset e app Vue /desktop"
+      verdade:
+        - "Ícone do link 'zammad.org' no rodapé inalterado; app Vue inalterado."
+        - "Rede sem 404 em /assets/lri/lri-logo-escuro.svg e /assets/lri/lri-logo-claro.svg; console sem erro."
+  telas_inalteradas: "V1 a V15 seguem como estão na v3; repetir a medição do capture.py para confirmar."
+  limite: "Um HTML de fixture não valida o app real; o aceite vale só com o app clássico rodando."
+
+autorrevisao:
+  contradicoes: "Nenhuma com a v1 a v3, salvo a exceção declarada em origem_do_pedido; a v1 continua imutável."
+  placeholders: "Nenhum: medidas tiradas de svg-dimensions.css, zammad.scss e do viewBox dos derivados."
+  ambiguidade: "Restam só D1 e D2, explícitas para a revisão."
+  escopo: "Dois pontos do app clássico; nenhum arquivo de marca novo; nenhum outro ícone ou avatar."
+  testabilidade: "Cada verdade de V16 a V18 é medível por computed style, getBoundingClientRect, getAnimations ou rede."

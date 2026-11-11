@@ -84,14 +84,12 @@ MONITOR_TOKEN = 'tokdomonitor_0123456789-abcdef'
 status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check',
                         {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor', 'X-LRI-Monitor-Token': MONITOR_TOKEN})
 h = data.get('headers', {})
-check('interno /lri-monitor/health_check: vai ao health check do railsserver, token no corpo e nunca na URL',
+check('interno /lri-monitor/health_check: vai ao health check do railsserver, token no cabeçalho e nunca na URL',
       status == 200 and data.get('port') == 3000 and data.get('path') == '/api/v1/monitoring/health_check'
-      and data.get('body') == f'token={MONITOR_TOKEN}'
-      and h.get('content-type') == 'application/x-www-form-urlencoded',
-      f'status={status} {data.get("port")} {data.get("path")} {data.get("body")!r} {h.get("content-type")}')
-check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados, sem o cabeçalho do token',
-      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor'
-      and not h.get('x-lri-monitor-token'))
+      and h.get('x-lri-monitor-token') == MONITOR_TOKEN and data.get('body') == '',
+      f'status={status} {data.get("port")} {data.get("path")} {h.get("x-lri-monitor-token")!r} {data.get("body")!r}')
+check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados',
+      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor')
 for path in ('/lri-monitor/health_check?token=pela-url-0123456789abc', '/lri-monitor/health_check?x=1'):
     status, _, _ = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
     check(f'interno {path}: query recusada (400) sem ir ao upstream', status == 400, f'status={status}')
@@ -101,8 +99,8 @@ for nome, path, headers in (
         ('token curto demais vira vazio', '/lri-monitor/health_check', {'X-LRI-Monitor-Token': 'curto'})):
     status, data = upstream(INTERNAL, STAFF, path, headers)
     check(f'interno /lri-monitor/health_check: {nome}',
-          data.get('path') == '/api/v1/monitoring/health_check' and data.get('body') == 'token=',
-          f'status={status} {data.get("path")} {data.get("body")!r}')
+          data.get('path') == '/api/v1/monitoring/health_check' and not data.get('headers', {}).get('x-lri-monitor-token'),
+          f'status={status} {data.get("path")} {data.get("headers", {}).get("x-lri-monitor-token")!r}')
 conn = http.client.HTTPConnection('127.0.0.1', INTERNAL, timeout=5)
 conn.request('POST', '/lri-monitor/health_check', body='token=x', headers={'Host': STAFF, 'X-LRI-Monitor-Token': MONITOR_TOKEN})
 post_status = conn.getresponse().status

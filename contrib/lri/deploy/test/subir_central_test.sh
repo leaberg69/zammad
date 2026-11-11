@@ -17,6 +17,10 @@ cat > "$work/bin/docker" <<'FAKE'
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
 if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
+# AVISO_COMPOSE: ao listar o Elasticsearch, o compose escreve um aviso no stderr e responde normalmente no stdout.
+if [ "${AVISO_COMPOSE:-0}" = 1 ] && [[ "$*" == *" ps -q zammad-elasticsearch" ]]; then
+  echo 'WARN[0000] The "X" variable is not set. Defaulting to a blank string.' >&2
+fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
   # IGNORAR_TERM: cliente que não sai com o TERM do timeout (só com o KILL do --kill-after).
   [ "${IGNORAR_TERM:-0}" = 1 ] && trap '' TERM
@@ -190,8 +194,12 @@ confere 'reinício por falta de memória para na hora, sem esperar o prazo, e di
 
 cenario 'Elasticsearch reinicia durante a consulta e a instância nova responde yellow' 1 ABRIR_TUNEL=1 \
   ES_ESTADO_DEPOIS='running 1 false'
-confere 'resposta saudável de uma instância reiniciada não libera o init' \
-  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida"'
+confere 'resposta saudável de uma instância reiniciada não libera o init, e a resposta aparece no diagnóstico' \
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "Última consulta de saúde: código 0: {\"status\":\"yellow\"" "$work/saida"'
+
+cenario 'compose escreve aviso no stderr ao listar o Elasticsearch' 0 ABRIR_TUNEL=1 AVISO_COMPOSE=1
+confere 'aviso do compose no stderr não contamina o ID do container' \
+  'grep -q "^inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} id-zammad-elasticsearch$" "$work/log" && grep -q "TÚNEL ABERTO" "$work/saida"'
 
 inicio_docker=$SECONDS
 cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 \
@@ -220,7 +228,7 @@ confere 'janela por tentativa corta a consulta e o reinício para a espera' \
 cenario 'inspeção final lenta depois da resposta saudável' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=5 \
   ES_INSPECAO_LENTA=3
 confere 'inspeção final além do prazo não libera o init' \
-  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida"'
+  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida" && grep -q "Última consulta de saúde: código 0: {\"status\":\"yellow\"" "$work/saida"'
 
 # Cliente que ignora o TERM: o --kill-after mata e a espera segue, sem prender o script.
 inicio_term=$SECONDS

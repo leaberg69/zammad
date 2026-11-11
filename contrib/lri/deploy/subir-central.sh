@@ -170,12 +170,18 @@ es_ultima="nenhuma consulta concluída"
 
 # Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
 #   LIMITE=<s> limitado ... encurta o prazo da chamada.
+#   No sucesso devolve só o stdout (um aviso do compose no stderr não contamina um ID); na falha, também o stderr.
 limitado() {
-  local saida codigo limite=${LIMITE:-$PRAZO_TENTATIVA}
+  local saida codigo erro limite=${LIMITE:-$PRAZO_TENTATIVA}
   # --kill-after: um cliente que ignore o TERM é morto 5 s depois, então o prazo vale com no máximo essa folga.
-  saida=$(timeout --kill-after=5 "$limite" "$@" 2>&1)
+  saida=$(timeout --kill-after=5 "$limite" "$@" 2> .subir-central.err)
   codigo=$?
-  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then saida="sem resposta do Docker em $limite s"; fi
+  erro=$(tr '\n' ' ' < .subir-central.err 2> /dev/null | tail -c 300)
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
+    saida="sem resposta do Docker em $limite s"
+  elif [ "$codigo" != 0 ]; then
+    saida="${saida:+$saida }${erro:-sem mensagem de erro}"
+  fi
   printf '%s' "$saida"
   return "$codigo"
 }
@@ -236,6 +242,12 @@ while :; do
   resposta=$(timeout --kill-after=5 "$janela" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$janela" \
     "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${servidor}s" 2>&1)
   codigo=$?
+  # Registrada antes de decidir: se a inspeção seguinte falhar, o diagnóstico mostra esta resposta.
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
+    es_ultima="sem resposta em $janela s"
+  else
+    es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
+  fi
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
     # A resposta pode ser de uma instância nova: um reinício durante a consulta também para. O prazo é conferido
@@ -244,11 +256,6 @@ while :; do
     [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
     break
-  fi
-  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
-    es_ultima="sem resposta em $janela s"
-  else
-    es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
   fi
   # Intervalo para a porta ainda fechada, quando o curl volta na hora; nunca além do prazo.
   restante=$((ES_PRAZO - (SECONDS - es_inicio)))

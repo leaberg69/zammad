@@ -253,8 +253,11 @@ falha_elasticsearch() {
   else
     memoria="sem limite ($memoria)"
   fi
-  log_es=$(LIMITE=$diag JUNTAR=1 limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ')
-  [ "${#log_es}" -le 600 ] || log_es="[últimos 600 de ${#log_es} caracteres] ${log_es: -600}"
+  log_es=$(LIMITE=$diag JUNTAR=1 limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch)
+  # Inteiro no registro antes de qualquer corte para a mensagem.
+  registrar_erro "últimas linhas do log do zammad-elasticsearch" 0 "$log_es" || registro_falhou=1
+  log_es=$(printf '%s' "$log_es" | tr '\n' ' ')
+  [ "${#log_es}" -le 600 ] || log_es="[últimos 600 de ${#log_es} caracteres; inteiro no registro] ${log_es: -600}"
   local resumo="Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1."
   resumo="$resumo Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')."
   resumo="$resumo Última consulta de saúde: $es_ultima. Configuração: heap $heap, limite do container $memoria."
@@ -300,6 +303,10 @@ while :; do
     conferir_container_es
     [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
+    if [ "$registro_falhou" = 1 ]; then
+      echo "AVISO: não foi possível gravar o registro de erros em $ERROS_LOG; as tentativas recusadas desta espera" \
+        "não ficaram registradas (conferir permissão e espaço em disco)." >&2
+    fi
     break
   fi
   # Resposta inteira (curl e Elasticsearch) no registro, antes de a próxima tentativa a substituir.

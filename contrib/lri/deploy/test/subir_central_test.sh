@@ -202,6 +202,18 @@ cenario 'log do Elasticsearch com a causa no stderr' 1 ABRIR_TUNEL=1 SUBIR_ES_PR
 confere 'causa no stderr do log aparece no diagnóstico e no registro persistente' \
   'grep -q "Log: INFO starting ... ERROR java.lang.OutOfMemoryError: Java heap space" "$work/saida" && grep -q "OutOfMemoryError" "$work/.subir-central-erros.log"'
 
+printf -v log_longo '%*s' 700 ''
+log_longo="ERROR causa-no-comeco-do-log ${log_longo// /x}"
+cenario 'log do Elasticsearch longo com a causa no começo' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  ES_LOG="$log_longo"
+confere 'log longo: corte declarado na mensagem e log inteiro, com a causa, no registro' \
+  'grep -q "\[últimos 600 de [0-9]* caracteres; inteiro no registro\]" "$work/saida" && grep -q "causa-no-comeco-do-log" "$work/.subir-central-erros.log"'
+
+cenario 'Elasticsearch se recupera, mas o registro de erros não pôde ser gravado' 0 ABRIR_TUNEL=1 ES_RECUSAS=1 \
+  SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log
+confere 'subida segue e avisa que as tentativas recusadas não ficaram registradas' \
+  'grep -q "TÚNEL ABERTO" "$work/saida" && grep -q "AVISO: não foi possível gravar o registro de erros em /proc/registro-impossivel/erros.log" "$work/saida"'
+
 cenario 'registro de erros indisponível' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
   SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log
 confere 'sem conseguir gravar o registro, o diagnóstico diz isso e não afirma que gravou' \

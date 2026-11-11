@@ -22,7 +22,8 @@ if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
   if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
     trap 'sleep 1; echo "criado-tarde" >> "$LOG"; exit 143' TERM
   fi
-  sleep 10 & wait $!
+  # Sem herdar a saída: um sleep órfão seguraria a substituição de comando do script até terminar.
+  sleep 10 > /dev/null 2>&1 & wait $!
 fi
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 # Elasticsearch subindo: as primeiras $ES_RECUSAS consultas de saúde encontram a porta 9200 fechada (curl 7), como
@@ -183,8 +184,19 @@ cenario 'Elasticsearch morto por falta de memória durante a espera' 1 ABRIR_TUN
 confere 'reinício por falta de memória para na hora, sem esperar o prazo, e diz por quê' \
   '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "OOMKilled=true" "$work/saida" && grep -q "reiniciou durante a espera" "$work/saida" && [ "$(grep -c "_cluster/health" "$work/log")" -lt 5 ]'
 
-cenario 'prazo do Elasticsearch inválido' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=5m
-confere 'prazo inválido recusado antes de chamar o docker' '[ ! -s "$work/log" ] && grep -q "SUBIR_ES_PRAZO inválido" "$work/saida"'
+# Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8.
+for prazo in 5m 08 010 00 0 -1 100000; do
+  cenario "prazo do Elasticsearch inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO="$prazo"
+  confere "prazo $prazo recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_ES_PRAZO inválido" "$work/saida"'
+done
+
+# A consulta pendura e responderia yellow depois do prazo: o prazo total corta a consulta e nada segue.
+inicio_lento=$SECONDS
+cenario 'consulta de saúde que só responderia depois do prazo' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=2 PENDURAR_EM='_cluster/health'
+duracao_lenta=$((SECONDS - inicio_lento))
+confere 'prazo total vale também para a consulta em andamento' \
+  '[ "$duracao_lenta" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "prazo esgotado" "$work/saida" && grep -q "sem resposta em" "$work/saida"'
 
 cenario 'imagem diferente da tag do .env' 1 ABRIR_TUNEL=1 IMAGEM_FALSA=ghcr.io/leaberg69/zammad-lri:0.9.0
 confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado .ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'

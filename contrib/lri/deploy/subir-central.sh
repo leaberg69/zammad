@@ -105,9 +105,9 @@ parar() {
 #   O lock vale até o fim do processo (o descritor 9 fecha na saída).
 exec 9> .subir-central.lock || parar "não foi possível criar .subir-central.lock neste diretório"
 flock -n 9 || parar "outra execução do subir-central.sh está em andamento neste diretório; nada foi alterado"
-case "$ES_PRAZO" in
-  '' | *[!0-9]* | 0) parar "SUBIR_ES_PRAZO inválido: '$ES_PRAZO' (segundos, maior que 0); nada foi alterado" ;;
-esac
+# Decimal de 1 a 99999 sem zero à esquerda: o Bash leria 08 como octal (erro) e 010 como 8.
+[[ "$ES_PRAZO" =~ ^[1-9][0-9]{0,4}$ ]] \
+  || parar "SUBIR_ES_PRAZO inválido: '$ES_PRAZO' (segundos, de 1 a 99999, sem zero à esquerda); nada foi alterado"
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
@@ -193,23 +193,26 @@ while :; do
   esac
   restante=$((ES_PRAZO - (SECONDS - es_inicio)))
   [ "$restante" -gt 0 ] || falha_elasticsearch "prazo esgotado"
-  espera=$((restante < 30 ? restante : 30))
-  # O prazo do servidor (timeout=) vem antes do do curl e do timeout local: a resposta "timed_out" chega inteira.
-  resposta=$(timeout $((espera + 20)) "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time $((espera + 10)) \
-    "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${espera}s" 2>&1)
+  # Cada consulta cabe no que resta do prazo total: o timeout local corta no restante, e o timeout= do servidor
+  #   deixa 2 s para o docker exec, para a resposta "timed_out" chegar inteira antes do corte.
+  servidor=$((restante > 32 ? 30 : (restante > 2 ? restante - 2 : 1)))
+  resposta=$(timeout "$restante" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$restante" \
+    "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${servidor}s" 2>&1)
   codigo=$?
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
+    [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
     break
   fi
   if [ "$codigo" = 124 ]; then
-    es_ultima="sem resposta em $((espera + 20)) s"
+    es_ultima="sem resposta em $restante s"
   else
     es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
   fi
-  # Intervalo para a porta ainda fechada, quando o curl volta na hora; a resposta do servidor já esperou o timeout=.
-  sleep "$ESPERA"
+  # Intervalo para a porta ainda fechada, quando o curl volta na hora; nunca além do prazo.
+  restante=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$restante" -gt 0 ] && sleep $((ESPERA < restante ? ESPERA : restante))
 done
 
 passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"

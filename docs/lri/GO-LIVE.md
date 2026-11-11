@@ -52,7 +52,8 @@ conferência manual. Qualquer falha para com `PARAR:`, o motivo e o estado do t�
 sequência (`subir_central_test.sh`).
 
 A espera pelo Elasticsearch é pela condição, não por tempo fixo: o `_cluster/health?wait_for_status=yellow` é
-repetido até `SUBIR_ES_PRAZO` (padrão 300 s). Na primeira subida o container acabou de ser criado e a JVM leva um
+repetido até `SUBIR_ES_PRAZO` (padrão 300 s), em tentativas de até 30 s, e cada chamada ao Docker tem prazo
+próprio. Na primeira subida o container acabou de ser criado e a JVM leva um
 tempo para abrir a porta 9200; o `--wait` do compose não cobre isso, porque a stack oficial não tem healthcheck no
 Elasticsearch. Se o container reiniciar ou sair durante a espera, o script para na hora. No prazo esgotado ou no
 reinício, o `PARAR:` traz o estado do container (reinícios, `OOMKilled`), a última resposta de saúde, o heap, o limite

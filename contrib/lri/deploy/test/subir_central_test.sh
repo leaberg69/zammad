@@ -35,6 +35,8 @@ if [[ "$*" == *"_cluster/health"* ]]; then
 fi
 if [[ "$*" == "inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} "* ]]; then
   n=$(( $(cat "$LOG.es-estado" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$LOG.es-estado"
+  # ES_INSPECAO_LENTA: da segunda inspeção em diante, o daemon demora esses segundos para responder.
+  [ "$n" -gt 1 ] && [ -n "${ES_INSPECAO_LENTA:-}" ] && { sleep "$ES_INSPECAO_LENTA" > /dev/null 2>&1 & wait $!; }
   if [ "$n" -le 1 ]; then echo "running 0 false"; else echo "${ES_ESTADO_DEPOIS:-running 0 false}"; fi
   exit 0
 fi
@@ -202,6 +204,21 @@ cenario 'Docker não entrega o log no diagnóstico' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_
 duracao_diag=$((SECONDS - inicio_diag))
 confere 'diagnóstico pendurado não esconde a falha' \
   '[ "$duracao_diag" -lt 6 ] && grep -q "PARAR: Elasticsearch não ficou em yellow/green" "$work/saida" && grep -q "Log: sem resposta do Docker em 1 s" "$work/saida"'
+
+# Consulta que pendura (conexão aceita sem resposta) enquanto o container reinicia: a janela da tentativa corta a
+#   consulta e a reinspeção pega o reinício, sem esperar o prazo total.
+inicio_janela=$SECONDS
+cenario 'consulta pendurada enquanto o Elasticsearch reinicia' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=60 \
+  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='_cluster/health' ES_ESTADO_DEPOIS='restarting 1 true'
+duracao_janela=$((SECONDS - inicio_janela))
+confere 'janela por tentativa corta a consulta e o reinício para a espera' \
+  '[ "$duracao_janela" -lt 8 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "sem resposta em 2 s" "$work/saida"'
+
+# Resposta saudável na hora, mas a inspeção que confirma o container demora além do prazo total.
+cenario 'inspeção final lenta depois da resposta saudável' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=5 \
+  ES_INSPECAO_LENTA=3
+confere 'inspeção final além do prazo não libera o init' \
+  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida"'
 
 # Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8.
 for prazo in 5m 08 010 00 0 -1 100000; do

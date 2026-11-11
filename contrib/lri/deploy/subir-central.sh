@@ -165,19 +165,23 @@ es_estado=""
 es_ultima="nenhuma consulta concluída"
 
 # Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
+#   LIMITE=<s> limitado ... encurta o prazo da chamada.
 limitado() {
-  local saida codigo
-  saida=$(timeout "$PRAZO_TENTATIVA" "$@" 2>&1)
+  local saida codigo limite=${LIMITE:-$PRAZO_TENTATIVA}
+  saida=$(timeout "$limite" "$@" 2>&1)
   codigo=$?
-  [ "$codigo" = 124 ] && saida="sem resposta do Docker em $PRAZO_TENTATIVA s"
+  [ "$codigo" = 124 ] && saida="sem resposta do Docker em $limite s"
   printf '%s' "$saida"
   return "$codigo"
 }
 
 # Estado atual do container, conferido contra o da primeira inspeção (reinício ou saída param a espera).
+#   A inspeção nunca vai além do prazo total da espera.
 conferir_container_es() {
-  es_estado=$(limitado docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' "$es_id") \
-    || falha_elasticsearch "não foi possível inspecionar o container ($es_estado)"
+  local limite=$PRAZO_TENTATIVA resta=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$resta" -ge "$limite" ] || limite=$((resta > 1 ? resta : 1))
+  es_estado=$(LIMITE=$limite limitado docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' \
+    "$es_id") || falha_elasticsearch "não foi possível inspecionar o container ($es_estado)"
   [ -n "$es_reinicios" ] || es_reinicios=$(printf '%s' "$es_estado" | awk '{print $2}')
   case "$es_estado" in
     "running $es_reinicios "*) ;;
@@ -219,22 +223,25 @@ while :; do
   conferir_container_es
   restante=$((ES_PRAZO - (SECONDS - es_inicio)))
   [ "$restante" -gt 0 ] || falha_elasticsearch "prazo esgotado"
-  # Cada consulta cabe no que resta do prazo total: o timeout local corta no restante, e o timeout= do servidor
-  #   deixa 2 s para o docker exec, para a resposta "timed_out" chegar inteira antes do corte.
-  servidor=$((restante > 32 ? 30 : (restante > 2 ? restante - 2 : 1)))
-  resposta=$(timeout "$restante" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$restante" \
+  # Janela por tentativa (2 x SUBIR_PRAZO_TENTATIVA, dentro do restante): uma conexão aceita sem resposta ou um
+  #   docker exec travado são cortados nela, e o container é reinspecionado antes da próxima. O timeout= do servidor
+  #   deixa 5 s para o docker exec, para a resposta "timed_out" chegar inteira antes do corte.
+  janela=$((2 * PRAZO_TENTATIVA < restante ? 2 * PRAZO_TENTATIVA : restante))
+  servidor=$((janela > 6 ? janela - 5 : 1))
+  resposta=$(timeout "$janela" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$janela" \
     "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${servidor}s" 2>&1)
   codigo=$?
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
-    [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
-    # A resposta pode ser de uma instância nova: um reinício durante a consulta também para.
+    # A resposta pode ser de uma instância nova: um reinício durante a consulta também para. O prazo é conferido
+    #   depois da inspeção, que também gasta tempo.
     conferir_container_es
+    [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
     break
   fi
   if [ "$codigo" = 124 ]; then
-    es_ultima="sem resposta em $restante s"
+    es_ultima="sem resposta em $janela s"
   else
     es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
   fi

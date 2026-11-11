@@ -201,6 +201,16 @@ conferir_container_es() {
   esac
 }
 
+# Resposta de saúde para o diagnóstico: status e timed_out sempre visíveis, e o corte do resto declarado.
+resumo_saude() {
+  local resposta status timed_out corte=""
+  resposta=$(printf '%s' "$1" | tr '\n' ' ')
+  status=$(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"' | head -n 1)
+  timed_out=$(printf '%s' "$resposta" | grep -Eo '"timed_out" *: *(true|false)' | head -n 1)
+  [ "${#resposta}" -le 300 ] || corte=" [cortada: ${#resposta} caracteres, mostrados os 300 primeiros]"
+  printf '%s%s%s' "${status:+$status, }${timed_out:+$timed_out; }" "${resposta:0:300}" "$corte"
+}
+
 falha_elasticsearch() {
   local env_es heap memoria log_es diag=$((PRAZO_TENTATIVA < 5 ? PRAZO_TENTATIVA : 5))
   # Cada dado do diagnóstico tem até 5 s; o que não vier fica como "não lido", com o motivo.
@@ -217,7 +227,8 @@ falha_elasticsearch() {
   else
     memoria="sem limite ($memoria)"
   fi
-  log_es=$(LIMITE=$diag limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ' | tail -c 600)
+  log_es=$(LIMITE=$diag limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ')
+  [ "${#log_es}" -le 600 ] || log_es="[últimos 600 de ${#log_es} caracteres] ${log_es: -600}"
   parar "Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1." \
     "Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')." \
     "Última consulta de saúde: $es_ultima. Configuração: heap $heap, limite do container $memoria." \
@@ -247,7 +258,7 @@ while :; do
   if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
     es_ultima="sem resposta em $janela s"
   else
-    es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
+    es_ultima="código $codigo: $(resumo_saude "$resposta")"
   fi
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then

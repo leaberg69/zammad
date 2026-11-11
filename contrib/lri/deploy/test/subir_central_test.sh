@@ -195,7 +195,7 @@ confere 'reinício por falta de memória para na hora, sem esperar o prazo, e di
 cenario 'Elasticsearch reinicia durante a consulta e a instância nova responde yellow' 1 ABRIR_TUNEL=1 \
   ES_ESTADO_DEPOIS='running 1 false'
 confere 'resposta saudável de uma instância reiniciada não libera o init, e a resposta aparece no diagnóstico' \
-  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "Última consulta de saúde: código 0: {\"status\":\"yellow\"" "$work/saida"'
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "Última consulta de saúde: código 0: \"status\":\"yellow\", \"timed_out\":false;" "$work/saida"'
 
 cenario 'compose escreve aviso no stderr ao listar o Elasticsearch' 0 ABRIR_TUNEL=1 AVISO_COMPOSE=1
 confere 'aviso do compose no stderr não contamina o ID do container' \
@@ -235,7 +235,7 @@ confere 'janela por tentativa corta a consulta e o reinício para a espera' \
 cenario 'inspeção final lenta depois da resposta saudável' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=5 \
   ES_INSPECAO_LENTA=3
 confere 'inspeção final além do prazo não libera o init' \
-  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida" && grep -q "Última consulta de saúde: código 0: {\"status\":\"yellow\"" "$work/saida"'
+  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida" && grep -q "Última consulta de saúde: código 0: \"status\":\"yellow\"" "$work/saida"'
 
 # Cliente que ignora o TERM: o --kill-after mata e a espera segue, sem prender o script.
 inicio_term=$SECONDS
@@ -263,6 +263,15 @@ cenario 'consulta de saúde que só responderia depois do prazo' 1 ABRIR_TUNEL=1
 duracao_lenta=$((SECONDS - inicio_lento))
 confere 'prazo total vale também para a consulta em andamento' \
   '[ "$duracao_lenta" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "prazo esgotado" "$work/saida" && grep -q "sem resposta em" "$work/saida"'
+
+# Resposta real do _cluster/health tem mais de 300 caracteres; status e timed_out ficam no começo.
+saude_grande='{"cluster_name":"docker-cluster","status":"red","timed_out":true,"number_of_nodes":1,"number_of_data_nodes":1,'
+saude_grande+='"active_primary_shards":0,"active_shards":0,"relocating_shards":0,"initializing_shards":3,'
+saude_grande+='"unassigned_shards":7,"unassigned_primary_shards":3,"delayed_unassigned_shards":0,"number_of_pending_tasks":2,'
+saude_grande+='"number_of_in_flight_fetch":0,"task_max_waiting_in_queue_millis":1200,"active_shards_percent_as_number":0.0}'
+cenario 'Elasticsearch red com a resposta completa do _cluster/health' 1 ABRIR_TUNEL=1 ES_BODY="$saude_grande"
+confere 'status e timed_out aparecem mesmo com a resposta cortada, e o corte é declarado' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "código 0: \"status\":\"red\", \"timed_out\":true;" "$work/saida" && grep -q "\[cortada: [0-9]* caracteres, mostrados os 300 primeiros\]" "$work/saida"'
 
 cenario 'imagem diferente da tag do .env' 1 ABRIR_TUNEL=1 IMAGEM_FALSA=ghcr.io/leaberg69/zammad-lri:0.9.0
 confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado .ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'

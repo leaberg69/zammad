@@ -256,3 +256,128 @@ stack oficial, resultado das conferências e qualquer desvio deste runbook. Aqui
 A imagem do go-live tem de vir de um commit que **já contenha este runbook**: só a partir dele o overlay aceita
 `LRI_ZONE_GUARD=off`, necessário para a fase A. As imagens `develop-` anteriores (por exemplo, `develop-7cda0a69…`)
 fixam `enforce` e não servem para a primeira subida.
+
+## 12. Monitoramento externo
+
+### 12.1 Por que o monitor recebe 403
+
+O nome interno não tem nenhuma rota anônima, por desenho (PLANO, seções 2.9.2 e 2.9.3). Um `curl` sem credencial
+pode ser barrado em três camadas, e só a primeira é a negação esperada do Access:
+
+- **Access (borda)**: o aplicativo do nome interno só deixa passar a equipe, com login. O monitor não tem
+  identidade, então é barrado, como qualquer anônimo.
+- **WAF e proteção contra bots (borda, antes do Access)**: um cliente automatizado sem credencial pode ser desafiado
+  ou bloqueado pelas regras de segurança da zona, com 403, antes de o Access avaliar a requisição.
+- **Origem**: a guarda de zona e o listener público do Nginx recusam `/api/v1/monitoring/*` fora da zona interna,
+  de propósito. Um `curl` local direto ao Rails também é zona pública e recebe essa recusa quando a guarda está
+  ligada.
+
+Para saber qual camada respondeu, sem mudar nada, olhar a resposta:
+
+```sh
+curl -sS -o /dev/null -D - https://atendimento.lri.com.br/api/v1/monitoring/health_check \
+  | grep -iE '^(HTTP|location|cf-ray|cf-mitigated|content-type|cache-control):?'
+```
+
+| O que aparece | Quem respondeu |
+| ------------- | -------------- |
+| `302` com `location` em `https://lriauto.cloudflareaccess.com/cdn-cgi/access/login` | Access pedindo login (esperado) |
+| `403` com `cf-mitigated: challenge` | desafio das regras de segurança da zona |
+| `403` em página da Cloudflare com Ray ID | bloqueio por regra de segurança ou contra bots |
+| `403`/`503` em JSON com `zone_restricted` ou `zone_unconfirmed` | guarda de zona, na origem |
+| `403` com a página "endereço interno" | listener público do Nginx (nome público, rota da equipe) |
+
+O `cf-ray` localiza a requisição em Security > Events (WAF e bots) e nos logs do Access, no Zero Trust. Anotar o
+resultado e o Ray ID no registro privado. Nenhuma das correções abaixo libera por User-Agent, desliga o Access,
+pula as regras gerenciadas do WAF ou expõe a administração.
+
+### 12.2 Correção recomendada: service token do Access só no caminho do health check
+
+O monitor ganha uma credencial própria, que vale **só** no endpoint de saúde. O resto do nome interno continua
+exigindo login da equipe. Tudo no painel da Cloudflare e na VPS é feito pelo Leandro.
+
+1. **Service token**: Zero Trust > Access > Service credentials > criar `monitor-central`, com validade de um
+   ano. O Client ID e o Client Secret vão para o cofre (o secret aparece uma vez só). A data de renovação vai
+   para o registro privado.
+2. **Aplicativo só do caminho**: novo aplicativo self-hosted com domínio `atendimento.lri.com.br` e caminho
+   `api/v1/monitoring/health_check`, sem curinga. Uma única política, de ação **Service Auth**, que inclui só o token
+   `monitor-central`: nada de Allow, Bypass ou Everyone. O caminho mais específico prevalece sobre o aplicativo do
+   nome inteiro, e as outras rotas continuam no aplicativo da equipe. Anotar o AUD desse aplicativo.
+3. **Origem aceita o AUD novo**: acrescentar esse AUD, separado por vírgula, em `LRI_ACCESS_AUD` no `.env` e na
+   lista `audTag` da regra do nome interno em `cloudflared/config.yml`. O cloudflared confere o JWT contra o
+   `audTag`, e a guarda de zona contra `LRI_ACCESS_AUD`. Validar o túnel (`ingress validate`, seção 10, passo 3) e
+   aplicar com `ABRIR_TUNEL=1 bash subir-central.sh`, sem trocar a tag. Na fase A, o validador do túnel aceita a
+   lista porque o `audTag` continua contido em `LRI_ACCESS_AUD`.
+4. **Token de monitoramento do Zammad**: gerado em Administração > Sistema > Monitoramento. A URL do monitor é
+   `https://atendimento.lri.com.br/api/v1/monitoring/health_check?token=<token>`, com os cabeçalhos
+   `CF-Access-Client-Id` e `CF-Access-Client-Secret`. O endpoint responde `200` mesmo com problema, então o monitor
+   só considera no ar a resposta com `"healthy":true`.
+5. **Prova de que nada além abriu**, com o resultado no registro privado:
+   - com o service token, `/` e `/api/v1/monitoring/status` continuam barrados pelo Access;
+   - sem o service token, o health check continua barrado;
+   - com o service token e o token do Zammad, o health check responde `200` com `"healthy":true`.
+
+Se a seção 12.1 mostrar que o bloqueio vem das regras contra bots, e não do Access, o service token sozinho não
+basta. A exceção, se o Leandro decidir abrir uma, fica limitada ao mínimo: pula só a fase contra bots, só para o
+host `atendimento.lri.com.br`, o caminho exato do health check e o Client ID do `monitor-central`. As regras
+gerenciadas do WAF continuam valendo. Como o Client ID não é segredo, quem o souber passa da checagem de bots
+nesse único caminho, mas o Access continua exigindo o secret. A alternativa sem exceção na borda é a da seção 12.3.
+
+### 12.3 Alternativa sem mudar a borda: verificação local com aviso de saída
+
+Na VPS, um agendamento (systemd timer ou cron do usuário da central, com OK do Leandro) confere de dentro da stack
+e avisa um serviço de heartbeat por conexão de saída. Nada novo fica exposto, e o alerta dispara quando o aviso
+para de chegar:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.lri.yml ps --format '{{.Service}} {{.State}} {{.Health}}'
+docker compose -f docker-compose.yml -f docker-compose.lri.yml exec -T zammad-nginx \
+  curl -sf --max-time 5 -o /dev/null http://127.0.0.1:20241/ready      # túnel com conexão ativa
+docker compose -f docker-compose.yml -f docker-compose.lri.yml exec -T zammad-railsserver bundle exec rails runner '
+  checker = MonitoringHelper::HealthChecker.new; checker.check_health
+  puts checker.healthy? ? "saudável" : "PROBLEMA: #{checker.message}"; exit(checker.healthy? ? 0 : 1)'
+```
+
+O `rails runner` carrega a aplicação inteira. Na VPS de 16 GB compartilhada, ele roda a cada 15 minutos, não a
+cada minuto, e os dois primeiros comandos cobrem o intervalo. A limitação é que essa verificação não passa por DNS,
+Cloudflare e Access. Por isso ela complementa a seção 12.2, sem substituí-la.
+
+## 13. Login da equipe por Google e Microsoft: pré-requisitos
+
+Lista de conferência, só leitura: nada aqui é alterado por este runbook. O estado de cada item vai para o registro
+privado. São duas camadas diferentes, cada uma com o seu cadastro.
+
+### 13.1 Cloudflare Access (porta do nome interno)
+
+1. **Google (Workspace da LRI)**, no projeto do Google Cloud da LRI:
+   - tela de consentimento OAuth do tipo **Interno**, só para contas do Workspace;
+   - cliente OAuth do tipo "Aplicativo da Web", com origem `https://lriauto.cloudflareaccess.com` e URI de
+     redirecionamento `https://lriauto.cloudflareaccess.com/cdn-cgi/access/callback`;
+   - se as políticas usarem grupos do Workspace, a Admin SDK API habilitada no mesmo projeto;
+   - Client ID e secret cadastrados em Zero Trust > Settings > Authentication, como provedor Google Workspace.
+2. **Microsoft Entra ID (tenant da IRD.Net)**, num registro de aplicativo no tenant da IRD:
+   - tipo de conta "somente este diretório organizacional", ou seja, um só tenant;
+   - URI de redirecionamento (Web) `https://lriauto.cloudflareaccess.com/cdn-cgi/access/callback`;
+   - segredo do cliente com a validade e a data de renovação no registro privado;
+   - permissões delegadas do Microsoft Graph que a página da Cloudflare para Entra ID pede (`openid`, `email`,
+     `profile`, `offline_access`, `User.Read` e, se houver política por grupo, as de leitura de grupos), com o
+     consentimento do administrador do tenant;
+   - Application (client) ID, Directory (tenant) ID e segredo cadastrados no Zero Trust como provedor Microsoft Entra
+     ID.
+3. **Permissão no token da API da Cloudflare**, se o cadastro for feito por automação: "Access: Organizations,
+   Identity Providers, and Groups" (leitura para conferir, edição para cadastrar) e "Access: Apps and Policies"
+   (para ligar os provedores ao aplicativo). Pelo painel, basta o papel de administrador do Zero Trust.
+4. **Aplicativo do nome interno**: os dois provedores marcados na lista de provedores do aplicativo, e a política da
+   equipe por domínio de e-mail (`lri.com.br`, `ird.net.br`) ou por grupo. Manter ou não o PIN de uso único por
+   e-mail como contingência é decisão do Leandro.
+5. **Teste**: entrar no nome interno com cada provedor. Os logs do Access no Zero Trust mostram o provedor usado.
+
+### 13.2 Zammad (login dentro da central)
+
+É outro cadastro, com os retornos do próprio Zammad, que chegam pelo `fqdn` e o Nginx manda para o nome interno
+(PLANO, seção 2.9.2). Usado no passo 6 da fase A e testado no passo 6 da fase B:
+
+- Google: URI de redirecionamento `https://suporte.lri.com.br/auth/google_oauth2/callback`;
+- Microsoft (aplicativo de um só tenant, na IRD.Net): `https://suporte.lri.com.br/auth/microsoft_office365/callback`,
+  com o ID do tenant preenchido no Zammad;
+- no Zammad, `auth_third_party_no_create_user` ligado: só entra quem já está cadastrado como agente.

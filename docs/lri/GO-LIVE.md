@@ -326,12 +326,12 @@ Service Auth nesse caminho deixaria a tela sem resposta.
 4. **Token de monitoramento do Zammad**: gerado em Administração > Sistema > Monitoramento. O monitor chama
    `https://atendimento.lri.com.br/lri-monitor/health_check`, **sem query**, com três cabeçalhos:
    `CF-Access-Client-Id`, `CF-Access-Client-Secret` e `X-LRI-Monitor-Token: <token>`. O Nginx confere o formato do
-   token e o põe na query só na ida ao Rails. Fora da URL, ele não fica nos logs da Cloudflare nem no log de acesso
-   do Nginx (essa rota grava o caminho sem a query). Um token na URL é descartado. O Zammad lê o token da query,
-   então a URL com ele ainda aparece no log do Rails em toda consulta, e na linha do log de erro do Nginx quando o
-   upstream falha. O log de erro não é rebaixado, para a causa de um 502/504 continuar visível. Esses logs ficam
-   só na VPS. O token só dá acesso à saúde, é guardado como credencial e trocado se vazar. O endpoint responde `200`
-   mesmo com problema, então o monitor só considera no ar a resposta com `"healthy":true`.
+   token e o entrega ao Rails no corpo da requisição, como formulário: o Zammad lê `params[:token]`, que junta query
+   e corpo. O token não entra em nenhuma URL, nem na do cliente (um token na query é descartado) nem na do
+   upstream. Por isso ele não fica nos logs da Cloudflare nem nos do Nginx, inclusive na linha de erro de um
+   502/504, que continua trazendo a causa. O Rails filtra `token` nos parâmetros que registra. O token só dá acesso
+   à saúde, é guardado como credencial e trocado se vazar. O endpoint responde `200` mesmo com problema, então o
+   monitor só considera no ar a resposta com `"healthy":true`.
 5. **Prova de que nada além abriu e nada parou**, com o resultado no registro privado:
    - com o service token, `/`, `/api/v1/monitoring/health_check` e `/api/v1/monitoring/status` continuam barrados
      pelo Access;

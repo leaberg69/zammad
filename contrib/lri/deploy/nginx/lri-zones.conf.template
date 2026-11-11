@@ -20,7 +20,7 @@ map $http_origin $lri_public_ws_origin {
 
 # Monitor externo: o token de monitoramento do Zammad vem só no cabeçalho X-LRI-Monitor-Token, no formato que o
 # Zammad gera; qualquer outro valor vira vazio (o Zammad recusa). Fora da URL, ele não fica nos logs da borda nem
-# no log de acesso, que para essa rota grava o caminho sem a query.
+# nos do Nginx; o log de acesso dessa rota grava o caminho sem a query.
 map $http_x_lri_monitor_token $lri_monitor_token {
   default                       "";
   "~^[A-Za-z0-9_-]{20,128}$"    $http_x_lri_monitor_token;
@@ -139,16 +139,19 @@ server {
   # Monitor externo (docs/lri/GO-LIVE.md, seção 12): caminho só dele, com aplicativo próprio no Access (Service
   #   Auth), separado do /api/v1/monitoring que a tela de administração usa pelo navegador. Chega ao health check,
   #   que ainda exige o token de monitoramento do Zammad.
-  #   O token entra na query só na ida ao Rails; a query do cliente é descartada. O log de erro continua no nível
-  #   normal, para a causa de um 502/504 aparecer; numa falha do upstream, a linha de erro traz a URL dele com o
-  #   token, como o log do Rails traz em toda requisição (o Zammad lê o token da query). Ver GO-LIVE.md, seção 12.
+  #   O token vai ao Rails no corpo, como formulário (o Zammad lê params[:token], que junta query e corpo), e nunca
+  #   numa URL: nem na do cliente (a query dele é descartada) nem na do upstream, que o log de erro grava numa falha.
+  #   Assim o log de erro fica no nível normal e a causa de um 502/504 aparece sem expor a credencial.
   location = /lri-monitor/health_check {
+    limit_except GET { deny all; }
     include /etc/nginx/lri/lri-zone-internal.inc;
     proxy_set_header X-LRI-Monitor-Token "";
+    proxy_set_header Content-Type "application/x-www-form-urlencoded";
+    proxy_set_body "token=$lri_monitor_token";
     access_log /dev/stdout lri_sem_query;
     proxy_read_timeout 30;
     set $lri_rails http://@RAILS_UPSTREAM@;
-    proxy_pass $lri_rails/api/v1/monitoring/health_check?token=$lri_monitor_token;
+    proxy_pass $lri_rails/api/v1/monitoring/health_check;
   }
 
   location /ws {

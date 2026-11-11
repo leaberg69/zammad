@@ -84,9 +84,11 @@ MONITOR_TOKEN = 'tokdomonitor_0123456789-abcdef'
 status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check',
                         {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor', 'X-LRI-Monitor-Token': MONITOR_TOKEN})
 h = data.get('headers', {})
-check('interno /lri-monitor/health_check: vai ao health check do railsserver com o token do cabeçalho',
-      status == 200 and data.get('port') == 3000 and data.get('path') == f'/api/v1/monitoring/health_check?token={MONITOR_TOKEN}',
-      f'status={status} {data.get("port")} {data.get("path")}')
+check('interno /lri-monitor/health_check: vai ao health check do railsserver, token no corpo e nunca na URL',
+      status == 200 and data.get('port') == 3000 and data.get('path') == '/api/v1/monitoring/health_check'
+      and data.get('body') == f'token={MONITOR_TOKEN}'
+      and h.get('content-type') == 'application/x-www-form-urlencoded',
+      f'status={status} {data.get("port")} {data.get("path")} {data.get("body")!r} {h.get("content-type")}')
 check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados, sem o cabeçalho do token',
       h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor'
       and not h.get('x-lri-monitor-token'))
@@ -96,8 +98,14 @@ for nome, path, headers in (
          {'X-LRI-Monitor-Token': 'abcdefghij0123456789&format=x'}),
         ('token curto demais vira vazio', '/lri-monitor/health_check', {'X-LRI-Monitor-Token': 'curto'})):
     status, data = upstream(INTERNAL, STAFF, path, headers)
-    check(f'interno /lri-monitor/health_check: {nome}', data.get('path') == '/api/v1/monitoring/health_check?token=',
-          f'status={status} {data.get("path")}')
+    check(f'interno /lri-monitor/health_check: {nome}',
+          data.get('path') == '/api/v1/monitoring/health_check' and data.get('body') == 'token=',
+          f'status={status} {data.get("path")} {data.get("body")!r}')
+conn = http.client.HTTPConnection('127.0.0.1', INTERNAL, timeout=5)
+conn.request('POST', '/lri-monitor/health_check', body='token=x', headers={'Host': STAFF, 'X-LRI-Monitor-Token': MONITOR_TOKEN})
+post_status = conn.getresponse().status
+conn.close()
+check('interno /lri-monitor/health_check: só GET', post_status == 403, f'status={post_status}')
 status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check/../status?token=tok123')
 check('interno: só o caminho exato vira o health check', not str(data.get('path', '')).startswith('/api/v1/monitoring/'),
       f'status={status} {data.get("path")}')

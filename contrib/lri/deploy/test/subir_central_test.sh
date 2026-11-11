@@ -14,6 +14,8 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
 cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
+# Não herda o lock do subir-central.sh (descritor 9): um sleep órfão do falso o seguraria para o cenário seguinte.
+exec 9>&-
 echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
 if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
@@ -255,6 +257,12 @@ for prazo in 0 -1 1s 0.5 08; do
   cenario "prazo por tentativa inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA="$prazo"
   confere "prazo por tentativa $prazo recusado antes de chamar o docker" \
     '[ ! -s "$work/log" ] && grep -q "SUBIR_PRAZO_TENTATIVA inválido" "$work/saida"'
+done
+# O intervalo entra na espera pelo Elasticsearch (com a primeira consulta recusada, ele seria usado).
+for espera in 0.5 08 -1 2s; do
+  cenario "intervalo inválido ($espera)" 1 ABRIR_TUNEL=1 SUBIR_ESPERA="$espera" ES_RECUSAS=1
+  confere "intervalo $espera recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_ESPERA inválido" "$work/saida"'
 done
 
 # A consulta pendura e responderia yellow depois do prazo: o prazo total corta a consulta e nada segue.

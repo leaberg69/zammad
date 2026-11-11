@@ -113,6 +113,9 @@ for prazo_var in SUBIR_ES_PRAZO:"$ES_PRAZO" SUBIR_PRAZO_TENTATIVA:"$PRAZO_TENTAT
   [[ "${prazo_var#*:}" =~ ^[1-9][0-9]{0,4}$ ]] || parar "${prazo_var%%:*} inválido: '${prazo_var#*:}' (segundos inteiros," \
     "de 1 a 99999, sem zero à esquerda); nada foi alterado"
 done
+# O intervalo entre tentativas pode ser 0, mas também entra em aritmética.
+[[ "$ESPERA" =~ ^(0|[1-9][0-9]{0,3})$ ]] \
+  || parar "SUBIR_ESPERA inválido: '$ESPERA' (segundos inteiros, de 0 a 9999, sem zero à esquerda); nada foi alterado"
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.

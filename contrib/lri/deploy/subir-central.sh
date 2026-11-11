@@ -202,22 +202,22 @@ conferir_container_es() {
 }
 
 falha_elasticsearch() {
-  local env_es heap memoria log_es
-  # Cada dado do diagnóstico tem prazo próprio; o que não vier fica como "não lido", com o motivo.
-  if env_es=$(limitado docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id"); then
+  local env_es heap memoria log_es diag=$((PRAZO_TENTATIVA < 5 ? PRAZO_TENTATIVA : 5))
+  # Cada dado do diagnóstico tem até 5 s; o que não vier fica como "não lido", com o motivo.
+  if env_es=$(LIMITE=$diag limitado docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id"); then
     heap=$(printf '%s\n' "$env_es" | sed -n 's/^ES_JAVA_OPTS=//p')
     heap=${heap:-padrão da imagem (ES_JAVA_OPTS ausente)}
   else
     heap="não lido ($env_es)"
   fi
-  if ! memoria=$(limitado docker inspect -f '{{.HostConfig.Memory}}' "$es_id"); then
+  if ! memoria=$(LIMITE=$diag limitado docker inspect -f '{{.HostConfig.Memory}}' "$es_id"); then
     memoria="não lido ($memoria)"
   elif [ "$memoria" -gt 0 ] 2> /dev/null; then
     memoria="$((memoria / 1048576)) MB"
   else
     memoria="sem limite ($memoria)"
   fi
-  log_es=$(limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ' | tail -c 600)
+  log_es=$(LIMITE=$diag limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ' | tail -c 600)
   parar "Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1." \
     "Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')." \
     "Última consulta de saúde: $es_ultima. Configuração: heap $heap, limite do container $memoria." \
@@ -228,7 +228,8 @@ falha_elasticsearch() {
 passo "Elasticsearch em yellow ou green (até $ES_PRAZO s)"
 es_inicio=$SECONDS
 es_reinicios=""
-es_id=$(limitado "${DC[@]}" ps -q zammad-elasticsearch) || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
+es_id=$(LIMITE=$((PRAZO_TENTATIVA < ES_PRAZO ? PRAZO_TENTATIVA : ES_PRAZO)) limitado "${DC[@]}" ps -q zammad-elasticsearch) \
+  || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
 [ -n "$es_id" ] || parar "zammad-elasticsearch sem container depois de subir as dependências"
 while :; do
   conferir_container_es

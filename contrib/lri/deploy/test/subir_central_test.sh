@@ -208,6 +208,13 @@ duracao_docker=$((SECONDS - inicio_docker))
 confere 'inspeção pendurada para pelo prazo da chamada e diz por quê' \
   '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s)" "$work/saida"'
 
+inicio_ps=$SECONDS
+cenario 'Docker não responde ao localizar o Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=60 \
+  PENDURAR_EM=' ps -q zammad-elasticsearch'
+duracao_ps=$((SECONDS - inicio_ps))
+confere 'localização pendurada respeita o prazo total, diz por quê e não roda o init' \
+  '[ "$duracao_ps" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível localizar o zammad-elasticsearch: sem resposta do Docker em 1 s" "$work/saida"'
+
 inicio_diag=$SECONDS
 cenario 'Docker não entrega o log no diagnóstico' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 SUBIR_ES_PRAZO=1 \
   ES_RECUSAS=1000000 PENDURAR_EM='logs --tail 5 zammad-elasticsearch'

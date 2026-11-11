@@ -14,24 +14,55 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
 cat > "$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
+# Não herda o lock do subir-central.sh (descritor 9): um sleep órfão do falso o seguraria para o cenário seguinte.
+exec 9>&-
 echo "$*" >> "$LOG"
-if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
+if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then
+  # ERRO_LONGO: a causa vem no começo de um stderr grande, como num erro do daemon com detalhes.
+  [ "${ERRO_LONGO:-0}" = 1 ] && printf 'causa-inicial-do-daemon %0400d\n' 0 >&2
+  echo "falha simulada em: $FALHAR_EM" >&2; exit 1
+fi
 if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
+# AVISO_COMPOSE: ao listar o Elasticsearch, o compose escreve um aviso no stderr e responde normalmente no stdout.
+if [ "${AVISO_COMPOSE:-0}" = 1 ] && [[ "$*" == *" ps -q zammad-elasticsearch" ]]; then
+  echo 'WARN[0000] The "X" variable is not set. Defaulting to a blank string.' >&2
+fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
+  # IGNORAR_TERM: cliente que não sai com o TERM do timeout (só com o KILL do --kill-after).
+  [ "${IGNORAR_TERM:-0}" = 1 ] && trap '' TERM
   # CRIACAO_TARDIA: ao receber TERM, o "daemon" ainda conclui a criação do container antes de o cliente sair.
   if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
     trap 'sleep 1; echo "criado-tarde" >> "$LOG"; exit 143' TERM
   fi
-  sleep 10 & wait $!
+  # Sem herdar a saída: um sleep órfão seguraria a substituição de comando do script até terminar.
+  sleep "${PENDURAR_S:-10}" > /dev/null 2>&1 & wait $!
 fi
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
+# Elasticsearch subindo: as primeiras $ES_RECUSAS consultas de saúde encontram a porta 9200 fechada (curl 7), como
+#   logo depois de o compose recriar o container. O estado do container muda para $ES_ESTADO_DEPOIS a partir da
+#   segunda inspeção (reinício por falta de memória, por exemplo).
+if [[ "$*" == *"_cluster/health"* ]]; then
+  n=$(( $(cat "$LOG.es" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$LOG.es"
+  if [ "$n" -le "${ES_RECUSAS:-0}" ]; then echo "curl: (7) Failed to connect to 127.0.0.1 port 9200" >&2; exit 7; fi
+fi
+if [[ "$*" == "inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} "* ]]; then
+  n=$(( $(cat "$LOG.es-estado" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$LOG.es-estado"
+  # ES_INSPECAO_LENTA: da segunda inspeção em diante, o daemon demora esses segundos para responder.
+  [ "$n" -gt 1 ] && [ -n "${ES_INSPECAO_LENTA:-}" ] && { sleep "$ES_INSPECAO_LENTA" > /dev/null 2>&1 & wait $!; }
+  if [ "$n" -le 1 ]; then echo "running 0 false"; else echo "${ES_ESTADO_DEPOIS:-running 0 false}"; fi
+  exit 0
+fi
 saude_padrao='{"status":"yellow","timed_out":false}'
 ultimo="${!#}"
 case "$*" in
   "image inspect -f {{.Id}} "*) echo "${IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{range .Config.Env}}{{println .}}{{end}} "*)
-    printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\nLRI_ACCESS_TEAM_DOMAIN=lriteste.cloudflareaccess.com\nLRI_ACCESS_AUD=aud-um,aud-dois\n' \
+    printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\nLRI_ACCESS_TEAM_DOMAIN=lriteste.cloudflareaccess.com\nLRI_ACCESS_AUD=aud-um,aud-dois\nES_JAVA_OPTS=-Xms1g -Xmx1g\n' \
       "${GUARDA:-enforce}" ;;
+  "inspect -f {{.HostConfig.Memory}} "*) echo 2147483648 ;;
+  # ES_LOG_STDERR: linha do log do container entregue pelo compose no stderr, com código 0.
+  *" logs "*zammad-elasticsearch*) printf '%s\n' "${ES_LOG-INFO starting ...}"
+    [ -n "${ES_LOG_STDERR:-}" ] && printf '%s\n' "$ES_LOG_STDERR" >&2 ;;
   "inspect -f {{.Config.Image}} {{.Image}} "*)
     echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3} ${CONTAINER_IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
@@ -52,8 +83,9 @@ chmod +x "$work/bin/docker"
 falhas=0
 cenario() {
   local nome=$1 esperado_codigo=$2; shift 2
-  : > "$work/log"
-  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 SUBIR_ESTABILIZAR=0 "$@" \
+  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado" "$work/.subir-central-erros.log"
+  (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 SUBIR_ESTABILIZAR=0 \
+    SUBIR_ES_PRAZO=2 "$@" \
     bash "$script" > "$work/saida" 2>&1)
   local codigo=$?
   if [ "$codigo" != "$esperado_codigo" ]; then
@@ -153,6 +185,147 @@ confere 'erro da verificação traz código e mensagem' 'grep -q "última: códi
 cenario 'Elasticsearch responde 200 com estado red' 1 ABRIR_TUNEL=1 ES_BODY='{"status":"red","timed_out":true}'
 confere 'red recusado, com o estado na mensagem e túnel fechado' '! tunel_aberto && grep -q "\"status\":\"red\"" "$work/saida"'
 
+# Primeira subida (go-live): o compose recria o Elasticsearch e o --wait não espera a JVM, porque a stack oficial
+#   não tem healthcheck nele. As primeiras consultas encontram a porta 9200 fechada; a espera tem de continuar.
+cenario 'Elasticsearch recém-criado, porta fechada nas primeiras consultas' 0 ABRIR_TUNEL=1 ES_RECUSAS=3
+confere 'espera pelo Elasticsearch continua até ele responder, e só então o init' \
+  '[ "$(grep -c "_cluster/health" "$work/log")" = 4 ] && [ "$(linha "_cluster/health")" -lt "$(linha "name lri-zammad-init")" ] && grep -q "TÚNEL ABERTO" "$work/saida"'
+
+cenario 'Elasticsearch nunca abre a porta' 1 ABRIR_TUNEL=1 ES_RECUSAS=1000000 SUBIR_ES_PRAZO=1
+confere 'prazo esgotado traz estado do container, última consulta, heap, limite e dica de memória' \
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não ficou em yellow/green (. s de espera, prazo 1 s): prazo esgotado" "$work/saida" && grep -q "estado=running reinícios=0 OOMKilled=false" "$work/saida" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/saida" && grep -q "heap -Xms1g -Xmx1g" "$work/saida" && grep -q "limite do container 2048 MB" "$work/saida" && grep -q "INFO starting" "$work/saida" && grep -q "free -m" "$work/saida"'
+confere 'cada consulta de saúde recusada e o diagnóstico final ficam no registro de erros' \
+  'grep -q "consulta de saúde do Elasticsearch" "$work/.subir-central-erros.log" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/.subir-central-erros.log" && grep -q "subir-central.sh: espera pelo Elasticsearch" "$work/.subir-central-erros.log" && grep -q "respostas e erros completos da espera em .subir-central-erros.log" "$work/saida"'
+
+cenario 'log do Elasticsearch com a causa no stderr' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  ES_LOG_STDERR='ERROR java.lang.OutOfMemoryError: Java heap space'
+confere 'causa no stderr do log aparece no diagnóstico e no registro persistente' \
+  'grep -q "Log: INFO starting ... ERROR java.lang.OutOfMemoryError: Java heap space" "$work/saida" && grep -q "OutOfMemoryError" "$work/.subir-central-erros.log"'
+
+printf -v log_longo '%*s' 700 ''
+log_longo="ERROR causa-no-comeco-do-log ${log_longo// /x}"
+cenario 'log do Elasticsearch longo com a causa no começo' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  ES_LOG="$log_longo"
+confere 'log longo: corte declarado na mensagem e log inteiro, com a causa, no registro' \
+  'grep -q "\[últimos 600 de [0-9]* caracteres; inteiro no registro\]" "$work/saida" && grep -q "causa-no-comeco-do-log" "$work/.subir-central-erros.log"'
+
+cenario 'Elasticsearch se recupera, mas o registro de erros não pôde ser gravado' 0 ABRIR_TUNEL=1 ES_RECUSAS=1 \
+  SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log
+confere 'subida segue e avisa que as tentativas recusadas não ficaram registradas' \
+  'grep -q "TÚNEL ABERTO" "$work/saida" && grep -q "AVISO: não foi possível gravar o registro de erros em /proc/registro-impossivel/erros.log" "$work/saida"'
+
+cenario 'registro de erros indisponível' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log
+confere 'sem conseguir gravar o registro, o diagnóstico diz isso e não afirma que gravou' \
+  'grep -q "NÃO foi possível gravar o registro de erros em /proc/registro-impossivel/erros.log" "$work/saida" && ! grep -q "completos da espera em /proc" "$work/saida" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/saida"'
+
+cenario 'Elasticsearch morto por falta de memória durante a espera' 1 ABRIR_TUNEL=1 ES_RECUSAS=1000000 \
+  SUBIR_ES_PRAZO=60 ES_ESTADO_DEPOIS='restarting 1 true'
+confere 'reinício por falta de memória para na hora, sem esperar o prazo, e diz por quê' \
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "OOMKilled=true" "$work/saida" && grep -q "reiniciou durante a espera" "$work/saida" && [ "$(grep -c "_cluster/health" "$work/log")" -lt 5 ]'
+
+cenario 'Elasticsearch reinicia durante a consulta e a instância nova responde yellow' 1 ABRIR_TUNEL=1 \
+  ES_ESTADO_DEPOIS='running 1 false'
+confere 'resposta saudável de uma instância reiniciada não libera o init, e a resposta aparece no diagnóstico' \
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "Última consulta de saúde: código 0: \"status\":\"yellow\", \"timed_out\":false;" "$work/saida"'
+
+saude_longa='{"cluster_name":"docker-cluster","status":"yellow","timed_out":false,"number_of_nodes":1,'
+saude_longa+='"number_of_data_nodes":1,"active_primary_shards":12,"active_shards":12,"relocating_shards":0,'
+saude_longa+='"initializing_shards":0,"unassigned_shards":4,"delayed_unassigned_shards":0,"number_of_pending_tasks":0,'
+saude_longa+='"number_of_in_flight_fetch":0,"task_max_waiting_in_queue_millis":0,"marcador_final_da_resposta":true}'
+cenario 'resposta saudável longa e reinício na conferência final' 1 ABRIR_TUNEL=1 ES_BODY="$saude_longa" \
+  ES_ESTADO_DEPOIS='running 1 false'
+confere 'resposta aceita vai inteira para o registro antes da conferência final' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "marcador_final_da_resposta" "$work/.subir-central-erros.log" && grep -q "reiniciou durante a espera" "$work/saida"'
+
+cenario 'compose escreve aviso no stderr ao listar o Elasticsearch' 0 ABRIR_TUNEL=1 AVISO_COMPOSE=1
+confere 'aviso do compose no stderr não contamina o ID do container' \
+  'grep -q "^inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} id-zammad-elasticsearch$" "$work/log" && grep -q "TÚNEL ABERTO" "$work/saida"'
+
+inicio_docker=$SECONDS
+cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 \
+  PENDURAR_EM='{{.State.Status}}'
+duracao_docker=$((SECONDS - inicio_docker))
+confere 'inspeção pendurada: o prazo vencido também vai para o registro de erros' \
+  'grep -q "(código 124): docker inspect -f {{.State.Status}}" "$work/.subir-central-erros.log"'
+confere 'inspeção pendurada para pelo prazo da chamada e diz por quê' \
+  '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s; completo em .subir-central-erros.log)" "$work/saida"'
+
+cenario 'Docker falha na inspeção com stderr longo' 1 ABRIR_TUNEL=1 FALHAR_EM='{{.State.Status}}' ERRO_LONGO=1
+confere 'stderr longo: corte declarado na mensagem e texto completo no registro de erros' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "\[stderr cortado: [0-9]* caracteres, mostrados os 300 finais; completo em .subir-central-erros.log\]" "$work/saida" && grep -q "causa-inicial-do-daemon" "$work/.subir-central-erros.log" && grep -q "falha simulada em" "$work/.subir-central-erros.log"'
+
+inicio_ps=$SECONDS
+cenario 'Docker não responde ao localizar o Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=60 \
+  PENDURAR_EM=' ps -q zammad-elasticsearch'
+duracao_ps=$((SECONDS - inicio_ps))
+confere 'localização pendurada respeita o prazo total, diz por quê e não roda o init' \
+  '[ "$duracao_ps" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível localizar o zammad-elasticsearch: sem resposta do Docker em 1 s" "$work/saida"'
+
+inicio_diag=$SECONDS
+cenario 'Docker não entrega o log no diagnóstico' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 SUBIR_ES_PRAZO=1 \
+  ES_RECUSAS=1000000 PENDURAR_EM='logs --tail 5 zammad-elasticsearch'
+duracao_diag=$((SECONDS - inicio_diag))
+confere 'diagnóstico pendurado não esconde a falha' \
+  '[ "$duracao_diag" -lt 6 ] && grep -q "PARAR: Elasticsearch não ficou em yellow/green" "$work/saida" && grep -q "Log: sem resposta do Docker em 1 s" "$work/saida"'
+
+# Consulta que pendura (conexão aceita sem resposta) enquanto o container reinicia: a janela da tentativa corta a
+#   consulta e a reinspeção pega o reinício, sem esperar o prazo total.
+inicio_janela=$SECONDS
+cenario 'consulta pendurada enquanto o Elasticsearch reinicia' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=60 \
+  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='_cluster/health' ES_ESTADO_DEPOIS='restarting 1 true'
+duracao_janela=$((SECONDS - inicio_janela))
+confere 'janela por tentativa corta a consulta e o reinício para a espera' \
+  '[ "$duracao_janela" -lt 8 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "sem resposta em 2 s" "$work/saida"'
+
+# Resposta saudável na hora, mas a inspeção que confirma o container demora além do prazo total.
+cenario 'inspeção final lenta depois da resposta saudável' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=5 \
+  ES_INSPECAO_LENTA=3
+confere 'inspeção final além do prazo não libera o init' \
+  '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida" && grep -q "Última consulta de saúde: código 0: \"status\":\"yellow\"" "$work/saida"'
+
+# Cliente que ignora o TERM: o --kill-after mata e a espera segue, sem prender o script.
+inicio_term=$SECONDS
+cenario 'cliente Docker ignora o TERM numa consulta pendurada' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=60 \
+  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='_cluster/health' PENDURAR_S=30 IGNORAR_TERM=1 ES_ESTADO_DEPOIS='restarting 1 true'
+duracao_term=$((SECONDS - inicio_term))
+confere 'TERM ignorado não prende a espera: o KILL encerra e o reinício é detectado' \
+  '[ "$duracao_term" -lt 12 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida"'
+
+# Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8; 0 desligaria o timeout.
+for prazo in 5m 08 010 00 0 -1 100000; do
+  cenario "prazo do Elasticsearch inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO="$prazo"
+  confere "prazo $prazo recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_ES_PRAZO inválido" "$work/saida"'
+done
+for prazo in 0 -1 1s 0.5 08; do
+  cenario "prazo por tentativa inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA="$prazo"
+  confere "prazo por tentativa $prazo recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_PRAZO_TENTATIVA inválido" "$work/saida"'
+done
+# O intervalo entra na espera pelo Elasticsearch (com a primeira consulta recusada, ele seria usado).
+for espera in 0.5 08 -1 2s; do
+  cenario "intervalo inválido ($espera)" 1 ABRIR_TUNEL=1 SUBIR_ESPERA="$espera" ES_RECUSAS=1
+  confere "intervalo $espera recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_ESPERA inválido" "$work/saida"'
+done
+
+# A consulta pendura e responderia yellow depois do prazo: o prazo total corta a consulta e nada segue.
+inicio_lento=$SECONDS
+cenario 'consulta de saúde que só responderia depois do prazo' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=2 PENDURAR_EM='_cluster/health'
+duracao_lenta=$((SECONDS - inicio_lento))
+confere 'prazo total vale também para a consulta em andamento' \
+  '[ "$duracao_lenta" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "prazo esgotado" "$work/saida" && grep -q "sem resposta em" "$work/saida"'
+
+# Resposta real do _cluster/health tem mais de 300 caracteres; status e timed_out ficam no começo.
+saude_grande='{"cluster_name":"docker-cluster","status":"red","timed_out":true,"number_of_nodes":1,"number_of_data_nodes":1,'
+saude_grande+='"active_primary_shards":0,"active_shards":0,"relocating_shards":0,"initializing_shards":3,'
+saude_grande+='"unassigned_shards":7,"unassigned_primary_shards":3,"delayed_unassigned_shards":0,"number_of_pending_tasks":2,'
+saude_grande+='"number_of_in_flight_fetch":0,"task_max_waiting_in_queue_millis":1200,"active_shards_percent_as_number":0.0}'
+cenario 'Elasticsearch red com a resposta completa do _cluster/health' 1 ABRIR_TUNEL=1 ES_BODY="$saude_grande"
+confere 'status e timed_out aparecem mesmo com a resposta cortada, e o corte é declarado' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "código 0: \"status\":\"red\", \"timed_out\":true;" "$work/saida" && grep -q "\[cortada: [0-9]* caracteres, mostrados os 300 primeiros\]" "$work/saida"'
+
 cenario 'imagem diferente da tag do .env' 1 ABRIR_TUNEL=1 IMAGEM_FALSA=ghcr.io/leaberg69/zammad-lri:0.9.0
 confere 'imagem divergente mantém o túnel fechado' '! tunel_aberto && grep -q "esperado .ghcr.io/leaberg69/zammad-lri:1.2.3" "$work/saida"'
 
@@ -188,9 +361,9 @@ confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
 #   Se o passo não for alcançado em 30 s, o cenário falha por si (não vale interromper outra fase).
 interromper_em() {
   local sinal=$1 marca=$2; shift 2
-  : > "$work/log"
+  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado" "$work/.subir-central-erros.log"
   (cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_ESTABILIZAR=0 \
-    SUBIR_PRAZO_TENTATIVA=1 "$@" bash "$script" > "$work/saida" 2>&1) &
+    SUBIR_PRAZO_TENTATIVA=1 SUBIR_ES_PRAZO=2 "$@" bash "$script" > "$work/saida" 2>&1) &
   local pid=$! visto=0
   for _ in $(seq 1 300); do
     if grep -q -- "$marca" "$work/log" 2>/dev/null; then visto=1; break; fi

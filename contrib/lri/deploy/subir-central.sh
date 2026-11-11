@@ -8,6 +8,8 @@
 #   ABRIR_TUNEL=1   libera no fim: sobe os processos de fundo e reabre o cloudflared (sem isso, os dois ficam
 #                   parados para conferência manual)
 #   REINDEXAR=1     reconstrói o índice de busca (obrigatório depois de restaurar o banco)
+#   SUBIR_ES_PRAZO  prazo total, em segundos, da espera pelo Elasticsearch em yellow/green (padrão 300)
+#   SUBIR_PRAZO_TENTATIVA  prazo, em segundos, de cada verificação e consulta ao Docker (padrão 15)
 
 set -u
 
@@ -22,6 +24,9 @@ background_started=0
 DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch)
 
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
+ES_PRAZO=${SUBIR_ES_PRAZO:-300}
+ERROS_LOG=${SUBIR_ERROS_LOG:-.subir-central-erros.log}   # erros completos da espera pelo Elasticsearch
+PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}   # prazo de cada verificação e de cada consulta ao Docker
 tunnel_state="não verificado (nada foi parado ainda)"
 tunnel_started=0
 init_name="lri-zammad-init-$$"
@@ -103,6 +108,15 @@ parar() {
 #   O lock vale até o fim do processo (o descritor 9 fecha na saída).
 exec 9> .subir-central.lock || parar "não foi possível criar .subir-central.lock neste diretório"
 flock -n 9 || parar "outra execução do subir-central.sh está em andamento neste diretório; nada foi alterado"
+# Decimal de 1 a 99999 sem zero à esquerda: o Bash leria 08 como octal (erro) e 010 como 8, e um prazo 0 desliga
+#   o timeout.
+for prazo_var in SUBIR_ES_PRAZO:"$ES_PRAZO" SUBIR_PRAZO_TENTATIVA:"$PRAZO_TENTATIVA"; do
+  [[ "${prazo_var#*:}" =~ ^[1-9][0-9]{0,4}$ ]] || parar "${prazo_var%%:*} inválido: '${prazo_var#*:}' (segundos inteiros," \
+    "de 1 a 99999, sem zero à esquerda); nada foi alterado"
+done
+# O intervalo entre tentativas pode ser 0, mas também entra em aritmética.
+[[ "$ESPERA" =~ ^(0|[1-9][0-9]{0,3})$ ]] \
+  || parar "SUBIR_ESPERA inválido: '$ESPERA' (segundos inteiros, de 0 a 9999, sem zero à esquerda); nada foi alterado"
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
@@ -150,15 +164,159 @@ passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 passo "dependências (banco, cache, Redis, Elasticsearch)"
 "${DC[@]}" up -d --wait --wait-timeout 600 "${DEPENDENCIES[@]}" || parar "dependências não ficaram prontas"
 
-# Antes do init, que espera o Elasticsearch sem prazo. Nó único: yellow é o normal; red ou tempo esgotado param.
-passo "Elasticsearch em yellow ou green"
-health=$(timeout 180 "${DC[@]}" exec -T zammad-elasticsearch \
-  curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
-  || parar "Elasticsearch não responde"
-if ! printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' \
-   || ! printf '%s' "$health" | grep -Eq '"timed_out" *: *false'; then
-  parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
-fi
+# Antes do init, que espera o Elasticsearch sem prazo. A stack oficial não tem healthcheck nele, então o --wait acima
+#   só garante o container em execução: recém-criado, a JVM ainda não abriu a 9200. A espera é a do próprio
+#   _cluster/health (wait_for_status), repetida até o prazo total; porta fechada é "ainda subindo", não falha.
+#   Nó único: yellow é o normal. Reinício ou morte do container durante a espera param na hora.
+es_id=""
+es_estado=""
+es_ultima="nenhuma consulta concluída"
+
+# Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
+#   LIMITE=<s> limitado ... encurta o prazo da chamada; JUNTAR=1 limitado ... devolve stdout e stderr juntos (para
+#   logs, em que o stderr também é conteúdo).
+#   No sucesso devolve só o stdout (um aviso do compose no stderr não contamina um ID). Na falha, inclusive por
+#   prazo, stdout e stderr completos vão para o registro de erros, e a saída diz se a gravação deu certo.
+limitado() {
+  local saida codigo erro limite=${LIMITE:-$PRAZO_TENTATIVA} onde
+  # --kill-after: um cliente que ignore o TERM é morto 5 s depois, então o prazo vale com no máximo essa folga.
+  if [ "${JUNTAR:-0}" = 1 ]; then
+    saida=$(timeout --kill-after=5 "$limite" "$@" 2>&1); codigo=$?; : > .subir-central.err
+  else
+    saida=$(timeout --kill-after=5 "$limite" "$@" 2> .subir-central.err); codigo=$?
+  fi
+  [ "$codigo" = 0 ] && { printf '%s' "$saida"; return 0; }
+  erro=$(cat .subir-central.err 2> /dev/null)
+  if registrar_erro "$*" "$codigo" "stdout: $saida"$'\n'"stderr: $erro"; then
+    onde="completo em $ERROS_LOG"
+  else
+    onde="NÃO foi possível gravar o registro de erros em $ERROS_LOG"
+  fi
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
+    saida="sem resposta do Docker em $limite s; $onde"
+  else
+    erro=$(printf '%s' "$erro" | tr '\n' ' ')
+    if [ "${#erro}" -gt 300 ]; then
+      erro="[stderr cortado: ${#erro} caracteres, mostrados os 300 finais; $onde]${erro: -300}"
+    elif [[ "$onde" == NÃO* ]]; then
+      erro="${erro:-sem mensagem de erro} [$onde]"
+    fi
+    saida="${saida:+$saida }${erro:-sem mensagem de erro}"
+  fi
+  printf '%s' "$saida"
+  return "$codigo"
+}
+
+# Acrescenta uma entrada ao registro de erros (acumulado, nunca sobrescrito); falha se não conseguir gravar.
+registrar_erro() {
+  printf '== %s (código %s): %s\n%s\n' "$(date '+%F %T')" "$2" "$1" "$3" >> "$ERROS_LOG" 2> /dev/null
+}
+
+# Estado atual do container, conferido contra o da primeira inspeção (reinício ou saída param a espera).
+#   A inspeção nunca vai além do prazo total da espera.
+conferir_container_es() {
+  local limite=$PRAZO_TENTATIVA resta=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$resta" -ge "$limite" ] || limite=$((resta > 1 ? resta : 1))
+  es_estado=$(LIMITE=$limite limitado docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' \
+    "$es_id") || falha_elasticsearch "não foi possível inspecionar o container ($es_estado)"
+  [ -n "$es_reinicios" ] || es_reinicios=$(printf '%s' "$es_estado" | awk '{print $2}')
+  case "$es_estado" in
+    "running $es_reinicios "*) ;;
+    running\ * | restarting\ *) falha_elasticsearch "o container reiniciou durante a espera" ;;
+    *) falha_elasticsearch "o container saiu de execução" ;;
+  esac
+}
+
+# Resposta de saúde para o diagnóstico: status e timed_out sempre visíveis, e o corte do resto declarado.
+resumo_saude() {
+  local resposta status timed_out corte=""
+  resposta=$(printf '%s' "$1" | tr '\n' ' ')
+  status=$(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"' | head -n 1)
+  timed_out=$(printf '%s' "$resposta" | grep -Eo '"timed_out" *: *(true|false)' | head -n 1)
+  [ "${#resposta}" -le 300 ] || corte=" [cortada: ${#resposta} caracteres, mostrados os 300 primeiros]"
+  printf '%s%s%s' "${status:+$status, }${timed_out:+$timed_out; }" "${resposta:0:300}" "$corte"
+}
+
+falha_elasticsearch() {
+  local env_es heap memoria log_es diag=$((PRAZO_TENTATIVA < 5 ? PRAZO_TENTATIVA : 5))
+  # Cada dado do diagnóstico tem até 5 s; o que não vier fica como "não lido", com o motivo.
+  if env_es=$(LIMITE=$diag limitado docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id"); then
+    heap=$(printf '%s\n' "$env_es" | sed -n 's/^ES_JAVA_OPTS=//p')
+    heap=${heap:-padrão da imagem (ES_JAVA_OPTS ausente)}
+  else
+    heap="não lido ($env_es)"
+  fi
+  if ! memoria=$(LIMITE=$diag limitado docker inspect -f '{{.HostConfig.Memory}}' "$es_id"); then
+    memoria="não lido ($memoria)"
+  elif [ "$memoria" -gt 0 ] 2> /dev/null; then
+    memoria="$((memoria / 1048576)) MB"
+  else
+    memoria="sem limite ($memoria)"
+  fi
+  log_es=$(LIMITE=$diag JUNTAR=1 limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch)
+  # Inteiro no registro antes de qualquer corte para a mensagem.
+  registrar_erro "últimas linhas do log do zammad-elasticsearch" 0 "$log_es" || registro_falhou=1
+  log_es=$(printf '%s' "$log_es" | tr '\n' ' ')
+  [ "${#log_es}" -le 600 ] || log_es="[últimos 600 de ${#log_es} caracteres; inteiro no registro] ${log_es: -600}"
+  local resumo="Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1."
+  resumo="$resumo Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')."
+  resumo="$resumo Última consulta de saúde: $es_ultima. Configuração: heap $heap, limite do container $memoria."
+  resumo="$resumo Log: $log_es."
+  local registro="respostas e erros completos da espera em $ERROS_LOG"
+  if [ "$registro_falhou" = 1 ] || ! registrar_erro "subir-central.sh: espera pelo Elasticsearch" 1 "$resumo"; then
+    registro="NÃO foi possível gravar o registro de erros em $ERROS_LOG; o que aparece aqui é tudo o que restou"
+  fi
+  parar "$resumo Registro: $registro." \
+    "Dica: a VPS de 16 GB é compartilhada; conferir free -m e docker stats. O heap fica em 1 GB" \
+    "(teto do PLANO, não aumentar); com OOMKilled=true ou reinícios, liberar memória no host antes de subir de novo"
+}
+
+passo "Elasticsearch em yellow ou green (até $ES_PRAZO s)"
+es_inicio=$SECONDS
+es_reinicios=""
+registro_falhou=0
+es_id=$(LIMITE=$((PRAZO_TENTATIVA < ES_PRAZO ? PRAZO_TENTATIVA : ES_PRAZO)) limitado "${DC[@]}" ps -q zammad-elasticsearch) \
+  || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
+[ -n "$es_id" ] || parar "zammad-elasticsearch sem container depois de subir as dependências"
+while :; do
+  conferir_container_es
+  restante=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$restante" -gt 0 ] || falha_elasticsearch "prazo esgotado"
+  # Janela por tentativa (2 x SUBIR_PRAZO_TENTATIVA, dentro do restante): uma conexão aceita sem resposta ou um
+  #   docker exec travado são cortados nela, e o container é reinspecionado antes da próxima. O timeout= do servidor
+  #   deixa 5 s para o docker exec, para a resposta "timed_out" chegar inteira antes do corte.
+  janela=$((2 * PRAZO_TENTATIVA < restante ? 2 * PRAZO_TENTATIVA : restante))
+  servidor=$((janela > 6 ? janela - 5 : 1))
+  resposta=$(timeout --kill-after=5 "$janela" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$janela" \
+    "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${servidor}s" 2>&1)
+  codigo=$?
+  # Registrada antes de decidir: se a inspeção seguinte falhar, o diagnóstico mostra esta resposta.
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
+    es_ultima="sem resposta em $janela s"
+  else
+    es_ultima="código $codigo: $(resumo_saude "$resposta")"
+  fi
+  if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
+     && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
+    # A resposta pode ser de uma instância nova: um reinício durante a consulta também para. O prazo é conferido
+    #   depois da inspeção, que também gasta tempo. A resposta vai inteira para o registro antes, porque uma
+    #   reprovação na inspeção encerra o script.
+    registrar_erro "consulta de saúde aceita, antes da conferência final do container" 0 "$resposta" || registro_falhou=1
+    conferir_container_es
+    [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
+    echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
+    if [ "$registro_falhou" = 1 ]; then
+      echo "AVISO: não foi possível gravar o registro de erros em $ERROS_LOG; as tentativas recusadas desta espera" \
+        "não ficaram registradas (conferir permissão e espaço em disco)." >&2
+    fi
+    break
+  fi
+  # Resposta inteira (curl e Elasticsearch) no registro, antes de a próxima tentativa a substituir.
+  registrar_erro "consulta de saúde do Elasticsearch (janela $janela s)" "$codigo" "$resposta" || registro_falhou=1
+  # Intervalo para a porta ainda fechada, quando o curl volta na hora; nunca além do prazo.
+  restante=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$restante" -gt 0 ] && sleep $((ESPERA < restante ? ESPERA : restante))
+done
 
 passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"
 # Qualquer saída diferente de 0 (prazo, erro do cliente Docker ou do próprio init) passa por parar(), que encerra e
@@ -185,14 +343,13 @@ conferir_imagens "${WEB_SERVICES[@]}"
 # Nginx, WebSocket e o túnel não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas e
 #   prazo por tentativa (uma conexão aceita sem resposta não prende o script).
 TENTATIVAS=${SUBIR_TENTATIVAS:-30}
-PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}
 ate_responder() {
   local descricao=$1 saida codigo motivo=""; shift
   for _ in $(seq 1 "$TENTATIVAS"); do
-    saida=$(timeout "$PRAZO_TENTATIVA" "$@" 2>&1) && return 0
+    saida=$(timeout --kill-after=5 "$PRAZO_TENTATIVA" "$@" 2>&1) && return 0
     codigo=$?
     # Motivo da última tentativa: tempo esgotado ou o código e o fim da mensagem de erro.
-    if [ "$codigo" = 124 ]; then
+    if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
       motivo="sem resposta em $PRAZO_TENTATIVA s"
     else
       motivo="código $codigo: $(printf '%s' "$saida" | tr '\n' ' ' | tail -c 300)"
@@ -274,7 +431,7 @@ tunnel_id=$("${DC[@]}" ps -a -q cloudflared)
 for _ in $(seq 1 "$TENTATIVAS"); do
   [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
     || parar "cloudflared não está em execução: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
-  if timeout "$PRAZO_TENTATIVA" "${DC[@]}" exec -T zammad-nginx \
+  if timeout --kill-after=5 "$PRAZO_TENTATIVA" "${DC[@]}" exec -T zammad-nginx \
        curl -sf --max-time 5 -o /dev/null http://127.0.0.1:20241/ready > /dev/null 2>&1; then
     tunnel_state="aberto"
     echo "TÚNEL ABERTO: conexão ativa com a Cloudflare (/ready)."

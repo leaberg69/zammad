@@ -301,6 +301,16 @@ Zammad e não serve mais nada. O listener público o recusa. O `/api/v1/monitori
 tela de monitoramento da administração o consulta pelo navegador, com o login da equipe. Um aplicativo só com
 Service Auth nesse caminho deixaria a tela sem resposta.
 
+0. **Imagem com a rota**: a rota vem no Nginx da imagem, então a imagem em uso tem de vir de um commit que já a
+   contenha. Conferir antes de tudo; a resposta tem de ser `1`:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-nginx \
+     grep -c 'location = /lri-monitor/health_check' /etc/nginx/sites-enabled/default
+   ```
+
+   Com `0` ou erro, primeiro atualizar a imagem pela seção 10 (tag nova, pull, digest conferido), e só depois
+   seguir.
 1. **Service token**: Zero Trust > Access > Service credentials > criar `monitor-central`, com validade de um
    ano. O Client ID e o Client Secret vão para o cofre (o secret aparece uma vez só). A data de renovação vai
    para o registro privado.
@@ -311,12 +321,16 @@ Service Auth nesse caminho deixaria a tela sem resposta.
 3. **Origem aceita o AUD novo**: acrescentar esse AUD, separado por vírgula, em `LRI_ACCESS_AUD` no `.env` e na
    lista `audTag` da regra do nome interno em `cloudflared/config.yml`. O cloudflared confere o JWT contra o
    `audTag`, e a guarda de zona contra `LRI_ACCESS_AUD`. Validar o túnel (`ingress validate`, seção 10, passo 3) e
-   aplicar com `ABRIR_TUNEL=1 bash subir-central.sh`, sem trocar a tag. Na fase A, o validador do túnel aceita a
-   lista porque o `audTag` continua contido em `LRI_ACCESS_AUD`.
-4. **Token de monitoramento do Zammad**: gerado em Administração > Sistema > Monitoramento. A URL do monitor é
-   `https://atendimento.lri.com.br/lri-monitor/health_check?token=<token>`, com os cabeçalhos
-   `CF-Access-Client-Id` e `CF-Access-Client-Secret`. O endpoint responde `200` mesmo com problema, então o monitor
-   só considera no ar a resposta com `"healthy":true`.
+   aplicar com `ABRIR_TUNEL=1 bash subir-central.sh`, com a imagem do passo 0. Na fase A, o validador do túnel aceita
+   a lista porque o `audTag` continua contido em `LRI_ACCESS_AUD`.
+4. **Token de monitoramento do Zammad**: gerado em Administração > Sistema > Monitoramento. O monitor chama
+   `https://atendimento.lri.com.br/lri-monitor/health_check`, **sem query**, com três cabeçalhos:
+   `CF-Access-Client-Id`, `CF-Access-Client-Secret` e `X-LRI-Monitor-Token: <token>`. O Nginx confere o formato do
+   token e o põe na query só na ida ao Rails. Fora da URL, ele não fica nos logs da Cloudflare nem no log de acesso
+   do Nginx (essa rota grava o caminho sem a query). Um token na URL é descartado. O Rails ainda registra a URL com
+   o token no log dele, como em qualquer instalação do Zammad que use o monitoramento: o token só dá acesso à saúde,
+   é guardado como credencial e trocado se vazar. O endpoint responde `200` mesmo com problema, então o monitor só
+   considera no ar a resposta com `"healthy":true`.
 5. **Prova de que nada além abriu e nada parou**, com o resultado no registro privado:
    - com o service token, `/`, `/api/v1/monitoring/health_check` e `/api/v1/monitoring/status` continuam barrados
      pelo Access;

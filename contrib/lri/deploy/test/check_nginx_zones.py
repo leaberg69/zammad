@@ -78,16 +78,28 @@ for path in ('/', '/api/v1/users/me', '/graphql', '/ws', '/cable'):
     check(f'interno {path}: JWT do Access repassado', h.get('cf-access-jwt-assertion') == 'jwt-do-access')
     check(f'interno {path}: sem Remote-User', not h.get('remote-user'))
 
-# Rota do monitor externo, só no listener interno: vai ao health check do Zammad com a query e os cabeçalhos da zona.
-status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check?token=tok123', {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor'})
+# Rota do monitor externo, só no listener interno: vai ao health check do Zammad com o token do cabeçalho e os
+# cabeçalhos da zona. MONITOR_TOKEN também é procurado no log do Nginx pelo nginx_zones_test.sh (não pode aparecer).
+MONITOR_TOKEN = 'tokdomonitor_0123456789-abcdef'
+status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check',
+                        {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor', 'X-LRI-Monitor-Token': MONITOR_TOKEN})
 h = data.get('headers', {})
-check('interno /lri-monitor/health_check: vai ao health check do railsserver com a query',
-      status == 200 and data.get('port') == 3000 and data.get('path') == '/api/v1/monitoring/health_check?token=tok123',
+check('interno /lri-monitor/health_check: vai ao health check do railsserver com o token do cabeçalho',
+      status == 200 and data.get('port') == 3000 and data.get('path') == f'/api/v1/monitoring/health_check?token={MONITOR_TOKEN}',
       f'status={status} {data.get("port")} {data.get("path")}')
-check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados',
-      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor')
+check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados, sem o cabeçalho do token',
+      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor'
+      and not h.get('x-lri-monitor-token'))
+for nome, path, headers in (
+        ('token na query é descartado', '/lri-monitor/health_check?token=pela-url-0123456789abc', {}),
+        ('token com & não injeta parâmetros', '/lri-monitor/health_check',
+         {'X-LRI-Monitor-Token': 'abcdefghij0123456789&format=x'}),
+        ('token curto demais vira vazio', '/lri-monitor/health_check', {'X-LRI-Monitor-Token': 'curto'})):
+    status, data = upstream(INTERNAL, STAFF, path, headers)
+    check(f'interno /lri-monitor/health_check: {nome}', data.get('path') == '/api/v1/monitoring/health_check?token=',
+          f'status={status} {data.get("path")}')
 status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check/../status?token=tok123')
-check('interno: só o caminho exato vira o health check', data.get('path') != '/api/v1/monitoring/status?token=tok123',
+check('interno: só o caminho exato vira o health check', not str(data.get('path', '')).startswith('/api/v1/monitoring/'),
       f'status={status} {data.get("path")}')
 
 # WebSocket e ActionCable vão para o upstream certo.

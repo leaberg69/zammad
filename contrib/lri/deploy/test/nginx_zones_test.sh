@@ -47,3 +47,12 @@ if ! docker exec "$NAME-nginx" nc -z 127.0.0.1 8082 2>/dev/null; then
 fi
 
 docker run --rm --network "container:$NAME-echo" -v "$DEPLOY:/deploy:ro" "$PYTHON_IMAGE" python /deploy/test/check_nginx_zones.py "$KEY"
+
+# O token do monitor (MONITOR_TOKEN em check_nginx_zones.py) não pode aparecer no log do Nginx. O log vai antes
+#   para uma variável: com pipefail, um grep -q que acha cedo daria SIGPIPE ao docker logs e esconderia o achado.
+nginx_log=$(docker logs "$NAME-nginx" 2>&1)
+if printf '%s' "$nginx_log" | grep -qF 'tokdomonitor_0123456789-abcdef'; then
+  echo "FALHA  o token do monitor apareceu no log do Nginx" >&2
+  exit 1
+fi
+echo "OK     o token do monitor não aparece no log do Nginx"

@@ -9,6 +9,7 @@
 #                   parados para conferência manual)
 #   REINDEXAR=1     reconstrói o índice de busca (obrigatório depois de restaurar o banco)
 #   SUBIR_ES_PRAZO  prazo total, em segundos, da espera pelo Elasticsearch em yellow/green (padrão 300)
+#   SUBIR_PRAZO_TENTATIVA  prazo, em segundos, de cada verificação e consulta ao Docker (padrão 15)
 
 set -u
 
@@ -106,9 +107,12 @@ parar() {
 #   O lock vale até o fim do processo (o descritor 9 fecha na saída).
 exec 9> .subir-central.lock || parar "não foi possível criar .subir-central.lock neste diretório"
 flock -n 9 || parar "outra execução do subir-central.sh está em andamento neste diretório; nada foi alterado"
-# Decimal de 1 a 99999 sem zero à esquerda: o Bash leria 08 como octal (erro) e 010 como 8.
-[[ "$ES_PRAZO" =~ ^[1-9][0-9]{0,4}$ ]] \
-  || parar "SUBIR_ES_PRAZO inválido: '$ES_PRAZO' (segundos, de 1 a 99999, sem zero à esquerda); nada foi alterado"
+# Decimal de 1 a 99999 sem zero à esquerda: o Bash leria 08 como octal (erro) e 010 como 8, e um prazo 0 desliga
+#   o timeout.
+for prazo_var in SUBIR_ES_PRAZO:"$ES_PRAZO" SUBIR_PRAZO_TENTATIVA:"$PRAZO_TENTATIVA"; do
+  [[ "${prazo_var#*:}" =~ ^[1-9][0-9]{0,4}$ ]] || parar "${prazo_var%%:*} inválido: '${prazo_var#*:}' (segundos inteiros," \
+    "de 1 a 99999, sem zero à esquerda); nada foi alterado"
+done
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
@@ -168,9 +172,10 @@ es_ultima="nenhuma consulta concluída"
 #   LIMITE=<s> limitado ... encurta o prazo da chamada.
 limitado() {
   local saida codigo limite=${LIMITE:-$PRAZO_TENTATIVA}
-  saida=$(timeout "$limite" "$@" 2>&1)
+  # --kill-after: um cliente que ignore o TERM é morto 5 s depois, então o prazo vale com no máximo essa folga.
+  saida=$(timeout --kill-after=5 "$limite" "$@" 2>&1)
   codigo=$?
-  [ "$codigo" = 124 ] && saida="sem resposta do Docker em $limite s"
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then saida="sem resposta do Docker em $limite s"; fi
   printf '%s' "$saida"
   return "$codigo"
 }
@@ -228,7 +233,7 @@ while :; do
   #   deixa 5 s para o docker exec, para a resposta "timed_out" chegar inteira antes do corte.
   janela=$((2 * PRAZO_TENTATIVA < restante ? 2 * PRAZO_TENTATIVA : restante))
   servidor=$((janela > 6 ? janela - 5 : 1))
-  resposta=$(timeout "$janela" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$janela" \
+  resposta=$(timeout --kill-after=5 "$janela" "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time "$janela" \
     "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${servidor}s" 2>&1)
   codigo=$?
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
@@ -240,7 +245,7 @@ while :; do
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
     break
   fi
-  if [ "$codigo" = 124 ]; then
+  if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
     es_ultima="sem resposta em $janela s"
   else
     es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
@@ -278,10 +283,10 @@ TENTATIVAS=${SUBIR_TENTATIVAS:-30}
 ate_responder() {
   local descricao=$1 saida codigo motivo=""; shift
   for _ in $(seq 1 "$TENTATIVAS"); do
-    saida=$(timeout "$PRAZO_TENTATIVA" "$@" 2>&1) && return 0
+    saida=$(timeout --kill-after=5 "$PRAZO_TENTATIVA" "$@" 2>&1) && return 0
     codigo=$?
     # Motivo da última tentativa: tempo esgotado ou o código e o fim da mensagem de erro.
-    if [ "$codigo" = 124 ]; then
+    if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
       motivo="sem resposta em $PRAZO_TENTATIVA s"
     else
       motivo="código $codigo: $(printf '%s' "$saida" | tr '\n' ' ' | tail -c 300)"
@@ -363,7 +368,7 @@ tunnel_id=$("${DC[@]}" ps -a -q cloudflared)
 for _ in $(seq 1 "$TENTATIVAS"); do
   [ "$(docker inspect -f '{{.State.Running}}' "$tunnel_id")" = true ] \
     || parar "cloudflared não está em execução: $("${DC[@]}" logs --tail 5 cloudflared 2>&1 | tr '\n' ' ')"
-  if timeout "$PRAZO_TENTATIVA" "${DC[@]}" exec -T zammad-nginx \
+  if timeout --kill-after=5 "$PRAZO_TENTATIVA" "${DC[@]}" exec -T zammad-nginx \
        curl -sf --max-time 5 -o /dev/null http://127.0.0.1:20241/ready > /dev/null 2>&1; then
     tunnel_state="aberto"
     echo "TÚNEL ABERTO: conexão ativa com a Cloudflare (/ready)."

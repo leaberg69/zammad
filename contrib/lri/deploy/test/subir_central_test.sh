@@ -18,12 +18,14 @@ echo "$*" >> "$LOG"
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
 if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
 if [ -n "${PENDURAR_EM:-}" ] && [[ "$*" == *"$PENDURAR_EM"* ]]; then
+  # IGNORAR_TERM: cliente que não sai com o TERM do timeout (só com o KILL do --kill-after).
+  [ "${IGNORAR_TERM:-0}" = 1 ] && trap '' TERM
   # CRIACAO_TARDIA: ao receber TERM, o "daemon" ainda conclui a criação do container antes de o cliente sair.
   if [ "${CRIACAO_TARDIA:-0}" = 1 ]; then
     trap 'sleep 1; echo "criado-tarde" >> "$LOG"; exit 143' TERM
   fi
   # Sem herdar a saída: um sleep órfão seguraria a substituição de comando do script até terminar.
-  sleep 10 > /dev/null 2>&1 & wait $!
+  sleep "${PENDURAR_S:-10}" > /dev/null 2>&1 & wait $!
 fi
 if [[ "$*" == *"20241/ready"* ]] && [ "${TUNNEL_READY:-true}" != true ]; then exit 7; fi
 # Elasticsearch subindo: as primeiras $ES_RECUSAS consultas de saúde encontram a porta 9200 fechada (curl 7), como
@@ -220,11 +222,24 @@ cenario 'inspeção final lenta depois da resposta saudável' 1 ABRIR_TUNEL=1 SU
 confere 'inspeção final além do prazo não libera o init' \
   '! grep -q "name lri-zammad-init" "$work/log" && ! grep -q "Elasticsearch pronto" "$work/saida" && grep -q "PARAR: Elasticsearch" "$work/saida"'
 
-# Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8.
+# Cliente que ignora o TERM: o --kill-after mata e a espera segue, sem prender o script.
+inicio_term=$SECONDS
+cenario 'cliente Docker ignora o TERM numa consulta pendurada' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=60 \
+  SUBIR_PRAZO_TENTATIVA=1 PENDURAR_EM='_cluster/health' PENDURAR_S=30 IGNORAR_TERM=1 ES_ESTADO_DEPOIS='restarting 1 true'
+duracao_term=$((SECONDS - inicio_term))
+confere 'TERM ignorado não prende a espera: o KILL encerra e o reinício é detectado' \
+  '[ "$duracao_term" -lt 12 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida"'
+
+# Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8; 0 desligaria o timeout.
 for prazo in 5m 08 010 00 0 -1 100000; do
   cenario "prazo do Elasticsearch inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO="$prazo"
   confere "prazo $prazo recusado antes de chamar o docker" \
     '[ ! -s "$work/log" ] && grep -q "SUBIR_ES_PRAZO inválido" "$work/saida"'
+done
+for prazo in 0 -1 1s 0.5 08; do
+  cenario "prazo por tentativa inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA="$prazo"
+  confere "prazo por tentativa $prazo recusado antes de chamar o docker" \
+    '[ ! -s "$work/log" ] && grep -q "SUBIR_PRAZO_TENTATIVA inválido" "$work/saida"'
 done
 
 # A consulta pendura e responderia yellow depois do prazo: o prazo total corta a consulta e nada segue.

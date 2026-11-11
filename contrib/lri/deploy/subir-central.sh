@@ -173,16 +173,22 @@ es_ultima="nenhuma consulta concluída"
 
 # Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
 #   LIMITE=<s> limitado ... encurta o prazo da chamada.
-#   No sucesso devolve só o stdout (um aviso do compose no stderr não contamina um ID); na falha, também o stderr.
+#   No sucesso devolve só o stdout (um aviso do compose no stderr não contamina um ID); na falha, também o stderr,
+#   cujo texto completo fica em .subir-central-erros.log (acumulado, nunca sobrescrito).
 limitado() {
   local saida codigo erro limite=${LIMITE:-$PRAZO_TENTATIVA}
   # --kill-after: um cliente que ignore o TERM é morto 5 s depois, então o prazo vale com no máximo essa folga.
   saida=$(timeout --kill-after=5 "$limite" "$@" 2> .subir-central.err)
   codigo=$?
-  erro=$(tr '\n' ' ' < .subir-central.err 2> /dev/null | tail -c 300)
   if [ "$codigo" = 124 ] || [ "$codigo" = 137 ]; then
     saida="sem resposta do Docker em $limite s"
   elif [ "$codigo" != 0 ]; then
+    { printf '== %s (código %s): %s\n' "$(date '+%F %T')" "$codigo" "$*"; cat .subir-central.err; } \
+      >> .subir-central-erros.log 2> /dev/null
+    erro=$(tr '\n' ' ' < .subir-central.err 2> /dev/null)
+    if [ "${#erro}" -gt 300 ]; then
+      erro="[stderr cortado: ${#erro} caracteres, mostrados os 300 finais; completo em .subir-central-erros.log]${erro: -300}"
+    fi
     saida="${saida:+$saida }${erro:-sem mensagem de erro}"
   fi
   printf '%s' "$saida"

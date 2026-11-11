@@ -17,7 +17,11 @@ cat > "$work/bin/docker" <<'FAKE'
 # Não herda o lock do subir-central.sh (descritor 9): um sleep órfão do falso o seguraria para o cenário seguinte.
 exec 9>&-
 echo "$*" >> "$LOG"
-if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then echo "falha simulada em: $FALHAR_EM" >&2; exit 1; fi
+if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then
+  # ERRO_LONGO: a causa vem no começo de um stderr grande, como num erro do daemon com detalhes.
+  [ "${ERRO_LONGO:-0}" = 1 ] && printf 'causa-inicial-do-daemon %0400d\n' 0 >&2
+  echo "falha simulada em: $FALHAR_EM" >&2; exit 1
+fi
 if [[ "$*" == *"validar_tunel_fase_a.rb"* ]] && [ -n "${TUNEL_INVALIDO:-}" ]; then echo "$TUNEL_INVALIDO" >&2; exit 1; fi
 # AVISO_COMPOSE: ao listar o Elasticsearch, o compose escreve um aviso no stderr e responde normalmente no stdout.
 if [ "${AVISO_COMPOSE:-0}" = 1 ] && [[ "$*" == *" ps -q zammad-elasticsearch" ]]; then
@@ -209,6 +213,10 @@ cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SU
 duracao_docker=$((SECONDS - inicio_docker))
 confere 'inspeção pendurada para pelo prazo da chamada e diz por quê' \
   '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s)" "$work/saida"'
+
+cenario 'Docker falha na inspeção com stderr longo' 1 ABRIR_TUNEL=1 FALHAR_EM='{{.State.Status}}' ERRO_LONGO=1
+confere 'stderr longo: corte declarado na mensagem e texto completo no registro de erros' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "\[stderr cortado: [0-9]* caracteres, mostrados os 300 finais; completo em .subir-central-erros.log\]" "$work/saida" && grep -q "causa-inicial-do-daemon" "$work/.subir-central-erros.log" && grep -q "falha simulada em" "$work/.subir-central-erros.log"'
 
 inicio_ps=$SECONDS
 cenario 'Docker não responde ao localizar o Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 SUBIR_PRAZO_TENTATIVA=60 \

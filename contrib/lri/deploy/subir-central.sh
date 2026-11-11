@@ -8,6 +8,7 @@
 #   ABRIR_TUNEL=1   libera no fim: sobe os processos de fundo e reabre o cloudflared (sem isso, os dois ficam
 #                   parados para conferência manual)
 #   REINDEXAR=1     reconstrói o índice de busca (obrigatório depois de restaurar o banco)
+#   SUBIR_ES_PRAZO  prazo total, em segundos, da espera pelo Elasticsearch em yellow/green (padrão 300)
 
 set -u
 
@@ -22,6 +23,7 @@ background_started=0
 DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch)
 
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
+ES_PRAZO=${SUBIR_ES_PRAZO:-300}
 tunnel_state="não verificado (nada foi parado ainda)"
 tunnel_started=0
 init_name="lri-zammad-init-$$"
@@ -103,6 +105,9 @@ parar() {
 #   O lock vale até o fim do processo (o descritor 9 fecha na saída).
 exec 9> .subir-central.lock || parar "não foi possível criar .subir-central.lock neste diretório"
 flock -n 9 || parar "outra execução do subir-central.sh está em andamento neste diretório; nada foi alterado"
+case "$ES_PRAZO" in
+  '' | *[!0-9]* | 0) parar "SUBIR_ES_PRAZO inválido: '$ES_PRAZO' (segundos, maior que 0); nada foi alterado" ;;
+esac
 
 # A imagem esperada vem do próprio compose (aspas, comentários e interpolação como ele os lê), antes de parar algo.
 #   config --images também lista as dependências do serviço: só as do fork contam, e todas com a mesma tag.
@@ -150,15 +155,62 @@ passo "checagem da tag ${expected_image#"$IMAGE_REPO":}"
 passo "dependências (banco, cache, Redis, Elasticsearch)"
 "${DC[@]}" up -d --wait --wait-timeout 600 "${DEPENDENCIES[@]}" || parar "dependências não ficaram prontas"
 
-# Antes do init, que espera o Elasticsearch sem prazo. Nó único: yellow é o normal; red ou tempo esgotado param.
-passo "Elasticsearch em yellow ou green"
-health=$(timeout 180 "${DC[@]}" exec -T zammad-elasticsearch \
-  curl -s 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=120s') \
-  || parar "Elasticsearch não responde"
-if ! printf '%s' "$health" | grep -Eq '"status" *: *"(green|yellow)"' \
-   || ! printf '%s' "$health" | grep -Eq '"timed_out" *: *false'; then
-  parar "Elasticsearch fora de yellow/green: $(printf '%s' "$health" | grep -Eo '"status" *: *"[a-z]+"' || echo 'sem estado')"
-fi
+# Antes do init, que espera o Elasticsearch sem prazo. A stack oficial não tem healthcheck nele, então o --wait acima
+#   só garante o container em execução: recém-criado, a JVM ainda não abriu a 9200. A espera é a do próprio
+#   _cluster/health (wait_for_status), repetida até o prazo total; porta fechada é "ainda subindo", não falha.
+#   Nó único: yellow é o normal. Reinício ou morte do container durante a espera param na hora.
+es_id=""
+es_estado=""
+es_ultima="nenhuma consulta concluída"
+
+falha_elasticsearch() {
+  local env_es heap memoria log_es
+  env_es=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id" 2>&1)
+  heap=$(printf '%s\n' "$env_es" | sed -n 's/^ES_JAVA_OPTS=//p')
+  memoria=$(docker inspect -f '{{.HostConfig.Memory}}' "$es_id" 2>&1)
+  if [ "$memoria" -gt 0 ] 2> /dev/null; then memoria="$((memoria / 1048576)) MB"; else memoria="sem limite ($memoria)"; fi
+  log_es=$("${DC[@]}" logs --tail 5 zammad-elasticsearch 2>&1 | tr '\n' ' ' | tail -c 600)
+  parar "Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1." \
+    "Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')." \
+    "Última consulta de saúde: $es_ultima. Configuração: heap ${heap:-não lido}, limite do container $memoria." \
+    "Log: $log_es. Dica: a VPS de 16 GB é compartilhada; conferir free -m e docker stats. O heap fica em 1 GB" \
+    "(teto do PLANO, não aumentar); com OOMKilled=true ou reinícios, liberar memória no host antes de subir de novo"
+}
+
+passo "Elasticsearch em yellow ou green (até $ES_PRAZO s)"
+es_id=$("${DC[@]}" ps -q zammad-elasticsearch 2>&1) || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
+[ -n "$es_id" ] || parar "zammad-elasticsearch sem container depois de subir as dependências"
+es_inicio=$SECONDS
+es_reinicios=""
+while :; do
+  es_estado=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' "$es_id" 2>&1) \
+    || parar "não foi possível inspecionar o zammad-elasticsearch: $es_estado"
+  [ -n "$es_reinicios" ] || es_reinicios=$(printf '%s' "$es_estado" | awk '{print $2}')
+  case "$es_estado" in
+    "running $es_reinicios "*) ;;
+    running\ * | restarting\ *) falha_elasticsearch "o container reiniciou durante a espera" ;;
+    *) falha_elasticsearch "o container saiu de execução" ;;
+  esac
+  restante=$((ES_PRAZO - (SECONDS - es_inicio)))
+  [ "$restante" -gt 0 ] || falha_elasticsearch "prazo esgotado"
+  espera=$((restante < 30 ? restante : 30))
+  # O prazo do servidor (timeout=) vem antes do do curl e do timeout local: a resposta "timed_out" chega inteira.
+  resposta=$(timeout $((espera + 20)) "${DC[@]}" exec -T zammad-elasticsearch curl -sS --max-time $((espera + 10)) \
+    "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=${espera}s" 2>&1)
+  codigo=$?
+  if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
+     && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
+    echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
+    break
+  fi
+  if [ "$codigo" = 124 ]; then
+    es_ultima="sem resposta em $((espera + 20)) s"
+  else
+    es_ultima="código $codigo: $(printf '%s' "$resposta" | tr '\n' ' ' | tail -c 300)"
+  fi
+  # Intervalo para a porta ainda fechada, quando o curl volta na hora; a resposta do servidor já esperou o timeout=.
+  sleep "$ESPERA"
+done
 
 passo "zammad-init da imagem escolhida (migrações), com prazo de ${INIT_PRAZO:-1800} s"
 # Qualquer saída diferente de 0 (prazo, erro do cliente Docker ou do próprio init) passa por parar(), que encerra e

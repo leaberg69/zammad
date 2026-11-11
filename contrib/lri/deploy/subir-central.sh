@@ -173,14 +173,18 @@ es_estado=""
 es_ultima="nenhuma consulta concluída"
 
 # Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
-#   LIMITE=<s> limitado ... encurta o prazo da chamada.
+#   LIMITE=<s> limitado ... encurta o prazo da chamada; JUNTAR=1 limitado ... devolve stdout e stderr juntos (para
+#   logs, em que o stderr também é conteúdo).
 #   No sucesso devolve só o stdout (um aviso do compose no stderr não contamina um ID). Na falha, inclusive por
 #   prazo, stdout e stderr completos vão para o registro de erros, e a saída diz se a gravação deu certo.
 limitado() {
   local saida codigo erro limite=${LIMITE:-$PRAZO_TENTATIVA} onde
   # --kill-after: um cliente que ignore o TERM é morto 5 s depois, então o prazo vale com no máximo essa folga.
-  saida=$(timeout --kill-after=5 "$limite" "$@" 2> .subir-central.err)
-  codigo=$?
+  if [ "${JUNTAR:-0}" = 1 ]; then
+    saida=$(timeout --kill-after=5 "$limite" "$@" 2>&1); codigo=$?; : > .subir-central.err
+  else
+    saida=$(timeout --kill-after=5 "$limite" "$@" 2> .subir-central.err); codigo=$?
+  fi
   [ "$codigo" = 0 ] && { printf '%s' "$saida"; return 0; }
   erro=$(cat .subir-central.err 2> /dev/null)
   if registrar_erro "$*" "$codigo" "stdout: $saida"$'\n'"stderr: $erro"; then
@@ -249,7 +253,7 @@ falha_elasticsearch() {
   else
     memoria="sem limite ($memoria)"
   fi
-  log_es=$(LIMITE=$diag limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ')
+  log_es=$(LIMITE=$diag JUNTAR=1 limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ')
   [ "${#log_es}" -le 600 ] || log_es="[últimos 600 de ${#log_es} caracteres] ${log_es: -600}"
   local resumo="Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1."
   resumo="$resumo Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')."

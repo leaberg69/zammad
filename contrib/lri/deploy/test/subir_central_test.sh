@@ -60,7 +60,9 @@ case "$*" in
     printf 'LRI_ZONE_GUARD=%s\nLRI_INTERNAL_URL=https://atendimento.example.com\nLRI_ACCESS_TEAM_DOMAIN=lriteste.cloudflareaccess.com\nLRI_ACCESS_AUD=aud-um,aud-dois\nES_JAVA_OPTS=-Xms1g -Xmx1g\n' \
       "${GUARDA:-enforce}" ;;
   "inspect -f {{.HostConfig.Memory}} "*) echo 2147483648 ;;
-  *" logs "*zammad-elasticsearch*) printf '%s\n' "${ES_LOG-INFO starting ...}" ;;
+  # ES_LOG_STDERR: linha do log do container entregue pelo compose no stderr, com código 0.
+  *" logs "*zammad-elasticsearch*) printf '%s\n' "${ES_LOG-INFO starting ...}"
+    [ -n "${ES_LOG_STDERR:-}" ] && printf '%s\n' "$ES_LOG_STDERR" >&2 ;;
   "inspect -f {{.Config.Image}} {{.Image}} "*)
     echo "${IMAGEM_FALSA:-ghcr.io/leaberg69/zammad-lri:1.2.3} ${CONTAINER_IMAGEM_ID:-sha256:aaa}" ;;
   "inspect -f {{.State.Running}} {{.RestartCount}} "*) echo "${FUNDO_ESTADO:-true 0}" ;;
@@ -194,6 +196,11 @@ confere 'prazo esgotado traz estado do container, última consulta, heap, limite
   '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não ficou em yellow/green (. s de espera, prazo 1 s): prazo esgotado" "$work/saida" && grep -q "estado=running reinícios=0 OOMKilled=false" "$work/saida" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/saida" && grep -q "heap -Xms1g -Xmx1g" "$work/saida" && grep -q "limite do container 2048 MB" "$work/saida" && grep -q "INFO starting" "$work/saida" && grep -q "free -m" "$work/saida"'
 confere 'cada consulta de saúde recusada e o diagnóstico final ficam no registro de erros' \
   'grep -q "consulta de saúde do Elasticsearch" "$work/.subir-central-erros.log" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/.subir-central-erros.log" && grep -q "subir-central.sh: espera pelo Elasticsearch" "$work/.subir-central-erros.log" && grep -q "respostas e erros completos da espera em .subir-central-erros.log" "$work/saida"'
+
+cenario 'log do Elasticsearch com a causa no stderr' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  ES_LOG_STDERR='ERROR java.lang.OutOfMemoryError: Java heap space'
+confere 'causa no stderr do log aparece no diagnóstico e no registro persistente' \
+  'grep -q "Log: INFO starting ... ERROR java.lang.OutOfMemoryError: Java heap space" "$work/saida" && grep -q "OutOfMemoryError" "$work/.subir-central-erros.log"'
 
 cenario 'registro de erros indisponível' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
   SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log

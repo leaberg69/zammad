@@ -139,13 +139,13 @@ server {
   # Monitor externo (docs/lri/GO-LIVE.md, seção 12): caminho só dele, com aplicativo próprio no Access (Service
   #   Auth), separado do /api/v1/monitoring que a tela de administração usa pelo navegador. Chega ao health check,
   #   que ainda exige o token de monitoramento do Zammad.
-  #   O token entra na query só na ida ao Rails; a query do cliente é descartada. O log de erro fica no nível crit
-  #   porque o Nginx grava nele a URL do upstream, com o token; uma falha do upstream aparece no log de acesso (502).
+  #   O token entra na query só na ida ao Rails; a query do cliente é descartada. O log de erro continua no nível
+  #   normal, para a causa de um 502/504 aparecer; numa falha do upstream, a linha de erro traz a URL dele com o
+  #   token, como o log do Rails traz em toda requisição (o Zammad lê o token da query). Ver GO-LIVE.md, seção 12.
   location = /lri-monitor/health_check {
     include /etc/nginx/lri/lri-zone-internal.inc;
     proxy_set_header X-LRI-Monitor-Token "";
     access_log /dev/stdout lri_sem_query;
-    error_log  /dev/stdout crit;
     proxy_read_timeout 30;
     set $lri_rails http://@RAILS_UPSTREAM@;
     proxy_pass $lri_rails/api/v1/monitoring/health_check?token=$lri_monitor_token;

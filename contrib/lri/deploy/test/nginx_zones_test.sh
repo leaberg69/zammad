@@ -48,11 +48,19 @@ fi
 
 docker run --rm --network "container:$NAME-echo" -v "$DEPLOY:/deploy:ro" "$PYTHON_IMAGE" python /deploy/test/check_nginx_zones.py "$KEY"
 
-# O token do monitor (MONITOR_TOKEN em check_nginx_zones.py) não pode aparecer no log do Nginx. O log vai antes
-#   para uma variável: com pipefail, um grep -q que acha cedo daria SIGPIPE ao docker logs e esconderia o achado.
+# O token do monitor (MONITOR_TOKEN em check_nginx_zones.py) não pode aparecer no log do Nginx. Comparação sem
+#   pipeline: com pipefail, um grep -q que acha cedo daria SIGPIPE a quem escreve e esconderia o achado.
 nginx_log=$(docker logs "$NAME-nginx" 2>&1)
-if printf '%s' "$nginx_log" | grep -qF 'tokdomonitor_0123456789-abcdef'; then
+if [[ "$nginx_log" == *'tokdomonitor_0123456789-abcdef'* ]]; then
   echo "FALHA  o token do monitor apareceu no log do Nginx" >&2
   exit 1
 fi
 echo "OK     o token do monitor não aparece no log do Nginx"
+
+# A rota do monitor não pode rebaixar o log de erro: a causa de um 502/504 (conexão recusada, prazo) tem de aparecer.
+monitor_block=$(sed -n '/location = \/lri-monitor\/health_check {/,/^  }/p' "$DEPLOY/nginx/lri-zones.conf.template")
+if [ -z "$monitor_block" ] || [[ "$monitor_block" == *error_log* ]]; then
+  echo "FALHA  a rota /lri-monitor/health_check sumiu do template ou mudou o error_log" >&2
+  exit 1
+fi
+echo "OK     a rota do monitor mantém o log de erro do servidor"

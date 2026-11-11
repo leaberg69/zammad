@@ -140,10 +140,12 @@ server {
   #   Auth), separado do /api/v1/monitoring que a tela de administração usa pelo navegador. Chega ao health check,
   #   que ainda exige o token de monitoramento do Zammad.
   #   O token vai ao Rails no corpo, como formulário (o Zammad lê params[:token], que junta query e corpo), e nunca
-  #   numa URL: nem na do cliente (a query dele é descartada) nem na do upstream, que o log de erro grava numa falha.
-  #   Assim o log de erro fica no nível normal e a causa de um 502/504 aparece sem expor a credencial.
+  #   numa URL: requisição com query é recusada antes de ir ao upstream (o log de erro de uma falha grava a linha
+  #   original da requisição), e a URL do upstream não tem query. Assim o log de erro fica no nível normal e a causa
+  #   de um 502/504 aparece sem expor a credencial.
   location = /lri-monitor/health_check {
     limit_except GET { deny all; }
+    if ($args != "") { return 400; }
     include /etc/nginx/lri/lri-zone-internal.inc;
     proxy_set_header X-LRI-Monitor-Token "";
     proxy_set_header Content-Type "application/x-www-form-urlencoded";

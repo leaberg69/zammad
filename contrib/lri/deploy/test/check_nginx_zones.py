@@ -92,8 +92,10 @@ check('interno /lri-monitor/health_check: vai ao health check do railsserver, to
 check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados, sem o cabeçalho do token',
       h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor'
       and not h.get('x-lri-monitor-token'))
+for path in ('/lri-monitor/health_check?token=pela-url-0123456789abc', '/lri-monitor/health_check?x=1'):
+    status, _, _ = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
+    check(f'interno {path}: query recusada (400) sem ir ao upstream', status == 400, f'status={status}')
 for nome, path, headers in (
-        ('token na query é descartado', '/lri-monitor/health_check?token=pela-url-0123456789abc', {}),
         ('token com & não injeta parâmetros', '/lri-monitor/health_check',
          {'X-LRI-Monitor-Token': 'abcdefghij0123456789&format=x'}),
         ('token curto demais vira vazio', '/lri-monitor/health_check', {'X-LRI-Monitor-Token': 'curto'})):

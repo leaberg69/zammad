@@ -85,6 +85,9 @@ falha_upstream() {
   subir_nginx "$nome" "$NAME-mudo" "$porta"
   status=$(docker exec "$nome" sh -c "wget -S -q -O /dev/null -T 60 --header 'Host: atendimento.lri.com.br' \
     --header 'X-LRI-Monitor-Token: $MONITOR_TOKEN' http://127.0.0.1:8082/lri-monitor/health_check 2>&1 | grep -o 'HTTP/[0-9.]* [0-9]*' | tail -n 1" || true)
+  # Uso errado, com o token na URL: recusado antes do upstream, então nem a linha de erro o grava.
+  docker exec "$nome" wget -q -O /dev/null -T 60 --header 'Host: atendimento.lri.com.br' \
+    "http://127.0.0.1:8082/lri-monitor/health_check?token=$MONITOR_TOKEN" > /dev/null 2>&1 || true
   log=$(docker logs "$nome" 2>&1)
   if [[ "$status" != *" $esperado_status" ]] || [[ "$log" != *"$causa"* ]]; then
     echo "FALHA  monitor com upstream $nome: status '$status' (esperado $esperado_status), causa '$causa' no log de erro" >&2

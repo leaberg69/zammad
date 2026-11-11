@@ -97,7 +97,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     container:
-      image: zammad/zammad-ci:latest
+      # Fixa pelo digest da última imagem com o Ruby do fork (3.4.12, a de 05/11/2026): a "latest" passou a trazer
+      #   o Ruby 4.0.9 do upstream, e o bundle recusa a versão. Atualizar junto com o .ruby-version na sincronização.
+      image: zammad/zammad-ci@sha256:d5ee7779610a58e3e94d99262daf9c1e1a364c428d56ac7f3e0bcbea05ca2d3a
     services:
       postgresql:
         image: postgres:18

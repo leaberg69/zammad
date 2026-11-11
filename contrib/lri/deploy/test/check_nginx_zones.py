@@ -78,6 +78,38 @@ for path in ('/', '/api/v1/users/me', '/graphql', '/ws', '/cable'):
     check(f'interno {path}: JWT do Access repassado', h.get('cf-access-jwt-assertion') == 'jwt-do-access')
     check(f'interno {path}: sem Remote-User', not h.get('remote-user'))
 
+# Rota do monitor externo, só no listener interno: vai ao health check do Zammad com o token do cabeçalho e os
+# cabeçalhos da zona. MONITOR_TOKEN também é procurado no log do Nginx pelo nginx_zones_test.sh (não pode aparecer).
+MONITOR_TOKEN = 'tokdomonitor_0123456789-abcdef'
+status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check',
+                        {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor', 'X-LRI-Monitor-Token': MONITOR_TOKEN})
+h = data.get('headers', {})
+check('interno /lri-monitor/health_check: vai ao health check do railsserver, token no cabeçalho e nunca na URL',
+      status == 200 and data.get('port') == 3000 and data.get('path') == '/api/v1/monitoring/health_check'
+      and h.get('x-lri-monitor-token') == MONITOR_TOKEN and data.get('body') == '',
+      f'status={status} {data.get("port")} {data.get("path")} {h.get("x-lri-monitor-token")!r} {data.get("body")!r}')
+check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados',
+      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor')
+for path in ('/lri-monitor/health_check?token=pela-url-0123456789abc', '/lri-monitor/health_check?x=1'):
+    status, _, _ = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
+    check(f'interno {path}: query recusada (400) sem ir ao upstream', status == 400, f'status={status}')
+for nome, path, headers in (
+        ('token com & não injeta parâmetros', '/lri-monitor/health_check',
+         {'X-LRI-Monitor-Token': 'abcdefghij0123456789&format=x'}),
+        ('token curto demais vira vazio', '/lri-monitor/health_check', {'X-LRI-Monitor-Token': 'curto'})):
+    status, data = upstream(INTERNAL, STAFF, path, headers)
+    check(f'interno /lri-monitor/health_check: {nome}',
+          data.get('path') == '/api/v1/monitoring/health_check' and not data.get('headers', {}).get('x-lri-monitor-token'),
+          f'status={status} {data.get("path")} {data.get("headers", {}).get("x-lri-monitor-token")!r}')
+conn = http.client.HTTPConnection('127.0.0.1', INTERNAL, timeout=5)
+conn.request('POST', '/lri-monitor/health_check', body='token=x', headers={'Host': STAFF, 'X-LRI-Monitor-Token': MONITOR_TOKEN})
+post_status = conn.getresponse().status
+conn.close()
+check('interno /lri-monitor/health_check: só GET', post_status == 403, f'status={post_status}')
+status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check/../status?token=tok123')
+check('interno: só o caminho exato vira o health check', not str(data.get('path', '')).startswith('/api/v1/monitoring/'),
+      f'status={status} {data.get("path")}')
+
 # WebSocket e ActionCable vão para o upstream certo.
 check('público /ws vai ao websocket (6042)', upstream(PUBLIC, FQDN, '/ws')[1].get('port') == 6042)
 check('público /cable vai ao railsserver (3000)', upstream(PUBLIC, FQDN, '/cable')[1].get('port') == 3000)
@@ -112,7 +144,8 @@ check('Host desconhecido não redireciona (404)', status == 404, f'{status} {hea
 
 # Rotas da equipe bloqueadas na zona pública, em qualquer caixa e com barra final.
 for path in ('/auth/sso', '/auth/google_oauth2', '/AUTH/GOOGLE_OAUTH2/CALLBACK', '/auth/google_oauth2/callback/',
-             '/oauth/token', '/api/v1/external_credentials/google/link_account', '/API/V1/Monitoring/health_check'):
+             '/oauth/token', '/api/v1/external_credentials/google/link_account', '/API/V1/Monitoring/health_check',
+             '/lri-monitor/health_check', '/LRI-Monitor/health_check?token=x'):
     status, headers, body = req(PUBLIC, FQDN, path)
     check(f'público {path}: 403 com a página de bloqueio, sem cache',
           status == 403 and 'endereço interno' in body and 'no-store' in headers.get('Cache-Control', ''),

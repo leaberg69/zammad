@@ -1,6 +1,6 @@
 # Copyright (C) 2012-2026 Zammad Foundation, https://zammad-foundation.org/
 
-"""Upstream de teste: responde com o caminho e os cabeçalhos recebidos, em JSON (portas 3000 e 6042)."""
+"""Upstream de teste: responde com o caminho, os cabeçalhos e o corpo recebidos, em JSON (portas 3000 e 6042)."""
 
 import json
 import threading
@@ -9,10 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 class Echo(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (nome exigido por BaseHTTPRequestHandler)
+        length = int(self.headers.get('Content-Length') or 0)
+        received = self.rfile.read(length).decode('utf-8', 'replace') if length else ''
         body = json.dumps({
             'port': self.server.server_address[1],  # type: ignore[index]
             'path': self.path,
             'headers': {k.lower(): v for k, v in self.headers.items()},
+            'body': received,
         }).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')

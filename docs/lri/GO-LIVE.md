@@ -291,16 +291,21 @@ O `cf-ray` localiza a requisição em Security > Events (WAF e bots) e nos logs 
 resultado e o Ray ID no registro privado. Nenhuma das correções abaixo libera por User-Agent, desliga o Access,
 pula as regras gerenciadas do WAF ou expõe a administração.
 
-### 12.2 Correção recomendada: service token do Access só no caminho do health check
+### 12.2 Correção recomendada: service token do Access num caminho só do monitor
 
-O monitor ganha uma credencial própria, que vale **só** no endpoint de saúde. O resto do nome interno continua
+O monitor ganha uma credencial própria, que vale **só** num caminho dele. O resto do nome interno continua
 exigindo login da equipe. Tudo no painel da Cloudflare e na VPS é feito pelo Leandro.
+
+O caminho é `/lri-monitor/health_check`, que só o listener interno do Nginx conhece: ele repassa ao health check do
+Zammad e não serve mais nada. O listener público o recusa. O `/api/v1/monitoring/*` não muda de aplicativo, porque a
+tela de monitoramento da administração o consulta pelo navegador, com o login da equipe. Um aplicativo só com
+Service Auth nesse caminho deixaria a tela sem resposta.
 
 1. **Service token**: Zero Trust > Access > Service credentials > criar `monitor-central`, com validade de um
    ano. O Client ID e o Client Secret vão para o cofre (o secret aparece uma vez só). A data de renovação vai
    para o registro privado.
 2. **Aplicativo só do caminho**: novo aplicativo self-hosted com domínio `atendimento.lri.com.br` e caminho
-   `api/v1/monitoring/health_check`, sem curinga. Uma única política, de ação **Service Auth**, que inclui só o token
+   `lri-monitor/health_check`, sem curinga. Uma única política, de ação **Service Auth**, que inclui só o token
    `monitor-central`: nada de Allow, Bypass ou Everyone. O caminho mais específico prevalece sobre o aplicativo do
    nome inteiro, e as outras rotas continuam no aplicativo da equipe. Anotar o AUD desse aplicativo.
 3. **Origem aceita o AUD novo**: acrescentar esse AUD, separado por vírgula, em `LRI_ACCESS_AUD` no `.env` e na
@@ -309,38 +314,62 @@ exigindo login da equipe. Tudo no painel da Cloudflare e na VPS é feito pelo Le
    aplicar com `ABRIR_TUNEL=1 bash subir-central.sh`, sem trocar a tag. Na fase A, o validador do túnel aceita a
    lista porque o `audTag` continua contido em `LRI_ACCESS_AUD`.
 4. **Token de monitoramento do Zammad**: gerado em Administração > Sistema > Monitoramento. A URL do monitor é
-   `https://atendimento.lri.com.br/api/v1/monitoring/health_check?token=<token>`, com os cabeçalhos
+   `https://atendimento.lri.com.br/lri-monitor/health_check?token=<token>`, com os cabeçalhos
    `CF-Access-Client-Id` e `CF-Access-Client-Secret`. O endpoint responde `200` mesmo com problema, então o monitor
    só considera no ar a resposta com `"healthy":true`.
-5. **Prova de que nada além abriu**, com o resultado no registro privado:
-   - com o service token, `/` e `/api/v1/monitoring/status` continuam barrados pelo Access;
-   - sem o service token, o health check continua barrado;
-   - com o service token e o token do Zammad, o health check responde `200` com `"healthy":true`.
+5. **Prova de que nada além abriu e nada parou**, com o resultado no registro privado:
+   - com o service token, `/`, `/api/v1/monitoring/health_check` e `/api/v1/monitoring/status` continuam barrados
+     pelo Access;
+   - sem o service token, `/lri-monitor/health_check` continua barrado;
+   - com o service token e o token do Zammad, `/lri-monitor/health_check` responde `200` com `"healthy":true`;
+   - em `https://suporte.lri.com.br/lri-monitor/health_check` (fase B), a página de bloqueio;
+   - logado como administrador pelo navegador, a tela Administração > Sistema > Monitoramento continua mostrando o
+     estado, sem erro no console.
 
 Se a seção 12.1 mostrar que o bloqueio vem das regras contra bots, e não do Access, o service token sozinho não
 basta. A exceção, se o Leandro decidir abrir uma, fica limitada ao mínimo: pula só a fase contra bots, só para o
-host `atendimento.lri.com.br`, o caminho exato do health check e o Client ID do `monitor-central`. As regras
-gerenciadas do WAF continuam valendo. Como o Client ID não é segredo, quem o souber passa da checagem de bots
+host `atendimento.lri.com.br`, o caminho exato `/lri-monitor/health_check` e o Client ID do `monitor-central`. As
+regras gerenciadas do WAF continuam valendo. Como o Client ID não é segredo, quem o souber passa da checagem de bots
 nesse único caminho, mas o Access continua exigindo o secret. A alternativa sem exceção na borda é a da seção 12.3.
 
 ### 12.3 Alternativa sem mudar a borda: verificação local com aviso de saída
 
 Na VPS, um agendamento (systemd timer ou cron do usuário da central, com OK do Leandro) confere de dentro da stack
 e avisa um serviço de heartbeat por conexão de saída. Nada novo fica exposto, e o alerta dispara quando o aviso
-para de chegar:
+para de chegar. O aviso só sai quando **todas** as conferências passam; a primeira que falhar encerra o script com
+o motivo, sem aviso. `HEARTBEAT_URL` vem do ambiente do agendamento, nunca do repositório.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.lri.yml ps --format '{{.Service}} {{.State}} {{.Health}}'
-docker compose -f docker-compose.yml -f docker-compose.lri.yml exec -T zammad-nginx \
-  curl -sf --max-time 5 -o /dev/null http://127.0.0.1:20241/ready      # túnel com conexão ativa
-docker compose -f docker-compose.yml -f docker-compose.lri.yml exec -T zammad-railsserver bundle exec rails runner '
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$DIRETORIO_DA_CENTRAL"
+DC=(docker compose -f docker-compose.yml -f docker-compose.lri.yml)
+falha() { echo "FALHA: $*" >&2; exit 1; }
+for servico in ${SERVICOS:-zammad-postgresql zammad-redis zammad-memcached zammad-elasticsearch zammad-railsserver \
+               zammad-websocket zammad-nginx zammad-scheduler cloudflared}; do
+  estado=$("${DC[@]}" ps --format '{{.State}} {{.Health}}' "$servico" 2> /dev/null) || falha "consulta de $servico"
+  case "$estado" in "running healthy" | "running " | running) ;; *) falha "$servico: '${estado:-sem container}'" ;; esac
+done
+"${DC[@]}" exec -T zammad-nginx curl -sf --max-time 5 -o /dev/null "${READY_URL:-http://127.0.0.1:20241/ready}" \
+  || falha "túnel sem conexão ativa (/ready)"
+"${DC[@]}" exec -T zammad-railsserver bundle exec rails runner '
   checker = MonitoringHelper::HealthChecker.new; checker.check_health
-  puts checker.healthy? ? "saudável" : "PROBLEMA: #{checker.message}"; exit(checker.healthy? ? 0 : 1)'
+  abort "Zammad: #{checker.message}" if !checker.healthy?' || falha "health check do Zammad"
+curl -fsS --max-time 10 -o /dev/null "$HEARTBEAT_URL" || falha "heartbeat não entregue"
+echo "OK: todas as conferências passaram; heartbeat enviado"
 ```
 
-O `rails runner` carrega a aplicação inteira. Na VPS de 16 GB compartilhada, ele roda a cada 15 minutos, não a
-cada minuto, e os dois primeiros comandos cobrem o intervalo. A limitação é que essa verificação não passa por DNS,
-Cloudflare e Access. Por isso ela complementa a seção 12.2, sem substituí-la.
+Provas antes de ligar o agendamento, sem parar nada da central (resultado no registro privado):
+
+- com tudo no ar, termina em `OK` e o heartbeat aparece no serviço;
+- `SERVICOS="zammad-railsserver servico-inexistente"` termina em `FALHA:` com o nome `servico-inexistente`, sem
+  heartbeat (simula um serviço obrigatório ausente; um serviço parado sai como `'sem container'`);
+- `READY_URL=http://127.0.0.1:1/ready` termina em `FALHA: túnel sem conexão ativa`, sem heartbeat (simula o túnel
+  indisponível).
+
+O `rails runner` carrega a aplicação inteira. Na VPS de 16 GB compartilhada, o agendamento roda a cada 15 minutos,
+não a cada minuto. A limitação é que essa verificação não passa por DNS, Cloudflare e Access. Por isso ela
+complementa a seção 12.2, sem substituí-la.
 
 ## 13. Login da equipe por Google e Microsoft: pré-requisitos
 
@@ -380,4 +409,15 @@ privado. São duas camadas diferentes, cada uma com o seu cadastro.
 - Google: URI de redirecionamento `https://suporte.lri.com.br/auth/google_oauth2/callback`;
 - Microsoft (aplicativo de um só tenant, na IRD.Net): `https://suporte.lri.com.br/auth/microsoft_office365/callback`,
   com o ID do tenant preenchido no Zammad;
-- no Zammad, `auth_third_party_no_create_user` ligado: só entra quem já está cadastrado como agente.
+- no Zammad, `auth_third_party_no_create_user` ligado: o login por Google ou Microsoft não cria usuário, só entra
+  em conta que já existe com o mesmo e-mail, **de qualquer papel**. A opção não confere se a conta é de agente.
+
+O que restringe o nome interno à equipe é a política do Access: só e-mails da equipe chegam até lá. Falta garantir
+que nenhuma conta de cliente use e-mail dos domínios da equipe, porque essa conta entraria como cliente no nome
+interno. Conferir antes da fase B e depois de cada importação; a lista tem de sair vazia:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.lri.yml exec zammad-railsserver bundle exec rails runner '
+  contas = User.where("email ILIKE ? OR email ILIKE ?", "%@lri.com.br", "%@ird.net.br")
+  puts contas.reject { |user| user.role?("Agent") || user.role?("Admin") }.map(&:login)'
+```

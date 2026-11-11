@@ -65,6 +65,7 @@ server {
   # Zammad recusa de novo; isto é defesa em profundidade.
   location ~* ^/(auth|oauth)(/|$)                        { return 403; }
   location ~* ^/api/v1/(external_credentials|monitoring)(/|$) { return 403; }
+  location ~* ^/lri-monitor(/|$)                          { return 403; }
 
   location ~ ^/(assets/|robots.txt|humans.txt|favicon.ico|apple-touch-icon.png) {
     expires max;
@@ -123,6 +124,16 @@ server {
 
   location ~ ^/(assets/|robots.txt|humans.txt|favicon.ico|apple-touch-icon.png) {
     expires max;
+  }
+
+  # Monitor externo (docs/lri/GO-LIVE.md, seção 12): caminho só dele, com aplicativo próprio no Access (Service
+  #   Auth), separado do /api/v1/monitoring que a tela de administração usa pelo navegador. Chega ao health check,
+  #   que ainda exige o token de monitoramento do Zammad.
+  location = /lri-monitor/health_check {
+    include /etc/nginx/lri/lri-zone-internal.inc;
+    proxy_read_timeout 30;
+    set $lri_rails http://@RAILS_UPSTREAM@;
+    proxy_pass $lri_rails/api/v1/monitoring/health_check$is_args$args;
   }
 
   location /ws {

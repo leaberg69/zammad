@@ -78,6 +78,18 @@ for path in ('/', '/api/v1/users/me', '/graphql', '/ws', '/cable'):
     check(f'interno {path}: JWT do Access repassado', h.get('cf-access-jwt-assertion') == 'jwt-do-access')
     check(f'interno {path}: sem Remote-User', not h.get('remote-user'))
 
+# Rota do monitor externo, só no listener interno: vai ao health check do Zammad com a query e os cabeçalhos da zona.
+status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check?token=tok123', {'Cf-Access-Jwt-Assertion': 'jwt-do-monitor'})
+h = data.get('headers', {})
+check('interno /lri-monitor/health_check: vai ao health check do railsserver com a query',
+      status == 200 and data.get('port') == 3000 and data.get('path') == '/api/v1/monitoring/health_check?token=tok123',
+      f'status={status} {data.get("port")} {data.get("path")}')
+check('interno /lri-monitor/health_check: zona internal, segredo e JWT do Access repassados',
+      h.get('x-lri-zone') == 'internal' and h.get('x-lri-zone-key') == KEY and h.get('cf-access-jwt-assertion') == 'jwt-do-monitor')
+status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check/../status?token=tok123')
+check('interno: só o caminho exato vira o health check', data.get('path') != '/api/v1/monitoring/status?token=tok123',
+      f'status={status} {data.get("path")}')
+
 # WebSocket e ActionCable vão para o upstream certo.
 check('público /ws vai ao websocket (6042)', upstream(PUBLIC, FQDN, '/ws')[1].get('port') == 6042)
 check('público /cable vai ao railsserver (3000)', upstream(PUBLIC, FQDN, '/cable')[1].get('port') == 3000)
@@ -112,7 +124,8 @@ check('Host desconhecido não redireciona (404)', status == 404, f'{status} {hea
 
 # Rotas da equipe bloqueadas na zona pública, em qualquer caixa e com barra final.
 for path in ('/auth/sso', '/auth/google_oauth2', '/AUTH/GOOGLE_OAUTH2/CALLBACK', '/auth/google_oauth2/callback/',
-             '/oauth/token', '/api/v1/external_credentials/google/link_account', '/API/V1/Monitoring/health_check'):
+             '/oauth/token', '/api/v1/external_credentials/google/link_account', '/API/V1/Monitoring/health_check',
+             '/lri-monitor/health_check', '/LRI-Monitor/health_check?token=x'):
     status, headers, body = req(PUBLIC, FQDN, path)
     check(f'público {path}: 403 com a página de bloqueio, sem cache',
           status == 403 and 'endereço interno' in body and 'no-store' in headers.get('Cache-Control', ''),

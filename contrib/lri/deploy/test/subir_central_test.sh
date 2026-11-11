@@ -229,6 +229,15 @@ cenario 'Elasticsearch reinicia durante a consulta e a instância nova responde 
 confere 'resposta saudável de uma instância reiniciada não libera o init, e a resposta aparece no diagnóstico' \
   '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida" && grep -q "Última consulta de saúde: código 0: \"status\":\"yellow\", \"timed_out\":false;" "$work/saida"'
 
+saude_longa='{"cluster_name":"docker-cluster","status":"yellow","timed_out":false,"number_of_nodes":1,'
+saude_longa+='"number_of_data_nodes":1,"active_primary_shards":12,"active_shards":12,"relocating_shards":0,'
+saude_longa+='"initializing_shards":0,"unassigned_shards":4,"delayed_unassigned_shards":0,"number_of_pending_tasks":0,'
+saude_longa+='"number_of_in_flight_fetch":0,"task_max_waiting_in_queue_millis":0,"marcador_final_da_resposta":true}'
+cenario 'resposta saudável longa e reinício na conferência final' 1 ABRIR_TUNEL=1 ES_BODY="$saude_longa" \
+  ES_ESTADO_DEPOIS='running 1 false'
+confere 'resposta aceita vai inteira para o registro antes da conferência final' \
+  '! grep -q "name lri-zammad-init" "$work/log" && grep -q "marcador_final_da_resposta" "$work/.subir-central-erros.log" && grep -q "reiniciou durante a espera" "$work/saida"'
+
 cenario 'compose escreve aviso no stderr ao listar o Elasticsearch' 0 ABRIR_TUNEL=1 AVISO_COMPOSE=1
 confere 'aviso do compose no stderr não contamina o ID do container' \
   'grep -q "^inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} id-zammad-elasticsearch$" "$work/log" && grep -q "TÚNEL ABERTO" "$work/saida"'

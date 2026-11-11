@@ -299,7 +299,9 @@ while :; do
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
     # A resposta pode ser de uma instância nova: um reinício durante a consulta também para. O prazo é conferido
-    #   depois da inspeção, que também gasta tempo.
+    #   depois da inspeção, que também gasta tempo. A resposta vai inteira para o registro antes, porque uma
+    #   reprovação na inspeção encerra o script.
+    registrar_erro "consulta de saúde aceita, antes da conferência final do container" 0 "$resposta" || registro_falhou=1
     conferir_container_es
     [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"

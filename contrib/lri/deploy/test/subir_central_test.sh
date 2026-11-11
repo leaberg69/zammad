@@ -81,7 +81,7 @@ chmod +x "$work/bin/docker"
 falhas=0
 cenario() {
   local nome=$1 esperado_codigo=$2; shift 2
-  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado"
+  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado" "$work/.subir-central-erros.log"
   (cd "$work" && env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_TENTATIVAS=3 SUBIR_ESTABILIZAR=0 \
     SUBIR_ES_PRAZO=2 "$@" \
     bash "$script" > "$work/saida" 2>&1)
@@ -192,6 +192,13 @@ confere 'espera pelo Elasticsearch continua até ele responder, e só então o i
 cenario 'Elasticsearch nunca abre a porta' 1 ABRIR_TUNEL=1 ES_RECUSAS=1000000 SUBIR_ES_PRAZO=1
 confere 'prazo esgotado traz estado do container, última consulta, heap, limite e dica de memória' \
   '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não ficou em yellow/green (. s de espera, prazo 1 s): prazo esgotado" "$work/saida" && grep -q "estado=running reinícios=0 OOMKilled=false" "$work/saida" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/saida" && grep -q "heap -Xms1g -Xmx1g" "$work/saida" && grep -q "limite do container 2048 MB" "$work/saida" && grep -q "INFO starting" "$work/saida" && grep -q "free -m" "$work/saida"'
+confere 'cada consulta de saúde recusada e o diagnóstico final ficam no registro de erros' \
+  'grep -q "consulta de saúde do Elasticsearch" "$work/.subir-central-erros.log" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/.subir-central-erros.log" && grep -q "subir-central.sh: espera pelo Elasticsearch" "$work/.subir-central-erros.log" && grep -q "respostas e erros completos da espera em .subir-central-erros.log" "$work/saida"'
+
+cenario 'registro de erros indisponível' 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO=1 ES_RECUSAS=1000000 \
+  SUBIR_ERROS_LOG=/proc/registro-impossivel/erros.log
+confere 'sem conseguir gravar o registro, o diagnóstico diz isso e não afirma que gravou' \
+  'grep -q "NÃO foi possível gravar o registro de erros em /proc/registro-impossivel/erros.log" "$work/saida" && ! grep -q "completos da espera em /proc" "$work/saida" && grep -q "Failed to connect to 127.0.0.1 port 9200" "$work/saida"'
 
 cenario 'Elasticsearch morto por falta de memória durante a espera' 1 ABRIR_TUNEL=1 ES_RECUSAS=1000000 \
   SUBIR_ES_PRAZO=60 ES_ESTADO_DEPOIS='restarting 1 true'
@@ -211,8 +218,10 @@ inicio_docker=$SECONDS
 cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 \
   PENDURAR_EM='{{.State.Status}}'
 duracao_docker=$((SECONDS - inicio_docker))
+confere 'inspeção pendurada: o prazo vencido também vai para o registro de erros' \
+  'grep -q "(código 124): docker inspect -f {{.State.Status}}" "$work/.subir-central-erros.log"'
 confere 'inspeção pendurada para pelo prazo da chamada e diz por quê' \
-  '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s)" "$work/saida"'
+  '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s; completo em .subir-central-erros.log)" "$work/saida"'
 
 cenario 'Docker falha na inspeção com stderr longo' 1 ABRIR_TUNEL=1 FALHAR_EM='{{.State.Status}}' ERRO_LONGO=1
 confere 'stderr longo: corte declarado na mensagem e texto completo no registro de erros' \
@@ -324,7 +333,7 @@ confere 'sem conexão ativa não há sucesso e o túnel é fechado de novo' \
 #   Se o passo não for alcançado em 30 s, o cenário falha por si (não vale interromper outra fase).
 interromper_em() {
   local sinal=$1 marca=$2; shift 2
-  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado"
+  : > "$work/log"; rm -f "$work/log.es" "$work/log.es-estado" "$work/.subir-central-erros.log"
   (cd "$work" && exec env PATH="$work/bin:$PATH" LOG="$work/log" SUBIR_ESPERA=0 SUBIR_ESTABILIZAR=0 \
     SUBIR_PRAZO_TENTATIVA=1 SUBIR_ES_PRAZO=2 "$@" bash "$script" > "$work/saida" 2>&1) &
   local pid=$! visto=0

@@ -58,8 +58,10 @@ tempo para abrir a porta 9200; o `--wait` do compose não cobre isso, porque a s
 Elasticsearch. Se o container reiniciar ou sair durante a espera, o script para na hora. No prazo esgotado ou no
 reinício, o `PARAR:` traz o estado do container (reinícios, `OOMKilled`), a última resposta de saúde, o heap, o limite
 de memória e as últimas linhas do log. Com `OOMKilled=true`, liberar memória no host (`free -m`, `docker stats`) em
-vez de aumentar o heap, que fica em 1 GB. Toda chamada ao Docker que falha nessa espera deixa o erro completo em
-`.subir-central-erros.log`, no diretório da central, que acumula e nunca é sobrescrito.
+vez de aumentar o heap, que fica em 1 GB. Toda chamada ao Docker que falha ou passa do prazo nessa espera, cada
+resposta de saúde recusada e o diagnóstico final ficam completos em `.subir-central-erros.log`, no diretório da
+central (`SUBIR_ERROS_LOG` muda o caminho). O arquivo acumula, nunca é sobrescrito. Se não puder ser gravado, o
+`PARAR:` diz isso, em vez de afirmar que o erro foi guardado.
 
 Overlay, script e configuração do túnel vêm do **mesmo commit da imagem**, nunca da ponta da `develop`: é esse
 conjunto que o workflow `LRI imagem` conferiu (o overlay renderizado dentro da imagem construída). O commit da stack

@@ -24,6 +24,7 @@ DEPENDENCIES=(zammad-postgresql zammad-redis zammad-memcached zammad-elasticsear
 
 ESPERA=${SUBIR_ESPERA:-2}   # segundos entre tentativas nas esperas limitadas (o teste usa 0)
 ES_PRAZO=${SUBIR_ES_PRAZO:-300}
+PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}   # prazo de cada verificação e de cada consulta ao Docker
 tunnel_state="não verificado (nada foi parado ainda)"
 tunnel_started=0
 init_name="lri-zammad-init-$$"
@@ -163,34 +164,59 @@ es_id=""
 es_estado=""
 es_ultima="nenhuma consulta concluída"
 
-falha_elasticsearch() {
-  local env_es heap memoria log_es
-  env_es=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id" 2>&1)
-  heap=$(printf '%s\n' "$env_es" | sed -n 's/^ES_JAVA_OPTS=//p')
-  memoria=$(docker inspect -f '{{.HostConfig.Memory}}' "$es_id" 2>&1)
-  if [ "$memoria" -gt 0 ] 2> /dev/null; then memoria="$((memoria / 1048576)) MB"; else memoria="sem limite ($memoria)"; fi
-  log_es=$("${DC[@]}" logs --tail 5 zammad-elasticsearch 2>&1 | tr '\n' ' ' | tail -c 600)
-  parar "Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1." \
-    "Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')." \
-    "Última consulta de saúde: $es_ultima. Configuração: heap ${heap:-não lido}, limite do container $memoria." \
-    "Log: $log_es. Dica: a VPS de 16 GB é compartilhada; conferir free -m e docker stats. O heap fica em 1 GB" \
-    "(teto do PLANO, não aumentar); com OOMKilled=true ou reinícios, liberar memória no host antes de subir de novo"
+# Chamada ao Docker com prazo: um daemon pendurado não prende a espera nem o diagnóstico. Sem resposta, a saída diz isso.
+limitado() {
+  local saida codigo
+  saida=$(timeout "$PRAZO_TENTATIVA" "$@" 2>&1)
+  codigo=$?
+  [ "$codigo" = 124 ] && saida="sem resposta do Docker em $PRAZO_TENTATIVA s"
+  printf '%s' "$saida"
+  return "$codigo"
 }
 
-passo "Elasticsearch em yellow ou green (até $ES_PRAZO s)"
-es_id=$("${DC[@]}" ps -q zammad-elasticsearch 2>&1) || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
-[ -n "$es_id" ] || parar "zammad-elasticsearch sem container depois de subir as dependências"
-es_inicio=$SECONDS
-es_reinicios=""
-while :; do
-  es_estado=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' "$es_id" 2>&1) \
-    || parar "não foi possível inspecionar o zammad-elasticsearch: $es_estado"
+# Estado atual do container, conferido contra o da primeira inspeção (reinício ou saída param a espera).
+conferir_container_es() {
+  es_estado=$(limitado docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}}' "$es_id") \
+    || falha_elasticsearch "não foi possível inspecionar o container ($es_estado)"
   [ -n "$es_reinicios" ] || es_reinicios=$(printf '%s' "$es_estado" | awk '{print $2}')
   case "$es_estado" in
     "running $es_reinicios "*) ;;
     running\ * | restarting\ *) falha_elasticsearch "o container reiniciou durante a espera" ;;
     *) falha_elasticsearch "o container saiu de execução" ;;
   esac
+}
+
+falha_elasticsearch() {
+  local env_es heap memoria log_es
+  # Cada dado do diagnóstico tem prazo próprio; o que não vier fica como "não lido", com o motivo.
+  if env_es=$(limitado docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$es_id"); then
+    heap=$(printf '%s\n' "$env_es" | sed -n 's/^ES_JAVA_OPTS=//p')
+    heap=${heap:-padrão da imagem (ES_JAVA_OPTS ausente)}
+  else
+    heap="não lido ($env_es)"
+  fi
+  if ! memoria=$(limitado docker inspect -f '{{.HostConfig.Memory}}' "$es_id"); then
+    memoria="não lido ($memoria)"
+  elif [ "$memoria" -gt 0 ] 2> /dev/null; then
+    memoria="$((memoria / 1048576)) MB"
+  else
+    memoria="sem limite ($memoria)"
+  fi
+  log_es=$(limitado "${DC[@]}" logs --tail 5 zammad-elasticsearch | tr '\n' ' ' | tail -c 600)
+  parar "Elasticsearch não ficou em yellow/green ($((SECONDS - es_inicio)) s de espera, prazo $ES_PRAZO s): $1." \
+    "Container: estado=$(printf '%s' "$es_estado" | awk '{print $1" reinícios="$2" OOMKilled="$3}')." \
+    "Última consulta de saúde: $es_ultima. Configuração: heap $heap, limite do container $memoria." \
+    "Log: $log_es. Dica: a VPS de 16 GB é compartilhada; conferir free -m e docker stats. O heap fica em 1 GB" \
+    "(teto do PLANO, não aumentar); com OOMKilled=true ou reinícios, liberar memória no host antes de subir de novo"
+}
+
+passo "Elasticsearch em yellow ou green (até $ES_PRAZO s)"
+es_inicio=$SECONDS
+es_reinicios=""
+es_id=$(limitado "${DC[@]}" ps -q zammad-elasticsearch) || parar "não foi possível localizar o zammad-elasticsearch: $es_id"
+[ -n "$es_id" ] || parar "zammad-elasticsearch sem container depois de subir as dependências"
+while :; do
+  conferir_container_es
   restante=$((ES_PRAZO - (SECONDS - es_inicio)))
   [ "$restante" -gt 0 ] || falha_elasticsearch "prazo esgotado"
   # Cada consulta cabe no que resta do prazo total: o timeout local corta no restante, e o timeout= do servidor
@@ -202,6 +228,8 @@ while :; do
   if [ "$codigo" = 0 ] && printf '%s' "$resposta" | grep -Eq '"status" *: *"(green|yellow)"' \
      && printf '%s' "$resposta" | grep -Eq '"timed_out" *: *false'; then
     [ $((SECONDS - es_inicio)) -le "$ES_PRAZO" ] || falha_elasticsearch "prazo esgotado (a resposta chegou depois dele)"
+    # A resposta pode ser de uma instância nova: um reinício durante a consulta também para.
+    conferir_container_es
     echo "Elasticsearch pronto em $((SECONDS - es_inicio)) s: $(printf '%s' "$resposta" | grep -Eo '"status" *: *"[a-z]+"')"
     break
   fi
@@ -240,7 +268,6 @@ conferir_imagens "${WEB_SERVICES[@]}"
 # Nginx, WebSocket e o túnel não têm healthcheck na stack oficial: confere de dentro, com tentativas limitadas e
 #   prazo por tentativa (uma conexão aceita sem resposta não prende o script).
 TENTATIVAS=${SUBIR_TENTATIVAS:-30}
-PRAZO_TENTATIVA=${SUBIR_PRAZO_TENTATIVA:-15}
 ate_responder() {
   local descricao=$1 saida codigo motivo=""; shift
   for _ in $(seq 1 "$TENTATIVAS"); do

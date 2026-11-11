@@ -184,6 +184,25 @@ cenario 'Elasticsearch morto por falta de memória durante a espera' 1 ABRIR_TUN
 confere 'reinício por falta de memória para na hora, sem esperar o prazo, e diz por quê' \
   '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "OOMKilled=true" "$work/saida" && grep -q "reiniciou durante a espera" "$work/saida" && [ "$(grep -c "_cluster/health" "$work/log")" -lt 5 ]'
 
+cenario 'Elasticsearch reinicia durante a consulta e a instância nova responde yellow' 1 ABRIR_TUNEL=1 \
+  ES_ESTADO_DEPOIS='running 1 false'
+confere 'resposta saudável de uma instância reiniciada não libera o init' \
+  '! tunel_aberto && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "reiniciou durante a espera" "$work/saida"'
+
+inicio_docker=$SECONDS
+cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 \
+  PENDURAR_EM='{{.State.Status}}'
+duracao_docker=$((SECONDS - inicio_docker))
+confere 'inspeção pendurada para pelo prazo da chamada e diz por quê' \
+  '[ "$duracao_docker" -lt 6 ] && ! grep -q "name lri-zammad-init" "$work/log" && grep -q "não foi possível inspecionar o container (sem resposta do Docker em 1 s)" "$work/saida"'
+
+inicio_diag=$SECONDS
+cenario 'Docker não entrega o log no diagnóstico' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 SUBIR_ES_PRAZO=1 \
+  ES_RECUSAS=1000000 PENDURAR_EM='logs --tail 5 zammad-elasticsearch'
+duracao_diag=$((SECONDS - inicio_diag))
+confere 'diagnóstico pendurado não esconde a falha' \
+  '[ "$duracao_diag" -lt 6 ] && grep -q "PARAR: Elasticsearch não ficou em yellow/green" "$work/saida" && grep -q "Log: sem resposta do Docker em 1 s" "$work/saida"'
+
 # Zero à esquerda: o Bash leria 08 como octal (erro de aritmética) e 010 como 8.
 for prazo in 5m 08 010 00 0 -1 100000; do
   cenario "prazo do Elasticsearch inválido ($prazo)" 1 ABRIR_TUNEL=1 SUBIR_ES_PRAZO="$prazo"

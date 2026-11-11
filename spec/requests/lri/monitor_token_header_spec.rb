@@ -39,6 +39,16 @@ RSpec.describe 'Grupo LRI monitor token header', type: :request do
     expect(response).to have_http_status(:forbidden)
   end
 
+  it 'ignores the header when the request already has a query' do
+    monitor('/api/v1/monitoring/health_check?x=1', token)
+    expect(response).to have_http_status(:forbidden)
+  end
+
+  it 'never replaces a token that came in the query' do
+    monitor('/api/v1/monitoring/health_check?token=invalido0123456789', token)
+    expect(response).to have_http_status(:forbidden)
+  end
+
   it 'ignores the header on any other monitoring path' do
     monitor('/api/v1/monitoring/status', token)
     expect(response).to have_http_status(:forbidden)

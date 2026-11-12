@@ -17,6 +17,9 @@ cat > "$work/bin/docker" <<'FAKE'
 # Não herda o lock do subir-central.sh (descritor 9): um sleep órfão do falso o seguraria para o cenário seguinte.
 exec 9>&-
 echo "$*" >> "$LOG"
+# AVISO_TODOS: toda chamada escreve um aviso no stderr e responde normalmente, como o compose com uma variável do .env
+#   ausente ou o cliente Docker sem acesso ao config.json.
+[ "${AVISO_TODOS:-0}" = 1 ] && echo 'WARN[0000] The "X" variable is not set. Defaulting to a blank string.' >&2
 if [ -n "${FALHAR_EM:-}" ] && [[ "$*" == *"$FALHAR_EM"* ]]; then
   # ERRO_LONGO: a causa vem no começo de um stderr grande, como num erro do daemon com detalhes.
   [ "${ERRO_LONGO:-0}" = 1 ] && printf 'causa-inicial-do-daemon %0400d\n' 0 >&2
@@ -241,6 +244,17 @@ confere 'resposta aceita vai inteira para o registro antes da conferência final
 cenario 'compose escreve aviso no stderr ao listar o Elasticsearch' 0 ABRIR_TUNEL=1 AVISO_COMPOSE=1
 confere 'aviso do compose no stderr não contamina o ID do container' \
   'grep -q "^inspect -f {{.State.Status}} {{.RestartCount}} {{.State.OOMKilled}} id-zammad-elasticsearch$" "$work/log" && grep -q "TÚNEL ABERTO" "$work/saida"'
+
+# Um aviso no stderr com código 0 não é o valor conferido: ID da imagem, serviços ainda rodando, inits antigos, estado
+#   dos processos de fundo e a confirmação de que o container temporário sumiu.
+cenario 'aviso no stderr em toda chamada ao Docker' 0 ABRIR_TUNEL=1 AVISO_TODOS=1
+confere 'aviso no stderr não contamina o que é comparado (subida completa)'   'grep -q "PORTÕES OK" "$work/saida" && grep -q "TÚNEL ABERTO" "$work/saida"'
+
+cenario 'zammad-init falha com aviso no stderr em toda chamada' 1 ABRIR_TUNEL=1 AVISO_TODOS=1 FALHAR_EM='name lri-zammad-init'
+confere 'aviso no stderr não impede confirmar a remoção do container'   'grep -q "foi encerrado e removido" "$work/saida" && ! grep -q "NÃO foi possível confirmar o encerramento" "$work/saida"'
+
+cenario 'aplicação ainda rodando com aviso no stderr' 1 ABRIR_TUNEL=1 AVISO_TODOS=1 APP_RODANDO=abc123
+confere 'serviço rodando continua barrado e a mensagem traz o ID, sem o aviso'   'grep -q "ainda em execução depois do stop: abc123\. Estado do túnel" "$work/saida" && ! tunel_aberto'
 
 inicio_docker=$SECONDS
 cenario 'Docker não responde à inspeção do Elasticsearch' 1 ABRIR_TUNEL=1 SUBIR_PRAZO_TENTATIVA=1 \

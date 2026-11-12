@@ -39,12 +39,23 @@ init_state=""
 
 passo() { printf '== %s\n' "$*"; }
 
+# Só o stdout é o valor (ID, lista de containers, estado): um aviso no stderr com código 0, como o do compose com uma
+#   variável do .env ausente, não pode entrar na comparação. Na falha, devolve stdout e stderr para o diagnóstico.
+so_stdout() {
+  local saida codigo erro
+  saida=$("$@" 2> .subir-central.err); codigo=$?
+  [ "$codigo" = 0 ] && { printf '%s' "$saida"; return 0; }
+  erro=$(tr '\n' ' ' < .subir-central.err 2> /dev/null)
+  printf '%s' "${saida:+$saida }${erro:-sem mensagem de erro (código $codigo)}"
+  return "$codigo"
+}
+
 # Remove o container temporário e só afirma o encerramento se uma consulta bem-sucedida confirmar que ele sumiu: um
 #   init vivo segue migrando o banco, uma reindexação viva segue apagando e recriando índices.
 encerrar_temporario() {
   local rm_output remaining
   rm_output=$(docker rm -f "$temp_container" 2>&1)
-  if remaining=$(docker ps -a -q --filter "name=^${temp_container}\$" 2>&1) && [ -z "$remaining" ]; then
+  if remaining=$(so_stdout docker ps -a -q --filter "name=^${temp_container}\$") && [ -z "$remaining" ]; then
     init_state="o container $temp_container foi encerrado e removido"
   else
     init_state="NÃO foi possível confirmar o encerramento do container $temp_container ($rm_output; consulta:"
@@ -128,7 +139,7 @@ if [ -z "$expected_image" ] || [ "$(printf '%s\n' "$expected_image" | wc -l)" !=
 fi
 # O conteúdo, não só o nome: o ID da imagem local dessa tag (baixada e conferida pelo digest no runbook) é o que
 #   todo container tem de estar rodando. Nada aqui baixa imagem, então o ID não muda durante a subida.
-expected_id=$(docker image inspect -f '{{.Id}}' "$expected_image" 2>&1) \
+expected_id=$(so_stdout docker image inspect -f '{{.Id}}' "$expected_image") \
   || parar "imagem $expected_image não está neste servidor (rodar o pull do runbook antes): $expected_id"
 
 # Interrupção (Ctrl+C, TERM, queda da sessão SSH) em qualquer ponto passa por parar(): encerra o container temporário
@@ -143,7 +154,7 @@ tunnel_state="parado"
 passo "aplicação parada antes das migrações"
 # zammad-init junto: o da stack oficial reinicia sozinho em caso de falha e voltaria a migrar.
 "${DC[@]}" stop "${ZAMMAD_SERVICES[@]}" zammad-init || parar "não foi possível parar a aplicação"
-running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
+running=$(so_stdout "${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}") \
   || parar "não foi possível confirmar a parada da aplicação: $running"
 [ -z "$running" ] || parar "serviços da aplicação ainda em execução depois do stop: $running"
 
@@ -151,9 +162,13 @@ running=$("${DC[@]}" ps -q --status running "${ZAMMAD_SERVICES[@]}" 2>&1) \
 #   com os novos. Na dúvida (outra stack com serviço zammad-init, consulta que falha), para.
 #   Em reinício (o zammad-init oficial tem restart: on-failure) ou pausado conta como ativo.
 ATIVOS=(--filter status=running --filter status=restarting --filter status=paused)
-old_temps=$( { docker ps -q "${ATIVOS[@]}" --filter label=com.docker.compose.service=zammad-init \
-             && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-init- \
-             && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-reindex-; } 2>&1 ) \
+# shellcheck disable=SC2329 # chamada pelo so_stdout
+temporarios_ativos() {
+  docker ps -q "${ATIVOS[@]}" --filter label=com.docker.compose.service=zammad-init \
+    && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-init- \
+    && docker ps -q "${ATIVOS[@]}" --filter name=lri-zammad-reindex-
+}
+old_temps=$(so_stdout temporarios_ativos) \
   || parar "não foi possível consultar containers de init ou reindexação em execução: $old_temps"
 [ -z "$old_temps" ] || parar "há init ou reindexação em execução de antes ($(printf '%s' "$old_temps" | sort -u | tr '\n' ' '));" \
   "esperar terminar ou conferir com docker ps antes de subir"
@@ -413,7 +428,7 @@ passo "processos de fundo estáveis (${SUBIR_ESTABILIZAR:-60} s)"
 sleep "${SUBIR_ESTABILIZAR:-60}"
 for service in "${BACKGROUND_SERVICES[@]}"; do
   id=$("${DC[@]}" ps -q "$service")
-  state=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id" 2>&1) \
+  state=$(so_stdout docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id") \
     || parar "não foi possível conferir $service: $state"
   [ "$state" = "true 0" ] \
     || parar "$service instável (em execução, reinícios: $state): $("${DC[@]}" logs --tail 5 "$service" 2>&1 | tr '\n' ' ')"

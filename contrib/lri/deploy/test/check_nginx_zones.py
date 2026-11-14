@@ -109,6 +109,39 @@ check('interno /lri-monitor/health_check: só GET', post_status == 403, f'status
 status, data = upstream(INTERNAL, STAFF, '/lri-monitor/health_check/../status?token=tok123')
 check('interno: só o caminho exato vira o health check', not str(data.get('path', '')).startswith('/api/v1/monitoring/'),
       f'status={status} {data.get("path")}')
+# O Access casa o caminho do monitor por prefixo: o resto do prefixo para no Nginx, sem ir ao upstream.
+for path in ('/lri-monitor/health_check/', '/lri-monitor/health_check/x', '/lri-monitor/outro', '/lri-monitor',
+             '/LRI-Monitor/health_check', '/%6cri-monitor/health_check/x', '/lri-monitor/health_check;x'):
+    status, _, body = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
+    check(f'interno {path}: 404 no Nginx, sem ir ao upstream', status == 404 and '"path"' not in body,
+          f'status={status}')
+# Caminho ambíguo: a borda escolhe o aplicativo pelo caminho normalizado e entrega o cru, que o Nginx decodifica de
+# novo. Barra, contrabarra ou ponto codificados e segmentos "."/".." no caminho são recusados antes da location.
+for path in ('/lri-monitor/health_check/..%2F..%2Fapi%2Fv1%2Fusers%2Fme', '/%6cri-monitor/health_check/..%2f..%2fapi',
+             '/lri-monitor/health_check%2F..%2F..%2Fapi%2Fv1%2Fusers', '/lri-monitor/health_check/..%5C..%5Capi',
+             '/lri-monitor/health_check/%2e%2e/%2e%2e/api/v1/users/me',
+             '/lri-monitor/health_check/../../api/v1/users/me',
+             '/x/../api/v1/users/me', '/api/v1/./users/me', '/api/v1/users/..', '/api/v1/users/me/..?a=1',
+             '/desktop/../lri-monitor/health_check/..%2F..%2Fapi', '/desktop/%2e%2e/api/v1/users/me',
+             '/mobile/x/../../api/v1/users/me', '/Desktop/x%2F..%2F..%2Fapi'):
+    status, _, body = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
+    check(f'interno {path}: caminho ambíguo recusado (400) sem ir ao upstream', status == 400 and '"path"' not in body,
+          f'status={status}')
+# Codificação na query, ponto literal e "..." no nome continuam valendo.
+for path in ('/api/v1/search?query=a%2Fb%2E..%5C', '/api/v1/users/me?x=../y',
+             '/api/v1/ticket_attachment/1/2/3?disposition=attachment',
+             '/api/v1/tags/a...b', '/help/pt-br/um.nome', '/desktop/search/OC%20123%2F2026',
+             '/mobile/search/a%2Fb%5Cc'):
+    status, data = upstream(INTERNAL, STAFF, path)
+    check(f'interno {path}: não é ambíguo, vai ao upstream', status == 200 and data.get('port') == 3000,
+          f'status={status} {data.get("port")}')
+# A zona pública não muda (o aplicativo do monitor é só do nome interno).
+status, data = upstream(PUBLIC, FQDN, '/api/v1/users/me?x=a%2Fb')
+check('público: query codificada segue ao upstream', status == 200, f'status={status}')
+# Caminho que só começa parecido não é do monitor e segue para o Rails.
+status, data = upstream(INTERNAL, STAFF, '/lri-monitorx')
+check('interno /lri-monitorx: não é do monitor, vai ao railsserver', status == 200 and data.get('port') == 3000,
+      f'status={status} {data.get("port")}')
 
 # WebSocket e ActionCable vão para o upstream certo.
 check('público /ws vai ao websocket (6042)', upstream(PUBLIC, FQDN, '/ws')[1].get('port') == 6042)

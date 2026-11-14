@@ -26,6 +26,21 @@ map $http_x_lri_monitor_token $lri_monitor_token {
   "~^[A-Za-z0-9_-]{20,128}$"    $http_x_lri_monitor_token;
 }
 
+# Caminho ambíguo no nome interno: barra, contrabarra ou ponto codificados, ou segmento "." / "..", só na parte do
+# caminho (a query não conta). A borda escolhe o aplicativo do Access pelo caminho normalizado, mas entrega o
+# endereço cru, e o Nginx o decodifica de novo antes de escolher a location. Com esses caracteres, as duas leituras
+# divergem: um pedido que o Access casou com o aplicativo do monitor (que vale por prefixo) sairia do prefixo aqui e
+# chegaria a outra rota do Zammad. Navegador não manda ponto codificado nem segmento "."/".." no caminho; barra
+# codificada só aparece nas rotas das interfaces /desktop/ e /mobile/ (a busca põe o termo no caminho, ex.: um número
+# de pedido com barra). Ali ela é aceita: sem segmento "..", o caminho normalizado continua sob /desktop/ ou /mobile/
+# e não alcança o aplicativo do monitor. A ordem das linhas importa (vale a primeira expressão que casar).
+map $request_uri $lri_caminho_ambiguo {
+  default                              0;
+  "~*^[^?]*(%2e|/\.\.?(/|\?|$))"       1;
+  "~^/(desktop|mobile)/"               0;
+  "~*^[^?]*(%2f|%5c)"                  1;
+}
+
 log_format lri_sem_query '$remote_addr - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
 
 # O IP real do cliente vem da Cloudflare; só o cloudflared (127.0.0.1) é confiável para informá-lo.
@@ -127,6 +142,11 @@ server {
   server_name @INTERNAL_HOST@;
   server_tokens off;
 
+  # Caminho ambíguo (ver o map $lri_caminho_ambiguo): recusado antes de escolher a location.
+  if ($lri_caminho_ambiguo) {
+    return 400;
+  }
+
   root /opt/zammad/public;
   access_log /dev/stdout;
   error_log  /dev/stdout;
@@ -152,6 +172,14 @@ server {
     proxy_read_timeout 30;
     set $lri_rails http://@RAILS_UPSTREAM@;
     proxy_pass $lri_rails/api/v1/monitoring/health_check;
+  }
+
+  # O Access casa o caminho do aplicativo do monitor por prefixo e sem diferenciar maiúsculas, então um subcaminho
+  #   com a credencial do monitor também chega aqui. Só o caminho exato acima serve; o resto do prefixo, em qualquer
+  #   caixa, para no Nginx (404) sem ir ao Rails. A recusa do caminho ambíguo, no começo do server, impede que o
+  #   prefixo seja escondido por codificação.
+  location ~* ^/lri-monitor(/|$) {
+    return 404;
   }
 
   location /ws {

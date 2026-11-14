@@ -330,6 +330,14 @@ Service Auth nesse caminho deixaria a tela sem resposta.
    `lri-monitor/health_check`, sem curinga. Uma única política, de ação **Service Auth**, que inclui só o token
    `monitor-central`: nada de Allow, Bypass ou Everyone. O caminho mais específico prevalece sobre o aplicativo do
    nome inteiro, e as outras rotas continuam no aplicativo da equipe. Anotar o AUD desse aplicativo.
+
+   O Access casa esse caminho por **prefixo** e sem diferenciar maiúsculas, escolhendo o aplicativo pelo caminho
+   normalizado, mas entrega à origem o endereço cru. A contenção do resto do prefixo fica no Nginx do nome interno:
+   só o caminho exato vai ao health check; o resto de `/lri-monitor`, em qualquer caixa, recebe `404`. Um caminho
+   com ponto codificado ou segmento `.`/`..` recebe `400` antes de qualquer rota. O mesmo vale para barra ou
+   contrabarra codificadas fora de `/desktop/` e `/mobile/`. Sem isso, um pedido aceito pelo aplicativo do monitor
+   poderia sair do prefixo depois que o Nginx decodifica o endereço. O AUD do monitor nunca entra na política do
+   aplicativo da equipe.
 3. **Origem aceita o AUD novo**: acrescentar esse AUD, separado por vírgula, em `LRI_ACCESS_AUD` no `.env` e na
    lista `audTag` da regra do nome interno em `cloudflared/config.yml`. O cloudflared confere o JWT contra o
    `audTag`, e a guarda de zona contra `LRI_ACCESS_AUD`. Validar o túnel (`ingress validate`, seção 10, passo 3) e

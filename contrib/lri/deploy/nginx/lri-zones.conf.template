@@ -26,8 +26,8 @@ map $http_x_lri_monitor_token $lri_monitor_token {
   "~^[A-Za-z0-9_-]{20,128}$"    $http_x_lri_monitor_token;
 }
 
-# Caminho ambíguo no nome interno: barra, contrabarra ou ponto codificados, ou segmento "." / "..", só na parte do
-# caminho (a query não conta). A borda escolhe o aplicativo do Access pelo caminho normalizado, mas entrega o
+# Caminho ambíguo no nome interno: barra, contrabarra ou ponto codificados, ou segmento "." / ".." (delimitado por
+# barra literal ou codificada), só na parte do caminho (a query não conta). A borda escolhe o aplicativo do Access pelo caminho normalizado, mas entrega o
 # endereço cru, e o Nginx o decodifica de novo antes de escolher a location. Com esses caracteres, as duas leituras
 # divergem: um pedido que o Access casou com o aplicativo do monitor (que vale por prefixo) sairia do prefixo aqui e
 # chegaria a outra rota do Zammad. Navegador não manda ponto codificado nem segmento "."/".." no caminho; barra
@@ -36,7 +36,7 @@ map $http_x_lri_monitor_token $lri_monitor_token {
 # e não alcança o aplicativo do monitor. A ordem das linhas importa (vale a primeira expressão que casar).
 map $request_uri $lri_caminho_ambiguo {
   default                              0;
-  "~*^[^?]*(%2e|/\.\.?(/|\?|$))"       1;
+  "~*^[^?]*(%2e|(/|%2f|%5c)\.\.?(/|%2f|%5c|\?|$))"  1;
   "~^/(desktop|mobile)/"               0;
   "~*^[^?]*(%2f|%5c)"                  1;
 }

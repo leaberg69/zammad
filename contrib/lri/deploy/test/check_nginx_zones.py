@@ -123,7 +123,11 @@ for path in ('/lri-monitor/health_check/..%2F..%2Fapi%2Fv1%2Fusers%2Fme', '/%6cr
              '/lri-monitor/health_check/../../api/v1/users/me',
              '/x/../api/v1/users/me', '/api/v1/./users/me', '/api/v1/users/..', '/api/v1/users/me/..?a=1',
              '/desktop/../lri-monitor/health_check/..%2F..%2Fapi', '/desktop/%2e%2e/api/v1/users/me',
-             '/mobile/x/../../api/v1/users/me', '/Desktop/x%2F..%2F..%2Fapi'):
+             '/mobile/x/../../api/v1/users/me', '/Desktop/x%2F..%2F..%2Fapi',
+             # Segmento relativo delimitado por barra codificada não pode usar a exceção de /desktop/ e /mobile/.
+             '/desktop/..%2Fapi/v1/users/me', '/mobile/..%2Fapi/v1/users/me', '/desktop/x%2F..%2F..%2Fapi',
+             '/desktop/x%2f..%2f..%2fapi', '/mobile/x%5C..%5C..%5Capi', '/desktop/x%2F.%2F..%2F..%2Fapi',
+             '/desktop/x/..%2F..%2Fapi', '/desktop/search/..'):
     status, _, body = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
     check(f'interno {path}: caminho ambíguo recusado (400) sem ir ao upstream', status == 400 and '"path"' not in body,
           f'status={status}')

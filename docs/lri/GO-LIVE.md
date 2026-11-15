@@ -334,7 +334,7 @@ Service Auth nesse caminho deixaria a tela sem resposta.
    O Access casa esse caminho por **prefixo** e sem diferenciar maiúsculas, escolhendo o aplicativo pelo caminho
    normalizado, mas entrega à origem o endereço cru. A contenção do resto do prefixo fica no Nginx do nome interno:
    só o caminho exato vai ao health check; o resto de `/lri-monitor`, em qualquer caixa, recebe `404`. Um caminho
-   com ponto codificado ou segmento `.`/`..` recebe `400` antes de qualquer rota. O mesmo vale para barra ou
+   com contrabarra literal, ponto codificado ou segmento `.`/`..` recebe `400` antes de qualquer rota. O mesmo vale para barra ou
    contrabarra codificadas fora de `/desktop/` e `/mobile/`. Sem isso, um pedido aceito pelo aplicativo do monitor
    poderia sair do prefixo depois que o Nginx decodifica o endereço. O AUD do monitor nunca entra na política do
    aplicativo da equipe.

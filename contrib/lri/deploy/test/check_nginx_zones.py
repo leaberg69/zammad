@@ -127,12 +127,15 @@ for path in ('/lri-monitor/health_check/..%2F..%2Fapi%2Fv1%2Fusers%2Fme', '/%6cr
              # Segmento relativo delimitado por barra codificada não pode usar a exceção de /desktop/ e /mobile/.
              '/desktop/..%2Fapi/v1/users/me', '/mobile/..%2Fapi/v1/users/me', '/desktop/x%2F..%2F..%2Fapi',
              '/desktop/x%2f..%2f..%2fapi', '/mobile/x%5C..%5C..%5Capi', '/desktop/x%2F.%2F..%2F..%2Fapi',
-             '/desktop/x/..%2F..%2Fapi', '/desktop/search/..'):
+             '/desktop/x/..%2F..%2Fapi', '/desktop/search/..',
+             # Contrabarra literal: a borda a troca por "/" ao escolher o aplicativo; o Nginx não.
+             '/lri-monitor\\health_check', '/lri-monitor\\health_check\\x', '/desktop/x\\..\\..\\api',
+             '/mobile/search/a\\b', '/api\\v1\\users\\me'):
     status, _, body = req(INTERNAL, STAFF, path, {'X-LRI-Monitor-Token': MONITOR_TOKEN})
     check(f'interno {path}: caminho ambíguo recusado (400) sem ir ao upstream', status == 400 and '"path"' not in body,
           f'status={status}')
 # Codificação na query, ponto literal e "..." no nome continuam valendo.
-for path in ('/api/v1/search?query=a%2Fb%2E..%5C', '/api/v1/users/me?x=../y',
+for path in ('/api/v1/search?query=a%2Fb%2E..%5C', '/api/v1/users/me?x=../y', '/api/v1/users/me?x=a\\b',
              '/api/v1/ticket_attachment/1/2/3?disposition=attachment',
              '/api/v1/tags/a...b', '/help/pt-br/um.nome', '/desktop/search/OC%20123%2F2026',
              '/mobile/search/a%2Fb%5Cc'):
